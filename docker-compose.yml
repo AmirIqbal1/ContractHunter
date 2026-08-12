@@ -1,0 +1,21 @@
+services:
+  contracthunter:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      DATA_DIR: /data
+      REPOSITORY_DIR: /data/repositories
+      DATABASE_PATH: /data/contracthunter.db
+      GIT_CLONE_TIMEOUT_MS: 120000
+    volumes:
+      - contracthunter-data:/data
+    init: true
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+volumes:
+  contracthunter-data:

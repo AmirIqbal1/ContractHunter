@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./*"],
+      "@contracthunter/core": ["../../packages/core/src/index.ts"],
+      "@contracthunter/db": ["../../packages/db/src/index.ts"],
+      "@contracthunter/scanners": ["../../packages/scanners/src/index.ts"]
+    }
+  },
+  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
+  "exclude": ["node_modules"]
+}
