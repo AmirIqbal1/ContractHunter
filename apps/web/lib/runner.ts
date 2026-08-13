@@ -1,5 +1,5 @@
 import { cloneRepository, detectFramework, loadConfig, sanitiseError, type Scanner } from "@contracthunter/core";
-import { getDatabase, getScan, insertFindings, markActiveScansInterrupted, transitionScan, updateCompilerState, updateDependencyState, updateScannerState, upsertScanScanner } from "@contracthunter/db";
+import { getDatabase, getScan, insertFindings, markActiveScansInterrupted, reconcileInvestigations, transitionScan, updateCompilerState, updateDependencyState, updateScannerState, upsertScanScanner } from "@contracthunter/db";
 import { AderynScanner, DependencyManager, executeScanners, SlitherScanner } from "@contracthunter/scanners";
 
 export interface JobRunner {
@@ -70,6 +70,7 @@ class InProcessJobRunner implements JobRunner {
       if (!successful.length) throw new Error(`All security scanners failed. ${executions.map((execution) => execution.error).filter(Boolean).join(" ")}`);
       const current = getScan(database, scanId);
       if (current?.status === "preparing_compiler") transitionScan(database, scanId, "scanning");
+      reconcileInvestigations(database, scanId);
       transitionScan(database, scanId, "completed");
     } catch (error) {
       const scan = getScan(database, scanId);

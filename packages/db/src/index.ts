@@ -2,11 +2,11 @@ import Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/better-sqlite3";
-import type { CompilerStatus, CreateScanInput, DependencyStatus, FindingStatus, NewFinding, ScannerStatus, ScanStatus, Severity } from "@contracthunter/core";
-import { assertTransition, findingSchema, loadConfig, scanSchema } from "@contracthunter/core";
-import { findings, scans, scanScanners, type FindingRow, type ScanRow, type ScanScannerRow } from "./schema";
+import type { CompilerStatus, CreateScanInput, DependencyStatus, FindingStatus, InvestigationStatus, NewFinding, ScannerStatus, ScanStatus, Severity } from "@contracthunter/core";
+import { assertTransition, buildInvestigations, findingSchema, investigationSchema, loadConfig, scanSchema } from "@contracthunter/core";
+import { findings, investigationFindings, investigations, scans, scanScanners, type FindingRow, type InvestigationRow, type ScanRow, type ScanScannerRow } from "./schema";
 
 export * from "./schema";
 
@@ -41,6 +41,18 @@ export function createDatabase(databasePath: string) {
       finding_count INTEGER NOT NULL DEFAULT 0, duration_ms INTEGER, error TEXT, version TEXT,
       PRIMARY KEY (scan_id, scanner_id)
     );
+    CREATE TABLE IF NOT EXISTS investigations (
+      id TEXT PRIMARY KEY, scan_id TEXT NOT NULL REFERENCES scans(id) ON DELETE CASCADE,
+      fingerprint TEXT NOT NULL UNIQUE, title TEXT NOT NULL, severity TEXT NOT NULL, category TEXT NOT NULL,
+      priority_score INTEGER NOT NULL, confidence_score INTEGER NOT NULL, status TEXT NOT NULL,
+      primary_file_path TEXT, primary_contract TEXT, primary_function TEXT, start_line INTEGER, end_line INTEGER,
+      source_count INTEGER NOT NULL, reasons TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS investigation_findings (
+      investigation_id TEXT NOT NULL REFERENCES investigations(id) ON DELETE CASCADE,
+      finding_id TEXT NOT NULL REFERENCES findings(id) ON DELETE CASCADE,
+      PRIMARY KEY (investigation_id, finding_id)
+    );
   `);
   const scanColumns = new Set((sqlite.prepare("PRAGMA table_info(scans)").all() as Array<{ name: string }>).map((column) => column.name));
   if (!scanColumns.has("scanner_name")) sqlite.exec("ALTER TABLE scans ADD COLUMN scanner_name TEXT");
@@ -63,14 +75,20 @@ export function createDatabase(databasePath: string) {
     CREATE UNIQUE INDEX IF NOT EXISTS findings_fingerprint_idx ON findings(fingerprint) WHERE fingerprint IS NOT NULL;
     CREATE INDEX IF NOT EXISTS scans_created_at_idx ON scans(created_at);
     CREATE INDEX IF NOT EXISTS scan_scanners_scan_id_idx ON scan_scanners(scan_id);
+    CREATE INDEX IF NOT EXISTS investigations_scan_id_idx ON investigations(scan_id);
+    CREATE INDEX IF NOT EXISTS investigations_queue_idx ON investigations(priority_score, confidence_score, status);
+    CREATE INDEX IF NOT EXISTS investigation_findings_finding_id_idx ON investigation_findings(finding_id);
   `);
-  const orm = drizzle(sqlite, { schema: { scans, findings, scanScanners } });
+  const orm = drizzle(sqlite, { schema: { scans, findings, scanScanners, investigations, investigationFindings } });
   return { sqlite, orm };
 }
 
 let singleton: DatabaseClient | undefined;
 export function getDatabase(): DatabaseClient {
-  if (!singleton) singleton = createDatabase(loadConfig().DATABASE_PATH);
+  if (!singleton) {
+    singleton = createDatabase(loadConfig().DATABASE_PATH);
+    backfillInvestigations(singleton);
+  }
   return singleton;
 }
 
@@ -222,10 +240,74 @@ export function getFinding(database: DatabaseClient, id: string): FindingRow | u
   return database.orm.select().from(findings).where(eq(findings.id, id)).get();
 }
 
+export type InvestigationFilters = { scanId?: string; severity?: Severity; status?: InvestigationStatus; minimumConfidence?: number; sourceCount?: number };
+
+export function listInvestigations(database: DatabaseClient, filters: InvestigationFilters = {}, limit = 500): InvestigationRow[] {
+  const clauses = [
+    filters.scanId ? eq(investigations.scanId, filters.scanId) : undefined,
+    filters.severity ? eq(investigations.severity, filters.severity) : undefined,
+    filters.status ? eq(investigations.status, filters.status) : undefined,
+    filters.minimumConfidence === undefined ? undefined : gte(investigations.confidenceScore, filters.minimumConfidence),
+    filters.sourceCount === undefined ? undefined : gte(investigations.sourceCount, filters.sourceCount),
+  ].filter((clause): clause is NonNullable<typeof clause> => Boolean(clause));
+  return database.orm.select().from(investigations).where(clauses.length ? and(...clauses) : undefined).orderBy(desc(investigations.priorityScore), desc(investigations.confidenceScore), investigations.fingerprint).limit(limit).all();
+}
+
+export function getInvestigation(database: DatabaseClient, id: string): InvestigationRow | undefined {
+  return database.orm.select().from(investigations).where(eq(investigations.id, id)).get();
+}
+
+export function listInvestigationFindings(database: DatabaseClient, investigationId: string): FindingRow[] {
+  const relationRows = database.orm.select({ findingId: investigationFindings.findingId }).from(investigationFindings).where(eq(investigationFindings.investigationId, investigationId)).all();
+  if (!relationRows.length) return [];
+  return database.orm.select().from(findings).where(inArray(findings.id, relationRows.map((row) => row.findingId))).orderBy(findings.source, findings.fingerprint).all();
+}
+
+export function updateInvestigationStatus(database: DatabaseClient, id: string, status: InvestigationStatus): InvestigationRow | undefined {
+  database.orm.update(investigations).set({ status, updatedAt: new Date() }).where(eq(investigations.id, id)).run();
+  return getInvestigation(database, id);
+}
+
+export function reconcileInvestigations(database: DatabaseClient, scanId: string): InvestigationRow[] {
+  const raw = listFindings(database, { scanId });
+  const built = buildInvestigations(raw);
+  const existing = database.orm.select().from(investigations).where(eq(investigations.scanId, scanId)).all();
+  const existingByFingerprint = new Map(existing.map((item) => [item.fingerprint, item]));
+  const now = new Date();
+  database.sqlite.transaction(() => {
+    database.sqlite.prepare("DELETE FROM investigation_findings WHERE investigation_id IN (SELECT id FROM investigations WHERE scan_id = ?)").run(scanId);
+    const keep = new Set<string>();
+    for (const candidate of built) {
+      const previous = existingByFingerprint.get(candidate.fingerprint);
+      const id = previous?.id ?? randomUUID();
+      const row: InvestigationRow = {
+        id, scanId, fingerprint: candidate.fingerprint, title: candidate.title, severity: candidate.severity, category: candidate.category,
+        priorityScore: candidate.priorityScore, confidenceScore: candidate.confidenceScore, status: previous?.status ?? "candidate",
+        primaryFilePath: candidate.primaryFilePath, primaryContract: candidate.primaryContract, primaryFunction: candidate.primaryFunction,
+        startLine: candidate.startLine, endLine: candidate.endLine, sourceCount: candidate.sourceCount, reasons: JSON.stringify(candidate.reasons),
+        createdAt: previous?.createdAt ?? now, updatedAt: now,
+      };
+      investigationSchema.parse(row);
+      database.orm.insert(investigations).values(row).onConflictDoUpdate({ target: investigations.fingerprint, set: { title: row.title, severity: row.severity, category: row.category, priorityScore: row.priorityScore, confidenceScore: row.confidenceScore, primaryFilePath: row.primaryFilePath, primaryContract: row.primaryContract, primaryFunction: row.primaryFunction, startLine: row.startLine, endLine: row.endLine, sourceCount: row.sourceCount, reasons: row.reasons, updatedAt: now } }).run();
+      database.orm.insert(investigationFindings).values(candidate.findingIds.map((findingId) => ({ investigationId: id, findingId }))).onConflictDoNothing().run();
+      keep.add(candidate.fingerprint);
+    }
+    for (const obsolete of existing.filter((item) => !keep.has(item.fingerprint))) database.orm.delete(investigations).where(eq(investigations.id, obsolete.id)).run();
+  })();
+  return listInvestigations(database, { scanId });
+}
+
+export function backfillInvestigations(database: DatabaseClient): number {
+  const candidates = database.sqlite.prepare("SELECT s.id FROM scans s WHERE s.status = 'completed' AND EXISTS (SELECT 1 FROM findings f WHERE f.scan_id = s.id) AND NOT EXISTS (SELECT 1 FROM investigations i WHERE i.scan_id = s.id)").all() as Array<{ id: string }>;
+  for (const candidate of candidates) reconcileInvestigations(database, candidate.id);
+  return candidates.length;
+}
+
 export function dashboardStats(database: DatabaseClient) {
   const scanRows = database.orm.select({ status: scans.status, count: sql<number>`count(*)` }).from(scans).groupBy(scans.status).all();
   const severityRows = database.orm.select({ severity: findings.severity, count: sql<number>`count(*)` }).from(findings).groupBy(findings.severity).all();
   const sourceRows = database.orm.select({ source: findings.source, count: sql<number>`count(*)` }).from(findings).groupBy(findings.source).all();
+  const investigationRows = database.orm.select({ status: investigations.status, severity: investigations.severity, count: sql<number>`count(*)` }).from(investigations).groupBy(investigations.status, investigations.severity).all();
   return {
     totalScans: scanRows.reduce((sum, item) => sum + item.count, 0),
     completedScans: scanRows.find((item) => item.status === "completed")?.count ?? 0,
@@ -233,5 +315,10 @@ export function dashboardStats(database: DatabaseClient) {
     totalFindings: severityRows.reduce((sum, item) => sum + item.count, 0),
     bySeverity: Object.fromEntries(severityRows.map((item) => [item.severity, item.count])) as Partial<Record<Severity, number>>,
     bySource: Object.fromEntries(sourceRows.map((item) => [item.source, item.count])) as Record<string, number>,
+    totalInvestigations: investigationRows.reduce((sum, item) => sum + item.count, 0),
+    highCriticalCandidates: investigationRows.filter((item) => item.status === "candidate" && (item.severity === "critical" || item.severity === "high")).reduce((sum, item) => sum + item.count, 0),
+    investigating: investigationRows.filter((item) => item.status === "investigating").reduce((sum, item) => sum + item.count, 0),
+    verified: investigationRows.filter((item) => item.status === "verified").reduce((sum, item) => sum + item.count, 0),
+    rejected: investigationRows.filter((item) => item.status === "rejected").reduce((sum, item) => sum + item.count, 0),
   };
 }

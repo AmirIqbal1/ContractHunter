@@ -1,9 +1,19 @@
 # ContractHunter
 
-ContractHunter is a locally hosted smart-contract security analysis workstation. V0.1.4 safely prepares an authorised Solidity repository and combines independent static-analysis results from Slither and Aderyn without executing repository setup scripts.
+ContractHunter is a locally hosted smart-contract security analysis workstation. V0.1.5 safely prepares an authorised Solidity repository, combines Slither and Aderyn, and builds a prioritised investigation queue from their evidence.
 
 > [!WARNING]
 > **ContractHunter must only be used against smart contracts and repositories the user is authorised to analyse. Repository content is treated as untrusted.**
+
+## v0.1.5 — Cross-scanner correlation
+
+ContractHunter now groups likely related Slither and Aderyn findings into Investigations. Correlation is deterministic and location-led: file, contract, function, source ranges, an explicit detector taxonomy, and limited title similarity contribute to an explainable score. A stable representative-based grouping rule deliberately avoids broad transitive merging.
+
+Independent scanner agreement increases investigation confidence and priority, but never raises the scanner-provided severity and never automatically verifies a candidate. Static-only confidence is capped below 90. Every raw finding remains available as immutable scanner evidence.
+
+- **Finding** = one normalized raw scanner output.
+- **Investigation** = ContractHunter's grouped candidate vulnerability and review priority.
+- **Verified** = a manual human status in this release; automated verification comes later.
 
 ## v0.1.4 — Aderyn integration
 
@@ -14,7 +24,7 @@ ContractHunter now runs two independent Solidity static analyzers:
 
 Each engine can detect different vulnerability patterns and provide useful independent evidence. Findings retain their scanner source, and a failure in one scanner does not discard successful results from the other. If both scanners fail, the hunt fails; if one succeeds, the hunt completes with the failed scanner clearly identified.
 
-Multiple scanners reporting similar issues does **not** mean ContractHunter has verified a vulnerability. Cross-scanner semantic correlation, deduplication, and verification will come later.
+Multiple scanners reporting similar issues does **not** mean ContractHunter has verified a vulnerability.
 
 ## v0.1.3 — Safe dependency preparation
 
@@ -57,7 +67,7 @@ Not yet supported:
 - Validated JSON endpoints and a container health endpoint
 - Docker-first operation with a persistent `/data` volume and non-root runtime
 
-The production pipeline clones the repository, detects its framework, prepares approved pinned submodules and lockfile-based npm dependencies, resolves compiler requirements, and invokes Slither followed by Aderyn. Both structured reports are normalised and displayed throughout the dashboard and review pages. Scan depth is stored but does not change behaviour in V0.1.4.
+The production pipeline clones the repository, detects its framework, prepares approved pinned submodules and lockfile-based npm dependencies, resolves compiler requirements, invokes Slither followed by Aderyn, and then correlates all successful static-analysis output. Scan depth is stored but does not change behaviour in V0.1.5.
 
 ## Architecture
 
@@ -113,6 +123,9 @@ npm start
 - `GET /api/scans/:id` — retrieve a scan and its findings
 - `GET /api/findings` — list findings; accepts `scanId`, `severity`, `source`, and `status`
 - `GET /api/findings/:id` — retrieve one finding
+- `GET /api/investigations` — list ranked investigations; accepts scan, severity, status, minimum-confidence, and source-count filters
+- `GET /api/investigations/:id` — retrieve an investigation and its raw evidence
+- `PATCH /api/investigations/:id` — manually update investigation status
 - `GET /api/health` — process and database health
 
 ## Security assumptions
@@ -136,4 +149,4 @@ Only approved HTTPS Git submodules and npm lockfile installs are prepared. Yarn,
 
 ## Roadmap
 
-AI verification, cross-scanner correlation, fuzzing, PoCs, and broader dependency mechanisms remain outside V0.1.4.
+AI verification, fuzzing, PoCs, and broader dependency mechanisms remain outside V0.1.5.

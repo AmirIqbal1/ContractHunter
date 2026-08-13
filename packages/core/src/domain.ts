@@ -8,6 +8,8 @@ export const severities = ["critical", "high", "medium", "low", "informational"]
 export const scannerStatuses = ["pending", "available", "unavailable", "running", "completed", "failed"] as const;
 export const compilerStatuses = ["pending", "detecting", "downloading", "cached", "ready", "failed"] as const;
 export const dependencyStatuses = ["pending", "inspecting", "preparing", "ready", "skipped", "failed"] as const;
+export const investigationStatuses = ["candidate", "investigating", "verified", "rejected"] as const;
+export const vulnerabilityCategories = ["reentrancy", "access-control", "unchecked-call", "arithmetic", "oracle", "timestamp", "denial-of-service", "state-management", "token", "upgradeability", "informational", "unknown"] as const;
 
 export type ScanStatus = (typeof scanStatuses)[number];
 export type Framework = (typeof frameworks)[number];
@@ -17,6 +19,8 @@ export type Severity = (typeof severities)[number];
 export type ScannerStatus = (typeof scannerStatuses)[number];
 export type CompilerStatus = (typeof compilerStatuses)[number];
 export type DependencyStatus = (typeof dependencyStatuses)[number];
+export type InvestigationStatus = (typeof investigationStatuses)[number];
+export type VulnerabilityCategory = (typeof vulnerabilityCategories)[number];
 
 export const scanSchema = z.object({
   id: z.string().uuid(),
@@ -72,6 +76,29 @@ export const findingSchema = z.object({
 export type Scan = z.infer<typeof scanSchema>;
 export type Finding = z.infer<typeof findingSchema>;
 export type NewFinding = Omit<Finding, "id" | "scanId" | "createdAt">;
+
+export const investigationSchema = z.object({
+  id: z.string().uuid(),
+  scanId: z.string().uuid(),
+  fingerprint: z.string().length(64),
+  title: z.string().min(1).max(200),
+  severity: z.enum(severities),
+  category: z.enum(vulnerabilityCategories),
+  priorityScore: z.number().int().min(0).max(100),
+  confidenceScore: z.number().int().min(0).max(100),
+  status: z.enum(investigationStatuses),
+  primaryFilePath: z.string().max(1000).nullable(),
+  primaryContract: z.string().max(200).nullable(),
+  primaryFunction: z.string().max(200).nullable(),
+  startLine: z.number().int().positive().nullable(),
+  endLine: z.number().int().positive().nullable(),
+  sourceCount: z.number().int().positive(),
+  reasons: z.string(),
+  createdAt: z.date(),
+  updatedAt: z.date(),
+});
+
+export type Investigation = z.infer<typeof investigationSchema>;
 
 export const createScanInputSchema = z.object({
   repositoryUrl: z.string().trim().min(1),

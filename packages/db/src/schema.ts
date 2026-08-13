@@ -1,5 +1,5 @@
 import { integer, primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core";
-import { compilerStatuses, dependencyStatuses, findingStatuses, frameworks, scannerStatuses, scanDepths, scanStatuses, severities } from "@contracthunter/core";
+import { compilerStatuses, dependencyStatuses, findingStatuses, frameworks, investigationStatuses, scannerStatuses, scanDepths, scanStatuses, severities, vulnerabilityCategories } from "@contracthunter/core";
 
 export const scans = sqliteTable("scans", {
   id: text("id").primaryKey(),
@@ -60,6 +60,33 @@ export const scanScanners = sqliteTable("scan_scanners", {
   version: text("version"),
 }, (table) => [primaryKey({ columns: [table.scanId, table.scannerId] })]);
 
+export const investigations = sqliteTable("investigations", {
+  id: text("id").primaryKey(),
+  scanId: text("scan_id").notNull().references(() => scans.id, { onDelete: "cascade" }),
+  fingerprint: text("fingerprint").notNull().unique(),
+  title: text("title").notNull(),
+  severity: text("severity", { enum: severities }).notNull(),
+  category: text("category", { enum: vulnerabilityCategories }).notNull(),
+  priorityScore: integer("priority_score").notNull(),
+  confidenceScore: integer("confidence_score").notNull(),
+  status: text("status", { enum: investigationStatuses }).notNull(),
+  primaryFilePath: text("primary_file_path"),
+  primaryContract: text("primary_contract"),
+  primaryFunction: text("primary_function"),
+  startLine: integer("start_line"),
+  endLine: integer("end_line"),
+  sourceCount: integer("source_count").notNull(),
+  reasons: text("reasons").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+});
+
+export const investigationFindings = sqliteTable("investigation_findings", {
+  investigationId: text("investigation_id").notNull().references(() => investigations.id, { onDelete: "cascade" }),
+  findingId: text("finding_id").notNull().references(() => findings.id, { onDelete: "cascade" }),
+}, (table) => [primaryKey({ columns: [table.investigationId, table.findingId] })]);
+
 export type ScanRow = typeof scans.$inferSelect;
 export type FindingRow = typeof findings.$inferSelect;
 export type ScanScannerRow = typeof scanScanners.$inferSelect;
+export type InvestigationRow = typeof investigations.$inferSelect;

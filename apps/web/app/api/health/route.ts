@@ -16,7 +16,7 @@ export async function GET() {
   try {
     getDatabase().sqlite.prepare("SELECT 1").get();
     const [git, npm, slither, aderyn, solcSelect] = await Promise.all([tool("git", ["--version"]), tool("npm", ["--version"]), tool("slither", ["--version"]), tool("aderyn", ["--version"]), tool("solc-select", ["--version"])]);
-    return NextResponse.json({ status: "ok", service: "contracthunter", version: "0.1.4", database: "connected", tools: { git, npm, slither, aderyn, solcSelect } });
+    return NextResponse.json({ status: "ok", service: "contracthunter", version: "0.1.5", database: "connected", tools: { git, npm, slither, aderyn, solcSelect } });
   } catch {
     return NextResponse.json({ status: "unhealthy", service: "contracthunter", database: "unavailable" }, { status: 503 });
   }
