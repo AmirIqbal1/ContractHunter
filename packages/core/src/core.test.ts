@@ -61,5 +61,7 @@ describe("configuration validation", () => {
     const valid = { NODE_ENV: "test", DATA_DIR: "/tmp/contracthunter-config-test", REPOSITORY_DIR: "/tmp/contracthunter-config-test/repos", DATABASE_PATH: "/tmp/contracthunter-config-test/db.sqlite", GIT_CLONE_TIMEOUT_MS: 10_000, SLITHER_TIMEOUT_MS: 300_000, SCANNER_MAX_OUTPUT_BYTES: 20_971_520, SOLC_INSTALL_TIMEOUT_MS: 120_000, MAX_SOLC_VERSIONS_PER_SCAN: 8, ALLOW_COMPILER_DOWNLOADS: "true", TOOL_HOME_DIR: "/tmp/contracthunter-config-test/tool-home", DEPENDENCY_PREP_TIMEOUT_MS: 300_000, MAX_DEPENDENCY_OUTPUT_BYTES: 20_971_520, MAX_SUBMODULE_DEPTH: 5, MAX_SUBMODULES_PER_SCAN: 100, ALLOW_NPM_DEPENDENCIES: "true", ALLOW_GIT_SUBMODULES: "true", ALLOWED_GIT_DEPENDENCY_HOSTS: "github.com" };
     expect(configSchema.safeParse(valid).success).toBe(true);
     expect(configSchema.safeParse({ ...valid, REPOSITORY_DIR: "/tmp/outside" }).success).toBe(false);
+    expect(configSchema.safeParse({ ...valid, AI_ENABLED: "true", OPENAI_MODEL: "" }).success).toBe(false);
+    expect(configSchema.safeParse({ ...valid, AI_ENABLED: "true", OPENAI_MODEL: "gpt-5-mini" }).success).toBe(true);
   });
 });

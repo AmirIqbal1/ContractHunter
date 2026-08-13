@@ -1,5 +1,5 @@
 import { integer, primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core";
-import { compilerStatuses, dependencyStatuses, findingStatuses, frameworks, investigationStatuses, scannerStatuses, scanDepths, scanStatuses, severities, vulnerabilityCategories } from "@contracthunter/core";
+import { aiAnalysisStatuses, compilerStatuses, coverageStatuses, dependencyStatuses, findingStatuses, frameworks, invariantCategories, invariantStatuses, invariantTestabilities, investigationStatuses, scannerStatuses, scanDepths, scanStatuses, severities, vulnerabilityCategories } from "@contracthunter/core";
 
 export const scans = sqliteTable("scans", {
   id: text("id").primaryKey(),
@@ -25,6 +25,8 @@ export const scans = sqliteTable("scans", {
   dependencyStatus: text("dependency_status", { enum: dependencyStatuses }).notNull(),
   dependencyMetadata: text("dependency_metadata"),
   dependencyError: text("dependency_error"),
+  aiStatus: text("ai_status", { enum: aiAnalysisStatuses }).notNull(),
+  aiError: text("ai_error"),
 });
 
 export const findings = sqliteTable("findings", {
@@ -86,7 +88,23 @@ export const investigationFindings = sqliteTable("investigation_findings", {
   findingId: text("finding_id").notNull().references(() => findings.id, { onDelete: "cascade" }),
 }, (table) => [primaryKey({ columns: [table.investigationId, table.findingId] })]);
 
+export const protocolAnalyses = sqliteTable("protocol_analyses", {
+  id: text("id").primaryKey(),
+  scanId: text("scan_id").notNull().references(() => scans.id, { onDelete: "cascade" }),
+  provider: text("provider").notNull(), requestedModel: text("requested_model").notNull(), actualModel: text("actual_model"), promptVersion: text("prompt_version").notNull(),
+  protocolName: text("protocol_name").notNull(), protocolTypes: text("protocol_types").notNull(), summary: text("summary").notNull(), architectureSummary: text("architecture_summary").notNull(), confidence: integer("confidence").notNull(),
+  coverageStatus: text("coverage_status", { enum: coverageStatuses }).notNull(), contextManifest: text("context_manifest").notNull(), assets: text("assets").notNull(), roles: text("roles").notNull(), entryPoints: text("entry_points").notNull(), criticalState: text("critical_state").notNull(), externalDependencies: text("external_dependencies").notNull(), flows: text("flows").notNull(), trustAssumptions: text("trust_assumptions").notNull(), limitations: text("limitations").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(), durationMs: integer("duration_ms").notNull(), inputTokens: integer("input_tokens"), outputTokens: integer("output_tokens"), totalTokens: integer("total_tokens"), requestId: text("request_id"), isLatest: integer("is_latest", { mode: "boolean" }).notNull(),
+});
+
+export const invariants = sqliteTable("invariants", {
+  id: text("id").primaryKey(), analysisId: text("analysis_id").notNull().references(() => protocolAnalyses.id, { onDelete: "cascade" }), scanId: text("scan_id").notNull().references(() => scans.id, { onDelete: "cascade" }),
+  title: text("title").notNull(), description: text("description").notNull(), category: text("category", { enum: invariantCategories }).notNull(), severityIfViolated: text("severity_if_violated", { enum: severities }).notNull(), confidence: integer("confidence").notNull(), rationale: text("rationale").notNull(), relatedContracts: text("related_contracts").notNull(), relatedFunctions: text("related_functions").notNull(), relatedState: text("related_state").notNull(), sourceEvidence: text("source_evidence").notNull(), testability: text("testability", { enum: invariantTestabilities }).notNull(), status: text("status", { enum: invariantStatuses }).notNull(), createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+});
+
 export type ScanRow = typeof scans.$inferSelect;
 export type FindingRow = typeof findings.$inferSelect;
 export type ScanScannerRow = typeof scanScanners.$inferSelect;
 export type InvestigationRow = typeof investigations.$inferSelect;
+export type ProtocolAnalysisRow = typeof protocolAnalyses.$inferSelect;
+export type InvariantRow = typeof invariants.$inferSelect;

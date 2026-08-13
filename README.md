@@ -1,9 +1,31 @@
 # ContractHunter
 
-ContractHunter is a locally hosted smart-contract security analysis workstation. V0.1.5 safely prepares an authorised Solidity repository, combines Slither and Aderyn, and builds a prioritised investigation queue from their evidence.
+ContractHunter is a locally hosted smart-contract security analysis workstation. V0.1.6 combines deterministic static analysis with optional, structured AI protocol understanding and security-invariant discovery.
 
 > [!WARNING]
 > **ContractHunter must only be used against smart contracts and repositories the user is authorised to analyse. Repository content is treated as untrusted.**
+
+## v0.1.6 — AI protocol understanding
+
+After static scanning and correlation, ContractHunter can optionally use OpenAI to construct a security-focused protocol model: protocol purpose and architecture, assets, privileged roles, critical entry points and state, external dependencies, flows, trust assumptions, and concrete proposed security invariants.
+
+AI-generated invariants are hypotheses about properties the system should preserve. They are **not verified vulnerabilities**, do not become Investigations, and start with `proposed` status for human acceptance or rejection. Confidence measures how strongly supplied repository evidence supports an interpretation—not vulnerability probability.
+
+Repository content is untrusted data and is never treated as AI instructions. ContractHunter submits a deterministic, bounded source context with explicit secret/generated/dependency exclusions; the OpenAI request has no tools, web access, code execution, or filesystem access. Evidence references are validated locally before persistence. The current provider is OpenAI through a small provider interface; other providers are not implemented.
+
+Configuration:
+
+```bash
+AI_ENABLED=true
+OPENAI_API_KEY=your-server-side-key
+OPENAI_MODEL=gpt-5-mini
+AI_TIMEOUT_MS=180000
+AI_MAX_SOURCE_BYTES=500000
+AI_MAX_FILES=120
+AI_MAX_FILE_BYTES=75000
+```
+
+The API key remains server-side and is never stored, logged, returned by health/API routes, or included in browser code. AI failures and disabled/unconfigured AI do not invalidate successful static-analysis results. Manual reruns preserve previous analysis versions.
 
 ## v0.1.5 — Cross-scanner correlation
 
@@ -67,7 +89,7 @@ Not yet supported:
 - Validated JSON endpoints and a container health endpoint
 - Docker-first operation with a persistent `/data` volume and non-root runtime
 
-The production pipeline clones the repository, detects its framework, prepares approved pinned submodules and lockfile-based npm dependencies, resolves compiler requirements, invokes Slither followed by Aderyn, and then correlates all successful static-analysis output. Scan depth is stored but does not change behaviour in V0.1.5.
+The production pipeline clones the repository, detects its framework, prepares approved pinned submodules and lockfile-based npm dependencies, resolves compiler requirements, invokes Slither followed by Aderyn, and then correlates all successful static-analysis output. When enabled, bounded AI protocol analysis follows correlation without changing static-scan success semantics. Scan depth is stored but does not change behaviour in V0.1.6.
 
 ## Architecture
 
@@ -126,6 +148,11 @@ npm start
 - `GET /api/investigations` — list ranked investigations; accepts scan, severity, status, minimum-confidence, and source-count filters
 - `GET /api/investigations/:id` — retrieve an investigation and its raw evidence
 - `PATCH /api/investigations/:id` — manually update investigation status
+- `POST /api/scans/:id/ai-analysis` — manually run or rerun configured AI protocol analysis
+- `GET /api/scans/:id/ai-context` — preview bounded input size and coverage metadata without source content
+- `GET /api/protocol-analyses/:id` — retrieve one historical protocol model and its invariants
+- `GET /api/invariants` — list current invariants with category, impact, status, and testability filters
+- `GET/PATCH /api/invariants/:id` — retrieve an invariant or manually accept/reject it
 - `GET /api/health` — process and database health
 
 ## Security assumptions
@@ -149,4 +176,4 @@ Only approved HTTPS Git submodules and npm lockfile installs are prepared. Yarn,
 
 ## Roadmap
 
-AI verification, fuzzing, PoCs, and broader dependency mechanisms remain outside V0.1.5.
+AI-generated vulnerability findings, AI verification, fuzzing, invariant execution, PoCs, and broader dependency mechanisms remain outside V0.1.6.

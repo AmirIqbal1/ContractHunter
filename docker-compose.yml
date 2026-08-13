@@ -22,6 +22,13 @@ services:
       ALLOW_NPM_DEPENDENCIES: "true"
       ALLOW_GIT_SUBMODULES: "true"
       ALLOWED_GIT_DEPENDENCY_HOSTS: github.com
+      AI_ENABLED: ${AI_ENABLED:-false}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5-mini}
+      AI_TIMEOUT_MS: ${AI_TIMEOUT_MS:-180000}
+      AI_MAX_SOURCE_BYTES: ${AI_MAX_SOURCE_BYTES:-500000}
+      AI_MAX_FILES: ${AI_MAX_FILES:-120}
+      AI_MAX_FILE_BYTES: ${AI_MAX_FILE_BYTES:-75000}
     volumes:
       - contracthunter-data:/data
     init: true

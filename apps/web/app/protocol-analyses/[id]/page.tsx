@@ -1,0 +1,21 @@
+import Link from "next/link";
+import { notFound } from "next/navigation";
+import { getDatabase, getProtocolAnalysis, listInvariants } from "@contracthunter/db";
+import { formatDate } from "@/components/format";
+
+export const dynamic = "force-dynamic";
+const parse = <T,>(value: string, fallback: T): T => { try { return JSON.parse(value) as T; } catch { return fallback; } };
+type Named = Record<string, unknown>;
+const text = (value: unknown) => Array.isArray(value) ? value.join(", ") : typeof value === "boolean" ? (value ? "Yes" : "No") : typeof value === "string" || typeof value === "number" ? String(value) : "";
+function DataSection({ title, items }: { title: string; items: Named[] }) { return <section className="article-section"><h2>{title}</h2>{items.map((item, index) => { const evidence = Array.isArray(item.evidence) ? item.evidence as Array<Record<string, unknown>> : []; return <div className="card" style={{ marginBottom: 10 }} key={index}>{Object.entries(item).filter(([key]) => key !== "evidence").map(([key, value]) => <p key={key}><strong>{key.replace(/([A-Z])/g, " $1")}:</strong> {text(value)}</p>)}{evidence.map((source, evidenceIndex) => <p className="mono muted" key={evidenceIndex}>Evidence: {text(source.filePath)}{source.startLine ? `:${text(source.startLine)}` : ""} · {source.valid === false ? `invalid (${text(source.validationError)})` : "validated"}</p>)}</div>; })}{!items.length && <p className="muted">No supported evidence identified.</p>}</section>; }
+export default async function ProtocolAnalysisPage({ params }: { params: Promise<{ id: string }> }) {
+  const database = getDatabase(); const analysis = getProtocolAnalysis(database, (await params).id); if (!analysis) notFound(); const invariants = listInvariants(database, { scanId: analysis.scanId }, false).filter((item) => item.analysisId === analysis.id);
+  const sections: Array<[string, string]> = [["Assets", analysis.assets], ["Privileged roles", analysis.roles], ["Critical entry points", analysis.entryPoints], ["Key state", analysis.criticalState], ["External dependencies", analysis.externalDependencies], ["Protocol flows", analysis.flows], ["Trust assumptions", analysis.trustAssumptions]];
+  return <article className="article"><header className="page-head"><div><div className="eyebrow">AI protocol analysis / {analysis.promptVersion}</div><h1>{analysis.protocolName}</h1><p className="subhead">{parse<string[]>(analysis.protocolTypes, []).join(" · ")} · {formatDate(analysis.createdAt)}</p></div><span className={`badge ${analysis.coverageStatus === "complete" ? "green" : "amber"}`}>{analysis.coverageStatus} coverage</span></header>
+    <section className="card"><dl className="details"><div className="detail"><dt>Provider / requested model</dt><dd>{analysis.provider} / {analysis.requestedModel}</dd></div><div className="detail"><dt>Actual model</dt><dd>{analysis.actualModel ?? "Not reported"}</dd></div><div className="detail"><dt>Evidence confidence</dt><dd>{analysis.confidence}%</dd></div><div className="detail"><dt>Duration / tokens</dt><dd>{(analysis.durationMs / 1000).toFixed(1)}s / {analysis.totalTokens ?? "—"}</dd></div></dl></section>
+    <section className="article-section"><h2>Protocol summary</h2><p>{analysis.summary}</p></section><section className="article-section"><h2>Architecture</h2><p>{analysis.architectureSummary}</p></section>
+    {sections.map(([title, value]) => <DataSection key={title} title={title} items={parse<Named[]>(value, [])} />)}
+    <section className="article-section"><h2>Analysis limitations</h2><ul className="reason-list">{parse<string[]>(analysis.limitations, []).map((item) => <li key={item}>{item}</li>)}</ul></section>
+    <section className="section"><div className="section-head"><h2>Proposed invariants</h2><Link className="muted-link" href={`/invariants?scan=${analysis.scanId}`}>Open invariant queue →</Link></div><div className="table-wrap"><table><thead><tr><th>Impact</th><th>Invariant</th><th>Testability</th><th>Confidence</th></tr></thead><tbody>{invariants.map((item) => <tr key={item.id}><td>{item.severityIfViolated}</td><td><Link className="repo" href={`/invariants/${item.id}`}>{item.title}</Link></td><td>{item.testability}</td><td>{item.confidence}%</td></tr>)}</tbody></table></div></section>
+  </article>;
+}

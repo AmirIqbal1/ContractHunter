@@ -2,7 +2,7 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   esbuild: { jsx: "automatic" },
-  test: { environment: "node", include: ["packages/**/*.test.ts", "apps/web/**/*.test.tsx"] },
+  test: { environment: "node", include: ["packages/**/*.test.ts", "apps/web/**/*.test.{ts,tsx}"] },
   resolve: {
     alias: {
       "@contracthunter/core": new URL("./packages/core/src/index.ts", import.meta.url).pathname,

@@ -4,3 +4,6 @@
 data
 coverage
 npm-debug.log*
+.env
+.env.*
+!.env.example

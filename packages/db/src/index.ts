@@ -4,9 +4,9 @@ import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/better-sqlite3";
-import type { CompilerStatus, CreateScanInput, DependencyStatus, FindingStatus, InvestigationStatus, NewFinding, ScannerStatus, ScanStatus, Severity } from "@contracthunter/core";
+import type { AIAnalysisStatus, CompilerStatus, CreateScanInput, DependencyStatus, FindingStatus, InvariantCategory, InvariantStatus, InvariantTestability, InvestigationStatus, NewFinding, ProtocolAnalysisResult, ScannerStatus, ScanStatus, Severity, ValidatedEvidence } from "@contracthunter/core";
 import { assertTransition, buildInvestigations, findingSchema, investigationSchema, loadConfig, scanSchema } from "@contracthunter/core";
-import { findings, investigationFindings, investigations, scans, scanScanners, type FindingRow, type InvestigationRow, type ScanRow, type ScanScannerRow } from "./schema";
+import { findings, investigationFindings, investigations, invariants, protocolAnalyses, scans, scanScanners, type FindingRow, type InvariantRow, type InvestigationRow, type ProtocolAnalysisRow, type ScanRow, type ScanScannerRow } from "./schema";
 
 export * from "./schema";
 
@@ -25,7 +25,8 @@ export function createDatabase(databasePath: string) {
       scanner_name TEXT, scanner_status TEXT NOT NULL DEFAULT 'pending', scanner_duration_ms INTEGER,
       compiler_constraints TEXT, compiler_versions TEXT, compiler_detection_source TEXT,
       compiler_status TEXT NOT NULL DEFAULT 'pending', compiler_error TEXT,
-      dependency_status TEXT NOT NULL DEFAULT 'pending', dependency_metadata TEXT, dependency_error TEXT
+      dependency_status TEXT NOT NULL DEFAULT 'pending', dependency_metadata TEXT, dependency_error TEXT,
+      ai_status TEXT NOT NULL DEFAULT 'disabled', ai_error TEXT
     );
     CREATE TABLE IF NOT EXISTS findings (
       id TEXT PRIMARY KEY, scan_id TEXT NOT NULL REFERENCES scans(id) ON DELETE CASCADE,
@@ -53,6 +54,18 @@ export function createDatabase(databasePath: string) {
       finding_id TEXT NOT NULL REFERENCES findings(id) ON DELETE CASCADE,
       PRIMARY KEY (investigation_id, finding_id)
     );
+    CREATE TABLE IF NOT EXISTS protocol_analyses (
+      id TEXT PRIMARY KEY, scan_id TEXT NOT NULL REFERENCES scans(id) ON DELETE CASCADE,
+      provider TEXT NOT NULL, requested_model TEXT NOT NULL, actual_model TEXT, prompt_version TEXT NOT NULL,
+      protocol_name TEXT NOT NULL, protocol_types TEXT NOT NULL, summary TEXT NOT NULL, architecture_summary TEXT NOT NULL, confidence INTEGER NOT NULL,
+      coverage_status TEXT NOT NULL, context_manifest TEXT NOT NULL, assets TEXT NOT NULL, roles TEXT NOT NULL, entry_points TEXT NOT NULL, critical_state TEXT NOT NULL, external_dependencies TEXT NOT NULL, flows TEXT NOT NULL, trust_assumptions TEXT NOT NULL, limitations TEXT NOT NULL,
+      created_at INTEGER NOT NULL, duration_ms INTEGER NOT NULL, input_tokens INTEGER, output_tokens INTEGER, total_tokens INTEGER, request_id TEXT, is_latest INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS invariants (
+      id TEXT PRIMARY KEY, analysis_id TEXT NOT NULL REFERENCES protocol_analyses(id) ON DELETE CASCADE, scan_id TEXT NOT NULL REFERENCES scans(id) ON DELETE CASCADE,
+      title TEXT NOT NULL, description TEXT NOT NULL, category TEXT NOT NULL, severity_if_violated TEXT NOT NULL, confidence INTEGER NOT NULL, rationale TEXT NOT NULL,
+      related_contracts TEXT NOT NULL, related_functions TEXT NOT NULL, related_state TEXT NOT NULL, source_evidence TEXT NOT NULL, testability TEXT NOT NULL, status TEXT NOT NULL, created_at INTEGER NOT NULL
+    );
   `);
   const scanColumns = new Set((sqlite.prepare("PRAGMA table_info(scans)").all() as Array<{ name: string }>).map((column) => column.name));
   if (!scanColumns.has("scanner_name")) sqlite.exec("ALTER TABLE scans ADD COLUMN scanner_name TEXT");
@@ -66,6 +79,8 @@ export function createDatabase(databasePath: string) {
   if (!scanColumns.has("dependency_status")) sqlite.exec("ALTER TABLE scans ADD COLUMN dependency_status TEXT NOT NULL DEFAULT 'pending'");
   if (!scanColumns.has("dependency_metadata")) sqlite.exec("ALTER TABLE scans ADD COLUMN dependency_metadata TEXT");
   if (!scanColumns.has("dependency_error")) sqlite.exec("ALTER TABLE scans ADD COLUMN dependency_error TEXT");
+  if (!scanColumns.has("ai_status")) sqlite.exec("ALTER TABLE scans ADD COLUMN ai_status TEXT NOT NULL DEFAULT 'disabled'");
+  if (!scanColumns.has("ai_error")) sqlite.exec("ALTER TABLE scans ADD COLUMN ai_error TEXT");
   const findingColumns = new Set((sqlite.prepare("PRAGMA table_info(findings)").all() as Array<{ name: string }>).map((column) => column.name));
   if (!findingColumns.has("detector_id")) sqlite.exec("ALTER TABLE findings ADD COLUMN detector_id TEXT");
   if (!findingColumns.has("fingerprint")) sqlite.exec("ALTER TABLE findings ADD COLUMN fingerprint TEXT");
@@ -78,8 +93,10 @@ export function createDatabase(databasePath: string) {
     CREATE INDEX IF NOT EXISTS investigations_scan_id_idx ON investigations(scan_id);
     CREATE INDEX IF NOT EXISTS investigations_queue_idx ON investigations(priority_score, confidence_score, status);
     CREATE INDEX IF NOT EXISTS investigation_findings_finding_id_idx ON investigation_findings(finding_id);
+    CREATE INDEX IF NOT EXISTS protocol_analyses_scan_idx ON protocol_analyses(scan_id, is_latest);
+    CREATE INDEX IF NOT EXISTS invariants_scan_idx ON invariants(scan_id, severity_if_violated, status);
   `);
-  const orm = drizzle(sqlite, { schema: { scans, findings, scanScanners, investigations, investigationFindings } });
+  const orm = drizzle(sqlite, { schema: { scans, findings, scanScanners, investigations, investigationFindings, protocolAnalyses, invariants } });
   return { sqlite, orm };
 }
 
@@ -104,6 +121,7 @@ export function createScan(database: DatabaseClient, input: CreateScanInput & { 
     scannerName: "Slither", scannerStatus: "pending", scannerDurationMs: null,
     compilerConstraints: null, compilerVersions: null, compilerDetectionSource: null, compilerStatus: "pending", compilerError: null,
     dependencyStatus: "pending", dependencyMetadata: null, dependencyError: null,
+    aiStatus: "disabled", aiError: null,
   };
   scanSchema.parse(row);
   database.orm.insert(scans).values(row).run();
@@ -203,10 +221,15 @@ export function updateDependencyState(database: DatabaseClient, id: string, stat
   }).where(eq(scans.id, id)).run();
 }
 
+export function updateAIState(database: DatabaseClient, id: string, status: AIAnalysisStatus, error: string | null = null): void {
+  database.orm.update(scans).set({ aiStatus: status, aiError: error }).where(eq(scans.id, id)).run();
+}
+
 export function markActiveScansInterrupted(database: DatabaseClient): number {
   const active: ScanStatus[] = ["queued", "cloning", "detecting", "preparing_dependencies", "preparing_compiler", "scanning"];
   const result = database.orm.update(scans).set({ status: "failed", scannerStatus: "failed", compilerStatus: "failed", dependencyStatus: "failed", completedAt: new Date(), error: "Scan interrupted by application restart." }).where(inArray(scans.status, active)).run().changes;
   database.sqlite.prepare("UPDATE scan_scanners SET status = 'failed', error = 'Scan interrupted by application restart.' WHERE status IN ('pending', 'available', 'running')").run();
+  database.sqlite.prepare("UPDATE scans SET ai_status = 'failed', ai_error = 'AI analysis interrupted by application restart.' WHERE ai_status IN ('pending', 'running')").run();
   return result;
 }
 
@@ -301,6 +324,55 @@ export function backfillInvestigations(database: DatabaseClient): number {
   const candidates = database.sqlite.prepare("SELECT s.id FROM scans s WHERE s.status = 'completed' AND EXISTS (SELECT 1 FROM findings f WHERE f.scan_id = s.id) AND NOT EXISTS (SELECT 1 FROM investigations i WHERE i.scan_id = s.id)").all() as Array<{ id: string }>;
   for (const candidate of candidates) reconcileInvestigations(database, candidate.id);
   return candidates.length;
+}
+
+export type PersistProtocolAnalysisInput = {
+  scanId: string; provider: string; requestedModel: string; actualModel: string | null; promptVersion: string;
+  result: ProtocolAnalysisResult; coverageStatus: "complete" | "partial"; contextManifest: unknown;
+  durationMs: number; inputTokens: number | null; outputTokens: number | null; totalTokens: number | null; requestId: string | null;
+};
+
+export function createProtocolAnalysis(database: DatabaseClient, input: PersistProtocolAnalysisInput): ProtocolAnalysisRow {
+  const id = randomUUID(); const createdAt = new Date();
+  const row: ProtocolAnalysisRow = {
+    id, scanId: input.scanId, provider: input.provider, requestedModel: input.requestedModel, actualModel: input.actualModel, promptVersion: input.promptVersion,
+    protocolName: input.result.protocol.name, protocolTypes: JSON.stringify(input.result.protocol.types), summary: input.result.protocol.summary, architectureSummary: input.result.protocol.architectureSummary, confidence: input.result.protocol.confidence,
+    coverageStatus: input.coverageStatus, contextManifest: JSON.stringify(input.contextManifest), assets: JSON.stringify(input.result.assets), roles: JSON.stringify(input.result.roles), entryPoints: JSON.stringify(input.result.entryPoints), criticalState: JSON.stringify(input.result.criticalState), externalDependencies: JSON.stringify(input.result.externalDependencies), flows: JSON.stringify(input.result.flows), trustAssumptions: JSON.stringify(input.result.trustAssumptions), limitations: JSON.stringify(input.result.limitations),
+    createdAt, durationMs: input.durationMs, inputTokens: input.inputTokens, outputTokens: input.outputTokens, totalTokens: input.totalTokens, requestId: input.requestId, isLatest: true,
+  };
+  database.sqlite.transaction(() => {
+    database.orm.update(protocolAnalyses).set({ isLatest: false }).where(eq(protocolAnalyses.scanId, input.scanId)).run();
+    database.orm.insert(protocolAnalyses).values(row).run();
+    if (input.result.invariants.length) database.orm.insert(invariants).values(input.result.invariants.map((item) => ({
+      id: randomUUID(), analysisId: id, scanId: input.scanId, title: item.title, description: item.description, category: item.category, severityIfViolated: item.severityIfViolated, confidence: item.confidence, rationale: item.rationale,
+      relatedContracts: JSON.stringify(item.relatedContracts), relatedFunctions: JSON.stringify(item.relatedFunctions), relatedState: JSON.stringify(item.relatedState), sourceEvidence: JSON.stringify(item.sourceEvidence as ValidatedEvidence[]), testability: item.testability, status: "proposed" as const, createdAt,
+    }))).run();
+  })();
+  return row;
+}
+
+export function getCurrentProtocolAnalysis(database: DatabaseClient, scanId: string): ProtocolAnalysisRow | undefined {
+  return database.orm.select().from(protocolAnalyses).where(and(eq(protocolAnalyses.scanId, scanId), eq(protocolAnalyses.isLatest, true))).get();
+}
+
+export function getProtocolAnalysis(database: DatabaseClient, id: string): ProtocolAnalysisRow | undefined {
+  return database.orm.select().from(protocolAnalyses).where(eq(protocolAnalyses.id, id)).get();
+}
+
+export function listProtocolAnalyses(database: DatabaseClient, scanId: string): ProtocolAnalysisRow[] {
+  return database.orm.select().from(protocolAnalyses).where(eq(protocolAnalyses.scanId, scanId)).orderBy(desc(protocolAnalyses.createdAt)).all();
+}
+
+export type InvariantFilters = { scanId?: string; category?: InvariantCategory; severity?: Severity; status?: InvariantStatus; testability?: InvariantTestability };
+export function listInvariants(database: DatabaseClient, filters: InvariantFilters = {}, latestOnly = true): InvariantRow[] {
+  const clauses = [filters.scanId ? eq(invariants.scanId, filters.scanId) : undefined, filters.category ? eq(invariants.category, filters.category) : undefined, filters.severity ? eq(invariants.severityIfViolated, filters.severity) : undefined, filters.status ? eq(invariants.status, filters.status) : undefined, filters.testability ? eq(invariants.testability, filters.testability) : undefined, latestOnly ? eq(protocolAnalyses.isLatest, true) : undefined].filter((clause): clause is NonNullable<typeof clause> => Boolean(clause));
+  return database.orm.select({ invariant: invariants }).from(invariants).innerJoin(protocolAnalyses, eq(invariants.analysisId, protocolAnalyses.id)).where(and(...clauses)).orderBy(sql`CASE ${invariants.severityIfViolated} WHEN 'critical' THEN 5 WHEN 'high' THEN 4 WHEN 'medium' THEN 3 WHEN 'low' THEN 2 ELSE 1 END DESC`, desc(invariants.confidence), invariants.title).all().map((row) => row.invariant);
+}
+
+export function getInvariant(database: DatabaseClient, id: string): InvariantRow | undefined { return database.orm.select().from(invariants).where(eq(invariants.id, id)).get(); }
+export function updateInvariantStatus(database: DatabaseClient, id: string, status: InvariantStatus): InvariantRow | undefined {
+  database.orm.update(invariants).set({ status }).where(eq(invariants.id, id)).run();
+  return getInvariant(database, id);
 }
 
 export function dashboardStats(database: DatabaseClient) {

@@ -30,6 +30,13 @@ export const configSchema = z.object({
     }
     return hosts;
   }),
+  AI_ENABLED: z.enum(["true", "false"]).default("false").transform((value) => value === "true"),
+  OPENAI_API_KEY: z.string().max(1000).default(""),
+  OPENAI_MODEL: z.string().trim().max(200).default(""),
+  AI_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(600_000).default(180_000),
+  AI_MAX_SOURCE_BYTES: z.coerce.number().int().min(1_024).max(10_000_000).default(500_000),
+  AI_MAX_FILES: z.coerce.number().int().min(1).max(1_000).default(120),
+  AI_MAX_FILE_BYTES: z.coerce.number().int().min(1_024).max(1_000_000).default(75_000),
 }).superRefine((config, context) => {
   const data = path.resolve(config.DATA_DIR);
   const repo = path.resolve(config.REPOSITORY_DIR);
@@ -39,6 +46,7 @@ export const configSchema = z.object({
   if (!inside(repo)) context.addIssue({ code: "custom", path: ["REPOSITORY_DIR"], message: "must be inside DATA_DIR" });
   if (!inside(database)) context.addIssue({ code: "custom", path: ["DATABASE_PATH"], message: "must be inside DATA_DIR" });
   if (!inside(toolHome)) context.addIssue({ code: "custom", path: ["TOOL_HOME_DIR"], message: "must be inside DATA_DIR" });
+  if (config.AI_ENABLED && !/^[a-zA-Z0-9][a-zA-Z0-9._:-]{1,199}$/.test(config.OPENAI_MODEL)) context.addIssue({ code: "custom", path: ["OPENAI_MODEL"], message: "must be configured when AI is enabled" });
 });
 
 export type AppConfig = z.infer<typeof configSchema>;
@@ -65,5 +73,12 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppCon
     ALLOW_NPM_DEPENDENCIES: environment.ALLOW_NPM_DEPENDENCIES,
     ALLOW_GIT_SUBMODULES: environment.ALLOW_GIT_SUBMODULES,
     ALLOWED_GIT_DEPENDENCY_HOSTS: environment.ALLOWED_GIT_DEPENDENCY_HOSTS,
+    AI_ENABLED: environment.AI_ENABLED,
+    OPENAI_API_KEY: environment.OPENAI_API_KEY,
+    OPENAI_MODEL: environment.OPENAI_MODEL,
+    AI_TIMEOUT_MS: environment.AI_TIMEOUT_MS,
+    AI_MAX_SOURCE_BYTES: environment.AI_MAX_SOURCE_BYTES,
+    AI_MAX_FILES: environment.AI_MAX_FILES,
+    AI_MAX_FILE_BYTES: environment.AI_MAX_FILE_BYTES,
   });
 }
