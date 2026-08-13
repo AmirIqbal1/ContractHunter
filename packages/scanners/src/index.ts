@@ -1,7 +1,10 @@
 export { MockScanner } from "./mock-scanner";
+export * from "./aderyn-parser";
+export * from "./aderyn-scanner";
 export * from "./compiler-detection";
 export * from "./compiler-manager";
 export * from "./dependency-manager";
 export * from "./process-runner";
+export * from "./scanner-runner";
 export * from "./slither-parser";
 export * from "./slither-scanner";

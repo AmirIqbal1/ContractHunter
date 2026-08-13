@@ -1,9 +1,20 @@
 # ContractHunter
 
-ContractHunter is a locally hosted smart-contract security analysis workstation. V0.1.3 accepts an authorised GitHub Solidity repository, safely prepares supported public dependencies, resolves its Solidity compiler requirements, and performs real static analysis with Slither without executing repository setup scripts.
+ContractHunter is a locally hosted smart-contract security analysis workstation. V0.1.4 safely prepares an authorised Solidity repository and combines independent static-analysis results from Slither and Aderyn without executing repository setup scripts.
 
 > [!WARNING]
 > **ContractHunter must only be used against smart contracts and repositories the user is authorised to analyse. Repository content is treated as untrusted.**
+
+## v0.1.4 — Aderyn integration
+
+ContractHunter now runs two independent Solidity static analyzers:
+
+- Slither
+- Aderyn
+
+Each engine can detect different vulnerability patterns and provide useful independent evidence. Findings retain their scanner source, and a failure in one scanner does not discard successful results from the other. If both scanners fail, the hunt fails; if one succeeds, the hunt completes with the failed scanner clearly identified.
+
+Multiple scanners reporting similar issues does **not** mean ContractHunter has verified a vulnerability. Cross-scanner semantic correlation, deduplication, and verification will come later.
 
 ## v0.1.3 — Safe dependency preparation
 
@@ -37,16 +48,16 @@ Not yet supported:
 - Exact scanned commit capture and passive Foundry/Hardhat detection
 - SQLite persistence through Drizzle ORM
 - Lightweight in-process background job runner with interrupted-job recovery
-- Real Slither static analysis behind an extensible `Scanner` interface
+- Real Slither and Aderyn static analysis behind an extensible `Scanner` interface
 - Tolerant Slither JSON parsing, repository-relative source locations, and detector/location deduplication
-- Per-scan scanner availability, execution status, finding count, and duration reporting
+- Independent per-scanner availability, execution status, error, finding count, and duration reporting
 - Static compiler detection from strict default-profile `foundry.toml` data or Solidity pragmas
 - Automatic trusted solc installation through `solc-select`, persistent compiler caching, and version verification
 - Compatible multi-compiler resolution with a configurable safety limit
 - Validated JSON endpoints and a container health endpoint
 - Docker-first operation with a persistent `/data` volume and non-root runtime
 
-The production pipeline clones the repository, detects its framework, prepares approved pinned submodules and lockfile-based npm dependencies, discovers Solidity requirements, downloads missing official compilers through `solc-select`, verifies the selected compiler, and invokes Slither. Findings are normalised and displayed throughout the dashboard and review pages. Scan depth is stored but does not change behaviour in V0.1.3.
+The production pipeline clones the repository, detects its framework, prepares approved pinned submodules and lockfile-based npm dependencies, resolves compiler requirements, and invokes Slither followed by Aderyn. Both structured reports are normalised and displayed throughout the dashboard and review pages. Scan depth is stored but does not change behaviour in V0.1.4.
 
 ## Architecture
 
@@ -56,7 +67,7 @@ The Next.js process hosts the UI, route handlers, and a deliberately small in-pr
 apps/web/              Next.js UI, API routes, and job-runner adapter
 packages/core/         Domain models, Zod schemas, config, git safety, state machine
 packages/db/           Drizzle schema and SQLite repository functions
-packages/scanners/     Dependency/compiler managers, Slither integration, safe process runner
+packages/scanners/     Dependency/compiler managers, Slither/Aderyn scanners and parsers
 data/                  Local database and cloned repositories (gitignored)
 Dockerfile             Multi-stage, non-root production image
 docker-compose.yml     Application and persistent data volume
@@ -116,7 +127,7 @@ npm start
 - Errors returned to the UI are length-limited, flattened, and stripped of URL credentials. Secrets should not be placed in repository URLs or refs.
 - ContractHunter is a single-user local tool. It has no authentication and should not be exposed directly to an untrusted network.
 - The in-process runner is intentionally single-instance infrastructure. Active scans are marked failed as interrupted after a process restart; jobs are not resumed.
-- Slither may invoke its supported Solidity compilation tooling to analyse source, but ContractHunter does not execute repository setup commands.
+- Slither and Aderyn may invoke their supported Solidity compilation tooling to analyse source, but ContractHunter does not execute repository setup commands.
 - The production container runs as the unprivileged `node` user, drops Linux capabilities, and persists only `/data`.
 
 ## Current dependency limitations
@@ -125,4 +136,4 @@ Only approved HTTPS Git submodules and npm lockfile installs are prepared. Yarn,
 
 ## Roadmap
 
-Additional scanners and broader dependency mechanisms remain outside V0.1.3.
+AI verification, cross-scanner correlation, fuzzing, PoCs, and broader dependency mechanisms remain outside V0.1.4.

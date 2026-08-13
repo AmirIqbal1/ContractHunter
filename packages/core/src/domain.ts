@@ -5,7 +5,7 @@ export const frameworks = ["foundry", "hardhat", "unknown"] as const;
 export const scanDepths = ["quick", "deep", "maximum"] as const;
 export const findingStatuses = ["candidate", "investigating", "verified", "rejected"] as const;
 export const severities = ["critical", "high", "medium", "low", "informational"] as const;
-export const scannerStatuses = ["pending", "available", "running", "completed", "failed"] as const;
+export const scannerStatuses = ["pending", "available", "unavailable", "running", "completed", "failed"] as const;
 export const compilerStatuses = ["pending", "detecting", "downloading", "cached", "ready", "failed"] as const;
 export const dependencyStatuses = ["pending", "inspecting", "preparing", "ready", "skipped", "failed"] as const;
 

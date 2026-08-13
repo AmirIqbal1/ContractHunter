@@ -6,7 +6,7 @@ import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import type { CompilerStatus, CreateScanInput, DependencyStatus, FindingStatus, NewFinding, ScannerStatus, ScanStatus, Severity } from "@contracthunter/core";
 import { assertTransition, findingSchema, loadConfig, scanSchema } from "@contracthunter/core";
-import { findings, scans, type FindingRow, type ScanRow } from "./schema";
+import { findings, scans, scanScanners, type FindingRow, type ScanRow, type ScanScannerRow } from "./schema";
 
 export * from "./schema";
 
@@ -35,6 +35,12 @@ export function createDatabase(databasePath: string) {
       root_cause TEXT NOT NULL, attack_scenario TEXT NOT NULL, impact TEXT NOT NULL, evidence TEXT NOT NULL,
       status TEXT NOT NULL, created_at INTEGER NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS scan_scanners (
+      scan_id TEXT NOT NULL REFERENCES scans(id) ON DELETE CASCADE,
+      scanner_id TEXT NOT NULL, scanner_name TEXT NOT NULL, status TEXT NOT NULL,
+      finding_count INTEGER NOT NULL DEFAULT 0, duration_ms INTEGER, error TEXT, version TEXT,
+      PRIMARY KEY (scan_id, scanner_id)
+    );
   `);
   const scanColumns = new Set((sqlite.prepare("PRAGMA table_info(scans)").all() as Array<{ name: string }>).map((column) => column.name));
   if (!scanColumns.has("scanner_name")) sqlite.exec("ALTER TABLE scans ADD COLUMN scanner_name TEXT");
@@ -56,8 +62,9 @@ export function createDatabase(databasePath: string) {
     CREATE INDEX IF NOT EXISTS findings_filters_idx ON findings(severity, status, source);
     CREATE UNIQUE INDEX IF NOT EXISTS findings_fingerprint_idx ON findings(fingerprint) WHERE fingerprint IS NOT NULL;
     CREATE INDEX IF NOT EXISTS scans_created_at_idx ON scans(created_at);
+    CREATE INDEX IF NOT EXISTS scan_scanners_scan_id_idx ON scan_scanners(scan_id);
   `);
-  const orm = drizzle(sqlite, { schema: { scans, findings } });
+  const orm = drizzle(sqlite, { schema: { scans, findings, scanScanners } });
   return { sqlite, orm };
 }
 
@@ -115,6 +122,43 @@ export function updateScannerState(database: DatabaseClient, id: string, scanner
   database.orm.update(scans).set({ scannerName, scannerStatus, ...(scannerDurationMs === undefined ? {} : { scannerDurationMs }) }).where(eq(scans.id, id)).run();
 }
 
+export type ScannerStateUpdate = {
+  scannerId: string;
+  scannerName: string;
+  status: ScannerStatus;
+  findingCount?: number;
+  durationMs?: number | null;
+  error?: string | null;
+  version?: string | null;
+};
+
+export function upsertScanScanner(database: DatabaseClient, scanId: string, update: ScannerStateUpdate): void {
+  database.orm.insert(scanScanners).values({
+    scanId,
+    scannerId: update.scannerId,
+    scannerName: update.scannerName,
+    status: update.status,
+    findingCount: update.findingCount ?? 0,
+    durationMs: update.durationMs ?? null,
+    error: update.error ?? null,
+    version: update.version ?? null,
+  }).onConflictDoUpdate({
+    target: [scanScanners.scanId, scanScanners.scannerId],
+    set: {
+      scannerName: update.scannerName,
+      status: update.status,
+      ...(update.findingCount === undefined ? {} : { findingCount: update.findingCount }),
+      ...(update.durationMs === undefined ? {} : { durationMs: update.durationMs }),
+      ...(update.error === undefined ? {} : { error: update.error }),
+      ...(update.version === undefined ? {} : { version: update.version }),
+    },
+  }).run();
+}
+
+export function listScanScanners(database: DatabaseClient, scanId: string): ScanScannerRow[] {
+  return database.orm.select().from(scanScanners).where(eq(scanScanners.scanId, scanId)).all();
+}
+
 export type CompilerMetadataUpdate = {
   status: CompilerStatus;
   constraints?: string[];
@@ -143,7 +187,9 @@ export function updateDependencyState(database: DatabaseClient, id: string, stat
 
 export function markActiveScansInterrupted(database: DatabaseClient): number {
   const active: ScanStatus[] = ["queued", "cloning", "detecting", "preparing_dependencies", "preparing_compiler", "scanning"];
-  return database.orm.update(scans).set({ status: "failed", scannerStatus: "failed", compilerStatus: "failed", dependencyStatus: "failed", completedAt: new Date(), error: "Scan interrupted by application restart." }).where(inArray(scans.status, active)).run().changes;
+  const result = database.orm.update(scans).set({ status: "failed", scannerStatus: "failed", compilerStatus: "failed", dependencyStatus: "failed", completedAt: new Date(), error: "Scan interrupted by application restart." }).where(inArray(scans.status, active)).run().changes;
+  database.sqlite.prepare("UPDATE scan_scanners SET status = 'failed', error = 'Scan interrupted by application restart.' WHERE status IN ('pending', 'available', 'running')").run();
+  return result;
 }
 
 export function insertFindings(database: DatabaseClient, scanId: string, input: NewFinding[]): FindingRow[] {
@@ -179,11 +225,13 @@ export function getFinding(database: DatabaseClient, id: string): FindingRow | u
 export function dashboardStats(database: DatabaseClient) {
   const scanRows = database.orm.select({ status: scans.status, count: sql<number>`count(*)` }).from(scans).groupBy(scans.status).all();
   const severityRows = database.orm.select({ severity: findings.severity, count: sql<number>`count(*)` }).from(findings).groupBy(findings.severity).all();
+  const sourceRows = database.orm.select({ source: findings.source, count: sql<number>`count(*)` }).from(findings).groupBy(findings.source).all();
   return {
     totalScans: scanRows.reduce((sum, item) => sum + item.count, 0),
     completedScans: scanRows.find((item) => item.status === "completed")?.count ?? 0,
     failedScans: scanRows.find((item) => item.status === "failed")?.count ?? 0,
     totalFindings: severityRows.reduce((sum, item) => sum + item.count, 0),
     bySeverity: Object.fromEntries(severityRows.map((item) => [item.severity, item.count])) as Partial<Record<Severity, number>>,
+    bySource: Object.fromEntries(sourceRows.map((item) => [item.source, item.count])) as Record<string, number>,
   };
 }

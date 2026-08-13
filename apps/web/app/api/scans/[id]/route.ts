@@ -1,4 +1,4 @@
-import { getDatabase, getScan, listFindings } from "@contracthunter/db";
+import { getDatabase, getScan, listFindings, listScanScanners } from "@contracthunter/db";
 import { NextResponse } from "next/server";
 import { idSchema } from "@/lib/api";
 
@@ -10,5 +10,5 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
   const database = getDatabase();
   const scan = getScan(database, parsed.data);
   if (!scan) return NextResponse.json({ error: "Scan not found." }, { status: 404 });
-  return NextResponse.json({ scan, findings: listFindings(database, { scanId: scan.id }) });
+  return NextResponse.json({ scan, scanners: listScanScanners(database, scan.id), findings: listFindings(database, { scanId: scan.id }) });
 }

@@ -1,4 +1,4 @@
-import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { integer, primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { compilerStatuses, dependencyStatuses, findingStatuses, frameworks, scannerStatuses, scanDepths, scanStatuses, severities } from "@contracthunter/core";
 
 export const scans = sqliteTable("scans", {
@@ -49,5 +49,17 @@ export const findings = sqliteTable("findings", {
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 
+export const scanScanners = sqliteTable("scan_scanners", {
+  scanId: text("scan_id").notNull().references(() => scans.id, { onDelete: "cascade" }),
+  scannerId: text("scanner_id").notNull(),
+  scannerName: text("scanner_name").notNull(),
+  status: text("status", { enum: scannerStatuses }).notNull(),
+  findingCount: integer("finding_count").notNull().default(0),
+  durationMs: integer("duration_ms"),
+  error: text("error"),
+  version: text("version"),
+}, (table) => [primaryKey({ columns: [table.scanId, table.scannerId] })]);
+
 export type ScanRow = typeof scans.$inferSelect;
 export type FindingRow = typeof findings.$inferSelect;
+export type ScanScannerRow = typeof scanScanners.$inferSelect;

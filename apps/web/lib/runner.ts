@@ -1,6 +1,6 @@
 import { cloneRepository, detectFramework, loadConfig, sanitiseError, type Scanner } from "@contracthunter/core";
-import { getDatabase, getScan, insertFindings, markActiveScansInterrupted, transitionScan, updateCompilerState, updateDependencyState, updateScannerState } from "@contracthunter/db";
-import { DependencyManager, SlitherScanner } from "@contracthunter/scanners";
+import { getDatabase, getScan, insertFindings, markActiveScansInterrupted, transitionScan, updateCompilerState, updateDependencyState, updateScannerState, upsertScanScanner } from "@contracthunter/db";
+import { AderynScanner, DependencyManager, executeScanners, SlitherScanner } from "@contracthunter/scanners";
 
 export interface JobRunner {
   enqueue(scanId: string): void;
@@ -28,6 +28,7 @@ class InProcessJobRunner implements JobRunner {
     const database = getDatabase();
     const config = loadConfig();
     try {
+      for (const scanner of this.scanners) upsertScanScanner(database, scanId, { scannerId: scanner.id, scannerName: scanner.name, status: "pending", findingCount: 0, error: null });
       let scan = transitionScan(database, scanId, "cloning");
       const cloned = await cloneRepository({
         url: scan.repositoryUrl,
@@ -53,23 +54,22 @@ class InProcessJobRunner implements JobRunner {
       });
       await dependencyManager.prepare(cloned.path);
       scan = transitionScan(database, scanId, "preparing_compiler");
-      for (const scanner of this.scanners) {
-        if (!await scanner.isAvailable()) {
-          updateScannerState(database, scanId, scanner.name, "failed");
-          throw new Error(`${scanner.name} is not available in the scanner environment.`);
-        }
-        updateScannerState(database, scanId, scanner.name, "available");
-        updateScannerState(database, scanId, scanner.name, "running");
-        const scannerStarted = Date.now();
-        try {
-          const result = await scanner.scan({ scan, repositoryPath: cloned.path });
-          insertFindings(database, scanId, result.findings);
-          updateScannerState(database, scanId, scanner.name, "completed", result.durationMs ?? Date.now() - scannerStarted);
-        } catch (error) {
-          updateScannerState(database, scanId, scanner.name, "failed", Date.now() - scannerStarted);
-          throw error;
-        }
-      }
+      const executions = await executeScanners({
+        scanners: this.scanners,
+        context: { scan, repositoryPath: cloned.path },
+        onResult: (_scanner, result) => { insertFindings(database, scanId, result.findings); },
+        onState: (event) => {
+          const current = getScan(database, scanId);
+          if (event.status === "running" && current?.status === "preparing_compiler" && event.scannerId === "aderyn") transitionScan(database, scanId, "scanning");
+          upsertScanScanner(database, scanId, event);
+        },
+      });
+      const successful = executions.filter((execution) => execution.status === "completed");
+      const totalDuration = executions.reduce((total, execution) => total + execution.durationMs, 0);
+      updateScannerState(database, scanId, "Slither + Aderyn", successful.length ? "completed" : "failed", totalDuration);
+      if (!successful.length) throw new Error(`All security scanners failed. ${executions.map((execution) => execution.error).filter(Boolean).join(" ")}`);
+      const current = getScan(database, scanId);
+      if (current?.status === "preparing_compiler") transitionScan(database, scanId, "scanning");
       transitionScan(database, scanId, "completed");
     } catch (error) {
       const scan = getScan(database, scanId);
@@ -107,6 +107,11 @@ export function getJobRunner(): JobRunner {
         const scan = getScan(database, scanId);
         if (scan?.status === "preparing_compiler" && (status === "ready" || status === "cached")) transitionScan(database, scanId, "scanning");
       },
+    }), new AderynScanner({
+      workspaceRoot: config.REPOSITORY_DIR,
+      timeoutMs: config.ADERYN_TIMEOUT_MS,
+      maxOutputBytes: config.SCANNER_MAX_OUTPUT_BYTES,
+      toolHomeDir: config.TOOL_HOME_DIR,
     })]);
   }
   return globalRunner.contractHunterRunner;
