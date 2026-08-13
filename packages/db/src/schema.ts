@@ -1,5 +1,5 @@
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
-import { findingStatuses, frameworks, scanDepths, scanStatuses, severities } from "@contracthunter/core";
+import { findingStatuses, frameworks, scannerStatuses, scanDepths, scanStatuses, severities } from "@contracthunter/core";
 
 export const scans = sqliteTable("scans", {
   id: text("id").primaryKey(),
@@ -14,6 +14,9 @@ export const scans = sqliteTable("scans", {
   startedAt: integer("started_at", { mode: "timestamp" }),
   completedAt: integer("completed_at", { mode: "timestamp" }),
   error: text("error"),
+  scannerName: text("scanner_name"),
+  scannerStatus: text("scanner_status", { enum: scannerStatuses }).notNull(),
+  scannerDurationMs: integer("scanner_duration_ms"),
 });
 
 export const findings = sqliteTable("findings", {
@@ -23,6 +26,8 @@ export const findings = sqliteTable("findings", {
   severity: text("severity", { enum: severities }).notNull(),
   confidence: integer("confidence").notNull(),
   source: text("source").notNull(),
+  detectorId: text("detector_id"),
+  fingerprint: text("fingerprint").notNull().unique(),
   contract: text("contract"),
   functionName: text("function_name"),
   filePath: text("file_path"),

@@ -1,6 +1,6 @@
 import { cloneRepository, detectFramework, loadConfig, sanitiseError, type Scanner } from "@contracthunter/core";
-import { getDatabase, getScan, insertFindings, markActiveScansInterrupted, transitionScan } from "@contracthunter/db";
-import { MockScanner } from "@contracthunter/scanners";
+import { getDatabase, getScan, insertFindings, markActiveScansInterrupted, transitionScan, updateScannerState } from "@contracthunter/db";
+import { SlitherScanner } from "@contracthunter/scanners";
 
 export interface JobRunner {
   enqueue(scanId: string): void;
@@ -40,9 +40,21 @@ class InProcessJobRunner implements JobRunner {
       const framework = detectFramework(cloned.path);
       scan = transitionScan(database, scanId, "scanning", { framework });
       for (const scanner of this.scanners) {
-        if (!await scanner.isAvailable()) continue;
-        const result = await scanner.scan({ scan, repositoryPath: cloned.path });
-        insertFindings(database, scanId, result.findings);
+        if (!await scanner.isAvailable()) {
+          updateScannerState(database, scanId, scanner.name, "failed");
+          throw new Error(`${scanner.name} is not available in the scanner environment.`);
+        }
+        updateScannerState(database, scanId, scanner.name, "available");
+        updateScannerState(database, scanId, scanner.name, "running");
+        const scannerStarted = Date.now();
+        try {
+          const result = await scanner.scan({ scan, repositoryPath: cloned.path });
+          insertFindings(database, scanId, result.findings);
+          updateScannerState(database, scanId, scanner.name, "completed", result.durationMs ?? Date.now() - scannerStarted);
+        } catch (error) {
+          updateScannerState(database, scanId, scanner.name, "failed", Date.now() - scannerStarted);
+          throw error;
+        }
       }
       transitionScan(database, scanId, "completed");
     } catch (error) {
@@ -59,6 +71,13 @@ class InProcessJobRunner implements JobRunner {
 const globalRunner = globalThis as typeof globalThis & { contractHunterRunner?: InProcessJobRunner };
 
 export function getJobRunner(): JobRunner {
-  if (!globalRunner.contractHunterRunner) globalRunner.contractHunterRunner = new InProcessJobRunner([new MockScanner()]);
+  if (!globalRunner.contractHunterRunner) {
+    const config = loadConfig();
+    globalRunner.contractHunterRunner = new InProcessJobRunner([new SlitherScanner({
+      workspaceRoot: config.REPOSITORY_DIR,
+      timeoutMs: config.SLITHER_TIMEOUT_MS,
+      maxOutputBytes: config.SCANNER_MAX_OUTPUT_BYTES,
+    })]);
+  }
   return globalRunner.contractHunterRunner;
 }

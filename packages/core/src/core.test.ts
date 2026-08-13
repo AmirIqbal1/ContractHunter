@@ -45,6 +45,7 @@ describe("finding validation", () => {
     const base = {
       id: crypto.randomUUID(), scanId: crypto.randomUUID(), title: "Test", severity: "high", confidence: 101,
       source: "test", contract: null, functionName: null, filePath: null, startLine: 10, endLine: 2,
+      detectorId: "test-detector", fingerprint: "a".repeat(64),
       rootCause: "Cause", attackScenario: "Scenario", impact: "Impact", evidence: "Evidence", status: "candidate", createdAt: new Date(),
     };
     expect(findingSchema.safeParse(base).success).toBe(false);
@@ -54,7 +55,7 @@ describe("finding validation", () => {
 describe("configuration validation", () => {
   it("requires repository and database paths to remain under DATA_DIR", () => {
     mkdirSync("/tmp/contracthunter-config-test", { recursive: true });
-    const valid = { NODE_ENV: "test", DATA_DIR: "/tmp/contracthunter-config-test", REPOSITORY_DIR: "/tmp/contracthunter-config-test/repos", DATABASE_PATH: "/tmp/contracthunter-config-test/db.sqlite", GIT_CLONE_TIMEOUT_MS: 10_000 };
+    const valid = { NODE_ENV: "test", DATA_DIR: "/tmp/contracthunter-config-test", REPOSITORY_DIR: "/tmp/contracthunter-config-test/repos", DATABASE_PATH: "/tmp/contracthunter-config-test/db.sqlite", GIT_CLONE_TIMEOUT_MS: 10_000, SLITHER_TIMEOUT_MS: 300_000, SCANNER_MAX_OUTPUT_BYTES: 20_971_520 };
     expect(configSchema.safeParse(valid).success).toBe(true);
     expect(configSchema.safeParse({ ...valid, REPOSITORY_DIR: "/tmp/outside" }).success).toBe(false);
   });

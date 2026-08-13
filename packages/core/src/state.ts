@@ -18,6 +18,6 @@ export function assertTransition(from: ScanStatus, to: ScanStatus): void {
 }
 
 export function sanitiseError(error: unknown): string {
-  const raw = error instanceof Error ? error.message : "An unexpected scan error occurred.";
+  const raw = error instanceof Error ? error.message : typeof error === "string" ? error : "An unexpected scan error occurred.";
   return raw.replace(/https?:\/\/[^\s@]+@/g, "https://").replace(/[\r\n\t]+/g, " ").slice(0, 500);
 }

@@ -1,4 +1,5 @@
 import type { NewFinding, Scanner, ScannerResult, ScanContext } from "@contracthunter/core";
+import { createHash } from "node:crypto";
 
 const mockFindings: NewFinding[] = [
   {
@@ -6,6 +7,8 @@ const mockFindings: NewFinding[] = [
     severity: "high",
     confidence: 82,
     source: "mock-scanner",
+    detectorId: "mock-reentrancy",
+    fingerprint: "pending",
     contract: "ExampleVault",
     functionName: "withdraw",
     filePath: "contracts/ExampleVault.sol",
@@ -22,6 +25,8 @@ const mockFindings: NewFinding[] = [
     severity: "medium",
     confidence: 68,
     source: "mock-scanner",
+    detectorId: "mock-access-control",
+    fingerprint: "pending",
     contract: "ExampleTreasury",
     functionName: "setRecipient",
     filePath: "contracts/ExampleTreasury.sol",
@@ -38,6 +43,8 @@ const mockFindings: NewFinding[] = [
     severity: "informational",
     confidence: 91,
     source: "mock-scanner",
+    detectorId: "mock-pragma",
+    fingerprint: "pending",
     contract: null,
     functionName: null,
     filePath: "contracts/ExampleToken.sol",
@@ -61,6 +68,6 @@ export class MockScanner implements Scanner {
 
   async scan(context: ScanContext): Promise<ScannerResult> {
     void context;
-    return { scannerId: this.id, findings: mockFindings.map((finding) => ({ ...finding })), warnings: ["Mock scanner enabled: results are demonstration data only."] };
+    return { scannerId: this.id, findings: mockFindings.map((finding) => ({ ...finding, fingerprint: createHash("sha256").update(`${context.scan.id}:${finding.detectorId}`).digest("hex") })), warnings: ["Mock scanner enabled: results are demonstration data only."] };
   }
 }

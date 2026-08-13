@@ -5,12 +5,14 @@ export const frameworks = ["foundry", "hardhat", "unknown"] as const;
 export const scanDepths = ["quick", "deep", "maximum"] as const;
 export const findingStatuses = ["candidate", "investigating", "verified", "rejected"] as const;
 export const severities = ["critical", "high", "medium", "low", "informational"] as const;
+export const scannerStatuses = ["pending", "available", "running", "completed", "failed"] as const;
 
 export type ScanStatus = (typeof scanStatuses)[number];
 export type Framework = (typeof frameworks)[number];
 export type ScanDepth = (typeof scanDepths)[number];
 export type FindingStatus = (typeof findingStatuses)[number];
 export type Severity = (typeof severities)[number];
+export type ScannerStatus = (typeof scannerStatuses)[number];
 
 export const scanSchema = z.object({
   id: z.string().uuid(),
@@ -25,6 +27,9 @@ export const scanSchema = z.object({
   startedAt: z.date().nullable(),
   completedAt: z.date().nullable(),
   error: z.string().nullable(),
+  scannerName: z.string().nullable(),
+  scannerStatus: z.enum(scannerStatuses),
+  scannerDurationMs: z.number().int().nonnegative().nullable(),
 });
 
 export const findingSchema = z.object({
@@ -34,14 +39,16 @@ export const findingSchema = z.object({
   severity: z.enum(severities),
   confidence: z.number().min(0).max(100),
   source: z.string().min(1).max(100),
+  detectorId: z.string().max(200).nullable(),
+  fingerprint: z.string().min(1).max(64),
   contract: z.string().max(200).nullable(),
   functionName: z.string().max(200).nullable(),
   filePath: z.string().max(1000).nullable(),
   startLine: z.number().int().positive().nullable(),
   endLine: z.number().int().positive().nullable(),
   rootCause: z.string().min(1),
-  attackScenario: z.string().min(1),
-  impact: z.string().min(1),
+  attackScenario: z.string(),
+  impact: z.string(),
   evidence: z.string().min(1),
   status: z.enum(findingStatuses),
   createdAt: z.date(),
@@ -71,6 +78,7 @@ export interface ScannerResult {
   scannerId: string;
   findings: NewFinding[];
   warnings: string[];
+  durationMs?: number;
 }
 
 export interface Scanner {

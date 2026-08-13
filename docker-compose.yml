@@ -8,6 +8,8 @@ services:
       REPOSITORY_DIR: /data/repositories
       DATABASE_PATH: /data/contracthunter.db
       GIT_CLONE_TIMEOUT_MS: 120000
+      SLITHER_TIMEOUT_MS: 300000
+      SCANNER_MAX_OUTPUT_BYTES: 20971520
     volumes:
       - contracthunter-data:/data
     init: true

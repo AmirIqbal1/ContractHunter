@@ -19,7 +19,6 @@ export default async function HuntPage({ params }: { params: Promise<{ id: strin
   return <>
     <ScanPoller active={active} />
     <header className="page-head"><div><div className="eyebrow">Hunt / {scan.id.slice(0, 8)}</div><h1>{scan.repositoryName}</h1><p className="subhead mono">{scan.repositoryUrl}</p></div><ScanBadge value={scan.status} /></header>
-    <div className="mock-note">Mock scanner active — all findings below are demonstration data, not security conclusions about this repository.</div>
     {scan.error && <div className="error"><strong>Hunt failed:</strong> {scan.error}</div>}
     <section className="card">
       <dl className="details">
@@ -34,6 +33,7 @@ export default async function HuntPage({ params }: { params: Promise<{ id: strin
       </dl>
       <div className="progress-track"><div className="progress-bar" style={{ width: `${progress[scan.status]}%`, background: scan.status === "failed" ? "#ff6767" : undefined }} /></div>
     </section>
+    <section className="section"><div className="section-head"><h2>Scanner</h2></div><div className="card"><dl className="details"><div className="detail"><dt>Name</dt><dd>{scan.scannerName ?? "Slither"}</dd></div><div className="detail"><dt>Status</dt><dd><span className={`badge ${scan.scannerStatus === "completed" || scan.scannerStatus === "available" ? "green" : scan.scannerStatus === "failed" ? "red" : scan.scannerStatus === "running" ? "purple" : "gray"}`}>{scan.scannerStatus}</span></dd></div><div className="detail"><dt>Findings</dt><dd>{found.length}</dd></div><div className="detail"><dt>Duration</dt><dd>{scan.scannerDurationMs === null ? "—" : `${(scan.scannerDurationMs / 1000).toFixed(2)}s`}</dd></div></dl></div></section>
     <section className="section"><div className="section-head"><h2>Findings</h2><span className="muted mono" style={{ fontSize: 11 }}>{found.length} RESULTS</span></div><div className="table-wrap"><table><thead><tr><th>Severity</th><th>Finding</th><th>Contract</th><th>Source</th><th>Confidence</th><th>Status</th></tr></thead><tbody>{found.map((finding) => <tr key={finding.id}><td><SeverityBadge value={finding.severity} /></td><td className="finding-title"><Link className="repo" href={`/findings/${finding.id}`}>{finding.title}</Link></td><td className="mono">{finding.contract ?? "—"}</td><td>{finding.source}</td><td>{finding.confidence}%</td><td><FindingStatusBadge value={finding.status} /></td></tr>)}{found.length === 0 && <tr><td colSpan={6} className="empty">{active ? "The scan pipeline is running…" : "No findings were produced."}</td></tr>}</tbody></table></div></section>
   </>;
 }

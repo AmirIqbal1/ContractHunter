@@ -4,7 +4,7 @@ import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/better-sqlite3";
-import type { CreateScanInput, FindingStatus, NewFinding, ScanStatus, Severity } from "@contracthunter/core";
+import type { CreateScanInput, FindingStatus, NewFinding, ScannerStatus, ScanStatus, Severity } from "@contracthunter/core";
 import { assertTransition, findingSchema, loadConfig, scanSchema } from "@contracthunter/core";
 import { findings, scans, type FindingRow, type ScanRow } from "./schema";
 
@@ -21,17 +21,29 @@ export function createDatabase(databasePath: string) {
     CREATE TABLE IF NOT EXISTS scans (
       id TEXT PRIMARY KEY, repository_url TEXT NOT NULL, repository_name TEXT NOT NULL,
       requested_ref TEXT, resolved_commit TEXT, status TEXT NOT NULL, framework TEXT NOT NULL,
-      depth TEXT NOT NULL, created_at INTEGER NOT NULL, started_at INTEGER, completed_at INTEGER, error TEXT
+      depth TEXT NOT NULL, created_at INTEGER NOT NULL, started_at INTEGER, completed_at INTEGER, error TEXT,
+      scanner_name TEXT, scanner_status TEXT NOT NULL DEFAULT 'pending', scanner_duration_ms INTEGER
     );
     CREATE TABLE IF NOT EXISTS findings (
       id TEXT PRIMARY KEY, scan_id TEXT NOT NULL REFERENCES scans(id) ON DELETE CASCADE,
       title TEXT NOT NULL, severity TEXT NOT NULL, confidence INTEGER NOT NULL, source TEXT NOT NULL,
+      detector_id TEXT, fingerprint TEXT,
       contract TEXT, function_name TEXT, file_path TEXT, start_line INTEGER, end_line INTEGER,
       root_cause TEXT NOT NULL, attack_scenario TEXT NOT NULL, impact TEXT NOT NULL, evidence TEXT NOT NULL,
       status TEXT NOT NULL, created_at INTEGER NOT NULL
     );
+  `);
+  const scanColumns = new Set((sqlite.prepare("PRAGMA table_info(scans)").all() as Array<{ name: string }>).map((column) => column.name));
+  if (!scanColumns.has("scanner_name")) sqlite.exec("ALTER TABLE scans ADD COLUMN scanner_name TEXT");
+  if (!scanColumns.has("scanner_status")) sqlite.exec("ALTER TABLE scans ADD COLUMN scanner_status TEXT NOT NULL DEFAULT 'pending'");
+  if (!scanColumns.has("scanner_duration_ms")) sqlite.exec("ALTER TABLE scans ADD COLUMN scanner_duration_ms INTEGER");
+  const findingColumns = new Set((sqlite.prepare("PRAGMA table_info(findings)").all() as Array<{ name: string }>).map((column) => column.name));
+  if (!findingColumns.has("detector_id")) sqlite.exec("ALTER TABLE findings ADD COLUMN detector_id TEXT");
+  if (!findingColumns.has("fingerprint")) sqlite.exec("ALTER TABLE findings ADD COLUMN fingerprint TEXT");
+  sqlite.exec(`
     CREATE INDEX IF NOT EXISTS findings_scan_id_idx ON findings(scan_id);
     CREATE INDEX IF NOT EXISTS findings_filters_idx ON findings(severity, status, source);
+    CREATE UNIQUE INDEX IF NOT EXISTS findings_fingerprint_idx ON findings(fingerprint) WHERE fingerprint IS NOT NULL;
     CREATE INDEX IF NOT EXISTS scans_created_at_idx ON scans(created_at);
   `);
   const orm = drizzle(sqlite, { schema: { scans, findings } });
@@ -53,6 +65,7 @@ export function createScan(database: DatabaseClient, input: CreateScanInput & { 
     id: randomUUID(), repositoryUrl: input.repositoryUrl, repositoryName: input.repositoryName,
     requestedRef: input.requestedRef ?? null, resolvedCommit: null, status: "queued", framework: "unknown",
     depth: input.depth, createdAt: new Date(), startedAt: null, completedAt: null, error: null,
+    scannerName: "Slither", scannerStatus: "pending", scannerDurationMs: null,
   };
   scanSchema.parse(row);
   database.orm.insert(scans).values(row).run();
@@ -85,9 +98,13 @@ export function updateScanMetadata(database: DatabaseClient, id: string, fields:
   database.orm.update(scans).set(fields).where(eq(scans.id, id)).run();
 }
 
+export function updateScannerState(database: DatabaseClient, id: string, scannerName: string, scannerStatus: ScannerStatus, scannerDurationMs?: number): void {
+  database.orm.update(scans).set({ scannerName, scannerStatus, ...(scannerDurationMs === undefined ? {} : { scannerDurationMs }) }).where(eq(scans.id, id)).run();
+}
+
 export function markActiveScansInterrupted(database: DatabaseClient): number {
   const active: ScanStatus[] = ["queued", "cloning", "detecting", "scanning"];
-  return database.orm.update(scans).set({ status: "failed", completedAt: new Date(), error: "Scan interrupted by application restart." }).where(inArray(scans.status, active)).run().changes;
+  return database.orm.update(scans).set({ status: "failed", scannerStatus: "failed", completedAt: new Date(), error: "Scan interrupted by application restart." }).where(inArray(scans.status, active)).run().changes;
 }
 
 export function insertFindings(database: DatabaseClient, scanId: string, input: NewFinding[]): FindingRow[] {
@@ -96,8 +113,13 @@ export function insertFindings(database: DatabaseClient, scanId: string, input: 
     findingSchema.parse(row);
     return row;
   });
-  if (rows.length) database.orm.insert(findings).values(rows).run();
-  return rows;
+  if (!rows.length) return [];
+  database.orm.insert(findings).values(rows).onConflictDoNothing().run();
+  return rows.filter((row) => getFindingByFingerprint(database, row.fingerprint)?.id === row.id);
+}
+
+function getFindingByFingerprint(database: DatabaseClient, fingerprint: string): FindingRow | undefined {
+  return database.orm.select().from(findings).where(eq(findings.fingerprint, fingerprint)).get();
 }
 
 export type FindingFilters = { scanId?: string; severity?: Severity; source?: string; status?: FindingStatus };

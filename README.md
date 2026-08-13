@@ -1,22 +1,24 @@
 # ContractHunter
 
-ContractHunter is a locally hosted smart-contract security analysis workstation. V0.1 accepts an authorised GitHub Solidity repository, clones an exact revision without executing repository code, detects Foundry or Hardhat, and passes the repository through an extensible scanner pipeline.
+ContractHunter is a locally hosted smart-contract security analysis workstation. V0.1.1 accepts an authorised GitHub Solidity repository, clones an exact revision without executing repository setup scripts, detects Foundry or Hardhat, and performs real static analysis with Slither.
 
 > [!WARNING]
 > **ContractHunter must only be used against smart contracts and repositories the user is authorised to analyse. Repository content is treated as untrusted.**
 
-## V0.1 capabilities
+## V0.1.1 capabilities
 
 - Dark, responsive dashboard, new-hunt flow, scan progress, filtered findings, and finding detail pages
 - GitHub HTTPS repository validation with optional branch, tag, or commit selection
 - Exact scanned commit capture and passive Foundry/Hardhat detection
 - SQLite persistence through Drizzle ORM
 - Lightweight in-process background job runner with interrupted-job recovery
-- Extensible `Scanner` interface and a harmless mock scanner for end-to-end testing
+- Real Slither static analysis behind an extensible `Scanner` interface
+- Tolerant Slither JSON parsing, repository-relative source locations, and detector/location deduplication
+- Per-scan scanner availability, execution status, finding count, and duration reporting
 - Validated JSON endpoints and a container health endpoint
 - Docker-first operation with a persistent `/data` volume and non-root runtime
 
-The mock scanner deliberately returns obvious `[MOCK]` findings. It does not inspect Solidity and its output is not a security assessment. Scan depth is stored but does not change behaviour in V0.1.
+The production pipeline clones the repository, detects its framework without executing it, invokes Slither with bounded output and execution time, normalises detector results into ContractHunter findings, and displays them throughout the existing dashboard and review pages. The mock scanner remains only as an automated test fixture. Scan depth is stored but does not change behaviour in V0.1.1.
 
 ## Architecture
 
@@ -26,7 +28,7 @@ The Next.js process hosts the UI, route handlers, and a deliberately small in-pr
 apps/web/              Next.js UI, API routes, and job-runner adapter
 packages/core/         Domain models, Zod schemas, config, git safety, state machine
 packages/db/           Drizzle schema and SQLite repository functions
-packages/scanners/     Scanner implementations (mock only in V0.1)
+packages/scanners/     Slither integration, bounded process runner, parser, test mock
 data/                  Local database and cloned repositories (gitignored)
 Dockerfile             Multi-stage, non-root production image
 docker-compose.yml     Application and persistent data volume
@@ -76,14 +78,19 @@ npm start
 
 ## Security assumptions
 
-- Repository content is hostile input. V0.1 never runs package managers, build tools, project scripts, Solidity compilers, or commands derived from repository files.
+- Repository content is hostile input. ContractHunter never runs package managers, dependency installers, or project scripts. V0.1.1 runs only Git and the explicitly configured Slither command with fixed argument arrays.
 - Git is launched directly with argument arrays, terminal prompting disabled, and a bounded timeout. URLs are restricted to GitHub HTTPS owner/repository paths; refs are validated before use.
 - Every clone destination is derived from a generated scan UUID and checked to remain below `REPOSITORY_DIR`.
 - Errors returned to the UI are length-limited, flattened, and stripped of URL credentials. Secrets should not be placed in repository URLs or refs.
 - ContractHunter is a single-user local tool. It has no authentication and should not be exposed directly to an untrusted network.
 - The in-process runner is intentionally single-instance infrastructure. Active scans are marked failed as interrupted after a process restart; jobs are not resumed.
+- Slither may invoke its supported Solidity compilation tooling to analyse source, but ContractHunter does not install repository dependencies or execute repository setup commands.
 - The production container runs as the unprivileged `node` user, drops Linux capabilities, and persists only `/data`.
+
+## Current compiler limitation
+
+ContractHunter does not yet automatically install missing project dependencies or select/install arbitrary Solidity compiler versions. If a repository cannot be compiled with the dependencies and compiler tooling already available to Slither, the hunt fails with a short actionable error. This is intentional: ContractHunter will not run `npm install`, `yarn`, `pnpm`, `forge install`, or repository-provided setup scripts.
 
 ## Roadmap
 
-Future scanner implementations may integrate Slither, Aderyn, AI-assisted review, Foundry proof-of-concepts, fuzzing, and Echidna. Those integrations, bounty scraping, live chain access, wallets, authentication, and automatic PoCs are intentionally outside V0.1.
+Future scanner implementations may integrate Aderyn, AI-assisted review, Foundry proof-of-concepts, fuzzing, and Echidna. Those integrations, bounty scraping, live chain access, wallets, authentication, automatic compiler management, and automatic PoCs are intentionally outside V0.1.1.

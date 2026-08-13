@@ -20,6 +20,7 @@ RUN npm run build
 
 FROM node:22-bookworm-slim AS runner
 WORKDIR /app
+ARG SLITHER_VERSION=0.11.3
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV HOSTNAME=0.0.0.0
@@ -28,7 +29,15 @@ ENV DATA_DIR=/data
 ENV REPOSITORY_DIR=/data/repositories
 ENV DATABASE_PATH=/data/contracthunter.db
 ENV GIT_CLONE_TIMEOUT_MS=120000
-RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates && rm -rf /var/lib/apt/lists/* && mkdir -p /data/repositories && chown -R node:node /data
+ENV SLITHER_TIMEOUT_MS=300000
+ENV SCANNER_MAX_OUTPUT_BYTES=20971520
+ENV PATH="/opt/slither/bin:${PATH}"
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates python3 python3-venv && rm -rf /var/lib/apt/lists/* \
+  && python3 -m venv /opt/slither \
+  && /opt/slither/bin/pip install --no-cache-dir "slither-analyzer==${SLITHER_VERSION}" \
+  && slither --version \
+  && mkdir -p /data/repositories /home/node \
+  && chown -R node:node /data /home/node
 COPY --from=builder --chown=node:node /app/apps/web/.next/standalone ./
 COPY --from=builder --chown=node:node /app/apps/web/.next/static ./apps/web/.next/static
 USER node
