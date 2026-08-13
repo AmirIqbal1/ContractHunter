@@ -46,7 +46,7 @@ export const runBoundedProcess: ProcessRunner = (request) => new Promise((resolv
   const capture = (target: Buffer[], chunk: Buffer, stream: "stdout" | "stderr") => {
     if (stream === "stdout") stdoutBytes += chunk.length;
     else stderrBytes += chunk.length;
-    if (stdoutBytes > request.maxOutputBytes || stderrBytes > request.maxOutputBytes) {
+    if (stdoutBytes + stderrBytes > request.maxOutputBytes) {
       oversized = true;
       child.kill("SIGKILL");
       return;

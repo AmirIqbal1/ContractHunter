@@ -10,6 +10,10 @@ services:
       GIT_CLONE_TIMEOUT_MS: 120000
       SLITHER_TIMEOUT_MS: 300000
       SCANNER_MAX_OUTPUT_BYTES: 20971520
+      SOLC_INSTALL_TIMEOUT_MS: 120000
+      MAX_SOLC_VERSIONS_PER_SCAN: 8
+      ALLOW_COMPILER_DOWNLOADS: "true"
+      TOOL_HOME_DIR: /data/tool-home
     volumes:
       - contracthunter-data:/data
     init: true

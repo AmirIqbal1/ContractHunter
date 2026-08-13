@@ -31,12 +31,19 @@ ENV DATABASE_PATH=/data/contracthunter.db
 ENV GIT_CLONE_TIMEOUT_MS=120000
 ENV SLITHER_TIMEOUT_MS=300000
 ENV SCANNER_MAX_OUTPUT_BYTES=20971520
-ENV PATH="/opt/slither/bin:${PATH}"
+ENV SOLC_INSTALL_TIMEOUT_MS=120000
+ENV MAX_SOLC_VERSIONS_PER_SCAN=8
+ENV ALLOW_COMPILER_DOWNLOADS=true
+ENV TOOL_HOME_DIR=/data/tool-home
+ENV PATH="/usr/local/bin:/opt/slither/bin:${PATH}"
+COPY docker/solc-select-wrapper.py /usr/local/bin/solc-select
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates python3 python3-venv && rm -rf /var/lib/apt/lists/* \
   && python3 -m venv /opt/slither \
   && /opt/slither/bin/pip install --no-cache-dir "slither-analyzer==${SLITHER_VERSION}" \
+  && chmod 755 /usr/local/bin/solc-select \
   && slither --version \
-  && mkdir -p /data/repositories /home/node \
+  && solc-select --version \
+  && mkdir -p /data/repositories /data/tool-home /home/node \
   && chown -R node:node /data /home/node
 COPY --from=builder --chown=node:node /app/apps/web/.next/standalone ./
 COPY --from=builder --chown=node:node /app/apps/web/.next/static ./apps/web/.next/static

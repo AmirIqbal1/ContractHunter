@@ -11,13 +11,19 @@ export const configSchema = z.object({
   GIT_CLONE_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(600_000).default(120_000),
   SLITHER_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(1_800_000).default(300_000),
   SCANNER_MAX_OUTPUT_BYTES: z.coerce.number().int().min(1_024).max(104_857_600).default(20_971_520),
+  SOLC_INSTALL_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(600_000).default(120_000),
+  MAX_SOLC_VERSIONS_PER_SCAN: z.coerce.number().int().min(1).max(32).default(8),
+  ALLOW_COMPILER_DOWNLOADS: z.enum(["true", "false"]).default("true").transform((value) => value === "true"),
+  TOOL_HOME_DIR: absolutePath,
 }).superRefine((config, context) => {
   const data = path.resolve(config.DATA_DIR);
   const repo = path.resolve(config.REPOSITORY_DIR);
   const database = path.resolve(config.DATABASE_PATH);
+  const toolHome = path.resolve(config.TOOL_HOME_DIR);
   const inside = (candidate: string) => candidate === data || candidate.startsWith(`${data}${path.sep}`);
   if (!inside(repo)) context.addIssue({ code: "custom", path: ["REPOSITORY_DIR"], message: "must be inside DATA_DIR" });
   if (!inside(database)) context.addIssue({ code: "custom", path: ["DATABASE_PATH"], message: "must be inside DATA_DIR" });
+  if (!inside(toolHome)) context.addIssue({ code: "custom", path: ["TOOL_HOME_DIR"], message: "must be inside DATA_DIR" });
 });
 
 export type AppConfig = z.infer<typeof configSchema>;
@@ -32,5 +38,9 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppCon
     GIT_CLONE_TIMEOUT_MS: environment.GIT_CLONE_TIMEOUT_MS,
     SLITHER_TIMEOUT_MS: environment.SLITHER_TIMEOUT_MS,
     SCANNER_MAX_OUTPUT_BYTES: environment.SCANNER_MAX_OUTPUT_BYTES,
+    SOLC_INSTALL_TIMEOUT_MS: environment.SOLC_INSTALL_TIMEOUT_MS,
+    MAX_SOLC_VERSIONS_PER_SCAN: environment.MAX_SOLC_VERSIONS_PER_SCAN,
+    ALLOW_COMPILER_DOWNLOADS: environment.ALLOW_COMPILER_DOWNLOADS,
+    TOOL_HOME_DIR: environment.TOOL_HOME_DIR ?? path.join(localData, "tool-home"),
   });
 }

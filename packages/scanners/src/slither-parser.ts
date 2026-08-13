@@ -91,16 +91,63 @@ function safeRelativeFile(repositoryPath: string, filename: string | undefined):
   return relative && !relative.startsWith("..") && !path.isAbsolute(relative) ? relative.split(path.sep).join("/") : null;
 }
 
+type SourceMapping = {
+  filenameRelative?: string;
+  filenameShort?: string;
+  lines: number[];
+};
+
+function sourceMappingOf(element: unknown): SourceMapping | null {
+  if (!element || typeof element !== "object") return null;
+  const mapping = (element as Record<string, unknown>).source_mapping;
+  if (!mapping || typeof mapping !== "object") return null;
+  const value = mapping as Record<string, unknown>;
+  return {
+    filenameRelative: typeof value.filename_relative === "string" ? value.filename_relative : undefined,
+    filenameShort: typeof value.filename_short === "string" ? value.filename_short : undefined,
+    lines: Array.isArray(value.lines)
+      ? value.lines.filter((line): line is number => Number.isInteger(line) && Number(line) > 0)
+      : [],
+  };
+}
+
+function directParentName(element: unknown): string | null {
+  if (!element || typeof element !== "object") return null;
+  const fields = (element as Record<string, unknown>).type_specific_fields;
+  if (!fields || typeof fields !== "object") return null;
+  const parent = (fields as Record<string, unknown>).parent;
+  if (!parent || typeof parent !== "object") return null;
+  const name = (parent as Record<string, unknown>).name;
+  return typeof name === "string" ? name : null;
+}
+
 function location(detector: SlitherDetector, repositoryPath: string) {
-  const functionElement = detector.elements.find((element) => ["function", "modifier"].includes(element.type?.toLowerCase() ?? ""));
-  const contractElement = detector.elements.find((element) => element.type?.toLowerCase() === "contract");
-  const located = [functionElement, ...detector.elements].find((element) => element?.source_mapping?.filename_relative || element?.source_mapping?.filename_short);
-  const mapping = located?.source_mapping;
+  const ancestry = detector.elements.flatMap((element) => {
+    const chain: Array<Record<string, unknown>> = [element];
+    let current: unknown = element;
+    for (let depth = 0; depth < 8; depth++) {
+      if (!current || typeof current !== "object") break;
+      const fields = (current as Record<string, unknown>).type_specific_fields;
+      if (!fields || typeof fields !== "object") break;
+      const parent = (fields as Record<string, unknown>).parent;
+      if (!parent || typeof parent !== "object") break;
+      chain.push(parent as Record<string, unknown>);
+      current = parent;
+    }
+    return chain;
+  });
+  const functionElement = ancestry.find((element) => ["function", "modifier"].includes(typeof element.type === "string" ? element.type.toLowerCase() : ""));
+  const contractElement = ancestry.find((element) => (typeof element.type === "string" ? element.type.toLowerCase() : "") === "contract");
+  const located = [functionElement, ...detector.elements].find((element) => {
+    const mapping = sourceMappingOf(element);
+    return mapping?.filenameRelative || mapping?.filenameShort;
+  });
+  const mapping = sourceMappingOf(located);
   const lines = mapping?.lines ?? [];
   return {
-    contract: functionElement?.type_specific_fields?.parent?.name ?? contractElement?.name ?? null,
-    functionName: functionElement?.name ?? null,
-    filePath: safeRelativeFile(repositoryPath, mapping?.filename_relative ?? mapping?.filename_short),
+    contract: typeof contractElement?.name === "string" ? contractElement.name : directParentName(functionElement),
+    functionName: typeof functionElement?.name === "string" ? functionElement.name : null,
+    filePath: safeRelativeFile(repositoryPath, mapping?.filenameRelative ?? mapping?.filenameShort),
     startLine: lines.length ? Math.min(...lines) : null,
     endLine: lines.length ? Math.max(...lines) : null,
   };

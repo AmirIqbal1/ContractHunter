@@ -1,8 +1,12 @@
 {
   "name": "@contracthunter/scanners",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "type": "module",
   "exports": { ".": "./src/index.ts" },
-  "dependencies": { "@contracthunter/core": "*" }
+  "dependencies": {
+    "@contracthunter/core": "*",
+    "semver": "^7.7.3",
+    "smol-toml": "^1.6.0"
+  }
 }

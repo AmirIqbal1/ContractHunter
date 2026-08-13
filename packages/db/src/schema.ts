@@ -1,5 +1,5 @@
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
-import { findingStatuses, frameworks, scannerStatuses, scanDepths, scanStatuses, severities } from "@contracthunter/core";
+import { compilerStatuses, findingStatuses, frameworks, scannerStatuses, scanDepths, scanStatuses, severities } from "@contracthunter/core";
 
 export const scans = sqliteTable("scans", {
   id: text("id").primaryKey(),
@@ -17,6 +17,11 @@ export const scans = sqliteTable("scans", {
   scannerName: text("scanner_name"),
   scannerStatus: text("scanner_status", { enum: scannerStatuses }).notNull(),
   scannerDurationMs: integer("scanner_duration_ms"),
+  compilerConstraints: text("compiler_constraints"),
+  compilerVersions: text("compiler_versions"),
+  compilerDetectionSource: text("compiler_detection_source", { enum: ["foundry-config", "pragma"] }),
+  compilerStatus: text("compiler_status", { enum: compilerStatuses }).notNull(),
+  compilerError: text("compiler_error"),
 });
 
 export const findings = sqliteTable("findings", {

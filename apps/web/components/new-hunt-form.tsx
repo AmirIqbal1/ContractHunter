@@ -20,11 +20,11 @@ export function NewHuntForm() {
   }
 
   return <form className="card form-card" onSubmit={submit}>
-    <div className="mock-note">Slither must be able to compile the repository using dependencies and compiler tooling already present in the scanner environment.</div>
+    <div className="mock-note">ContractHunter detects and prepares trusted Solidity compilers automatically. Project dependencies must already exist in the repository.</div>
     {error && <div className="error">{error}</div>}
     <div className="field"><label htmlFor="repositoryUrl">GitHub repository URL</label><input required id="repositoryUrl" name="repositoryUrl" type="url" placeholder="https://github.com/owner/repository" autoComplete="off" /><span className="hint">Only GitHub HTTPS repository URLs are accepted.</span></div>
     <div className="field"><label htmlFor="requestedRef">Branch, tag, or commit <span className="muted">(optional)</span></label><input id="requestedRef" name="requestedRef" placeholder="main" autoComplete="off" /><span className="hint">Leave blank to scan the repository&apos;s default branch.</span></div>
-    <div className="field"><label htmlFor="depth">Scan depth</label><select id="depth" name="depth" defaultValue="quick"><option value="quick">Quick</option><option value="deep">Deep</option><option value="maximum">Maximum</option></select><span className="hint">Depth is recorded in V0.1.1; all options currently run the same Slither analysis.</span></div>
+    <div className="field"><label htmlFor="depth">Scan depth</label><select id="depth" name="depth" defaultValue="quick"><option value="quick">Quick</option><option value="deep">Deep</option><option value="maximum">Maximum</option></select><span className="hint">Depth is recorded in V0.1.2; all options currently run the same Slither analysis.</span></div>
     <button className="button" disabled={submitting}>{submitting ? "QUEUING…" : "START HUNT"}</button>
   </form>;
 }

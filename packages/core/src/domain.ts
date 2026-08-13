@@ -6,6 +6,7 @@ export const scanDepths = ["quick", "deep", "maximum"] as const;
 export const findingStatuses = ["candidate", "investigating", "verified", "rejected"] as const;
 export const severities = ["critical", "high", "medium", "low", "informational"] as const;
 export const scannerStatuses = ["pending", "available", "running", "completed", "failed"] as const;
+export const compilerStatuses = ["pending", "detecting", "downloading", "cached", "ready", "failed"] as const;
 
 export type ScanStatus = (typeof scanStatuses)[number];
 export type Framework = (typeof frameworks)[number];
@@ -13,6 +14,7 @@ export type ScanDepth = (typeof scanDepths)[number];
 export type FindingStatus = (typeof findingStatuses)[number];
 export type Severity = (typeof severities)[number];
 export type ScannerStatus = (typeof scannerStatuses)[number];
+export type CompilerStatus = (typeof compilerStatuses)[number];
 
 export const scanSchema = z.object({
   id: z.string().uuid(),
@@ -30,6 +32,11 @@ export const scanSchema = z.object({
   scannerName: z.string().nullable(),
   scannerStatus: z.enum(scannerStatuses),
   scannerDurationMs: z.number().int().nonnegative().nullable(),
+  compilerConstraints: z.string().nullable(),
+  compilerVersions: z.string().nullable(),
+  compilerDetectionSource: z.enum(["foundry-config", "pragma"]).nullable(),
+  compilerStatus: z.enum(compilerStatuses),
+  compilerError: z.string().nullable(),
 });
 
 export const findingSchema = z.object({

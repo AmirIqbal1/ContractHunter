@@ -1,5 +1,5 @@
 import { cloneRepository, detectFramework, loadConfig, sanitiseError, type Scanner } from "@contracthunter/core";
-import { getDatabase, getScan, insertFindings, markActiveScansInterrupted, transitionScan, updateScannerState } from "@contracthunter/db";
+import { getDatabase, getScan, insertFindings, markActiveScansInterrupted, transitionScan, updateCompilerState, updateScannerState } from "@contracthunter/db";
 import { SlitherScanner } from "@contracthunter/scanners";
 
 export interface JobRunner {
@@ -77,6 +77,17 @@ export function getJobRunner(): JobRunner {
       workspaceRoot: config.REPOSITORY_DIR,
       timeoutMs: config.SLITHER_TIMEOUT_MS,
       maxOutputBytes: config.SCANNER_MAX_OUTPUT_BYTES,
+      toolHomeDir: config.TOOL_HOME_DIR,
+      installTimeoutMs: config.SOLC_INSTALL_TIMEOUT_MS,
+      maxSolcVersions: config.MAX_SOLC_VERSIONS_PER_SCAN,
+      allowCompilerDownloads: config.ALLOW_COMPILER_DOWNLOADS,
+      onCompilerStatus: (scanId, status, metadata, error) => updateCompilerState(getDatabase(), scanId, {
+        status,
+        constraints: metadata?.constraints,
+        versions: metadata?.versions,
+        detectionSource: metadata?.source,
+        error: error ?? null,
+      }),
     })]);
   }
   return globalRunner.contractHunterRunner;

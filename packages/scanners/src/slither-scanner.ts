@@ -1,14 +1,20 @@
 import path from "node:path";
-import type { Scanner, ScannerResult, ScanContext } from "@contracthunter/core";
+import type { CompilerStatus, Scanner, ScannerResult, ScanContext } from "@contracthunter/core";
 import { sanitiseError } from "@contracthunter/core";
 import { ProcessOutputLimitError, ProcessTimeoutError, runBoundedProcess, type ProcessRunner } from "./process-runner";
 import { normaliseSlitherFindings, parseSlitherJson, SlitherParseError } from "./slither-parser";
+import { CompilerManager, type CompilerPreparation } from "./compiler-manager";
 
 export type SlitherScannerOptions = {
   workspaceRoot: string;
   timeoutMs: number;
   maxOutputBytes: number;
+  toolHomeDir: string;
+  installTimeoutMs: number;
+  maxSolcVersions: number;
+  allowCompilerDownloads: boolean;
   processRunner?: ProcessRunner;
+  onCompilerStatus?: (scanId: string, status: CompilerStatus, metadata?: Partial<CompilerPreparation>, error?: string) => void;
 };
 
 export class SlitherScanner implements Scanner {
@@ -20,8 +26,9 @@ export class SlitherScanner implements Scanner {
     this.processRunner = options.processRunner ?? runBoundedProcess;
   }
 
-  private environment(): NodeJS.ProcessEnv {
+  private environment(extra: Record<string, string | undefined> = {}): NodeJS.ProcessEnv {
     return {
+      ...extra,
       NODE_ENV: process.env.NODE_ENV ?? "production",
       PATH: process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin",
       HOME: process.env.HOME ?? "/tmp",
@@ -50,15 +57,37 @@ export class SlitherScanner implements Scanner {
     const cwd = this.checkedRepositoryPath(context.repositoryPath);
     const started = Date.now();
     try {
-      const result = await this.processRunner({
-        command: "slither", args: [".", "--json", "-", "--disable-color"], cwd,
-        timeoutMs: this.options.timeoutMs, maxOutputBytes: this.options.maxOutputBytes, env: this.environment(),
+      const compilerManager = new CompilerManager({
+        workspaceRoot: this.options.workspaceRoot,
+        toolHomeDir: this.options.toolHomeDir,
+        installTimeoutMs: this.options.installTimeoutMs,
+        maxOutputBytes: this.options.maxOutputBytes,
+        maxVersions: this.options.maxSolcVersions,
+        allowDownloads: this.options.allowCompilerDownloads,
+        processRunner: this.processRunner,
+        onStatus: (status, metadata, error) => this.options.onCompilerStatus?.(context.scan.id, status, metadata, error),
       });
-      if (result.exitCode !== 0) {
-        const diagnostic = sanitiseError((result.stderr || "Slither could not compile or analyse this repository.").split(cwd).join("."));
-        throw new Error(`Slither analysis failed. ${diagnostic}`);
+      const compiler = await compilerManager.prepare(cwd);
+      if (compiler.versions.length > 1) {
+        const help = await this.processRunner({ command: "slither", args: ["--help"], timeoutMs: 10_000, maxOutputBytes: 2_097_152, env: compiler.environment });
+        if (help.exitCode !== 0 || !`${help.stdout}\n${help.stderr}`.includes("--solc-solcs-select")) {
+          throw new Error("This Slither version does not support the required multi-compiler selection mechanism.");
+        }
       }
-      const output = parseSlitherJson(result.stdout);
+      const result = await this.processRunner({
+        command: "slither", args: [".", "--json", "-", "--disable-color", ...compiler.slitherArgs], cwd,
+        timeoutMs: this.options.timeoutMs, maxOutputBytes: this.options.maxOutputBytes, env: compiler.environment,
+      });
+      let output;
+      try {
+        output = parseSlitherJson(result.stdout);
+      } catch (parseError) {
+        if (result.exitCode !== 0) {
+          const diagnostic = sanitiseError((result.stderr || "Slither could not compile or analyse this repository.").split(cwd).join("."));
+          throw new Error(`Slither analysis failed. ${diagnostic}`);
+        }
+        throw parseError;
+      }
       return { scannerId: this.id, findings: normaliseSlitherFindings(output, context.scan.id, cwd), warnings: [], durationMs: Date.now() - started };
     } catch (error) {
       if (error instanceof ProcessTimeoutError) throw new Error(`Slither timed out after ${this.options.timeoutMs} ms.`);

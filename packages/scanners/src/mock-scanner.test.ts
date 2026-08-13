@@ -12,6 +12,7 @@ describe("MockScanner", () => {
         requestedRef: null, resolvedCommit: "a".repeat(40), status: "scanning", framework: "foundry", depth: "quick",
         createdAt: new Date(), startedAt: new Date(), completedAt: null, error: null,
         scannerName: "ContractHunter Mock Scanner", scannerStatus: "running", scannerDurationMs: null,
+        compilerConstraints: null, compilerVersions: null, compilerDetectionSource: null, compilerStatus: "pending", compilerError: null,
       },
     } satisfies ScanContext;
     expect(await scanner.isAvailable()).toBe(true);

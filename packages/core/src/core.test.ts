@@ -55,7 +55,7 @@ describe("finding validation", () => {
 describe("configuration validation", () => {
   it("requires repository and database paths to remain under DATA_DIR", () => {
     mkdirSync("/tmp/contracthunter-config-test", { recursive: true });
-    const valid = { NODE_ENV: "test", DATA_DIR: "/tmp/contracthunter-config-test", REPOSITORY_DIR: "/tmp/contracthunter-config-test/repos", DATABASE_PATH: "/tmp/contracthunter-config-test/db.sqlite", GIT_CLONE_TIMEOUT_MS: 10_000, SLITHER_TIMEOUT_MS: 300_000, SCANNER_MAX_OUTPUT_BYTES: 20_971_520 };
+    const valid = { NODE_ENV: "test", DATA_DIR: "/tmp/contracthunter-config-test", REPOSITORY_DIR: "/tmp/contracthunter-config-test/repos", DATABASE_PATH: "/tmp/contracthunter-config-test/db.sqlite", GIT_CLONE_TIMEOUT_MS: 10_000, SLITHER_TIMEOUT_MS: 300_000, SCANNER_MAX_OUTPUT_BYTES: 20_971_520, SOLC_INSTALL_TIMEOUT_MS: 120_000, MAX_SOLC_VERSIONS_PER_SCAN: 8, ALLOW_COMPILER_DOWNLOADS: "true", TOOL_HOME_DIR: "/tmp/contracthunter-config-test/tool-home" };
     expect(configSchema.safeParse(valid).success).toBe(true);
     expect(configSchema.safeParse({ ...valid, REPOSITORY_DIR: "/tmp/outside" }).success).toBe(false);
   });
