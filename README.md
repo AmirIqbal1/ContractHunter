@@ -1,11 +1,36 @@
 # ContractHunter
 
-ContractHunter is a locally hosted smart-contract security analysis workstation. V0.1.2 accepts an authorised GitHub Solidity repository, resolves and prepares its Solidity compiler requirements, and performs real static analysis with Slither without executing repository setup scripts.
+ContractHunter is a locally hosted smart-contract security analysis workstation. V0.1.3 accepts an authorised GitHub Solidity repository, safely prepares supported public dependencies, resolves its Solidity compiler requirements, and performs real static analysis with Slither without executing repository setup scripts.
 
 > [!WARNING]
 > **ContractHunter must only be used against smart contracts and repositories the user is authorised to analyse. Repository content is treated as untrusted.**
 
-## V0.1.2 — Automatic Solidity Compiler Management
+## v0.1.3 — Safe dependency preparation
+
+ContractHunter safely prepares common public Solidity dependencies before compiler resolution and Slither analysis:
+
+- Pinned Git submodules declared with approved HTTPS GitHub URLs
+- npm dependencies captured by `package-lock.json` or `npm-shrinkwrap.json`
+- Iterative validation of nested submodules before each checkout level
+- Deterministic `npm ci` with lifecycle scripts, audit, and funding requests disabled
+- Isolated npm home, cache, and configuration without host credentials
+- Bounded dependency command output and timeouts
+
+Repository install scripts are intentionally never executed. Unusual dependency sources fail preparation instead of weakening the security policy.
+
+Supported package-manager scope:
+
+- npm with `package-lock.json` or `npm-shrinkwrap.json`
+- Approved HTTPS Git submodules pinned by the repository commit
+
+Not yet supported:
+
+- Yarn or pnpm
+- Arbitrary setup scripts or Makefiles
+- `forge install` fallback
+- npm projects without a supported lockfile
+
+## Automatic Solidity compiler management
 
 - Dark, responsive dashboard, new-hunt flow, scan progress, filtered findings, and finding detail pages
 - GitHub HTTPS repository validation with optional branch, tag, or commit selection
@@ -21,7 +46,7 @@ ContractHunter is a locally hosted smart-contract security analysis workstation.
 - Validated JSON endpoints and a container health endpoint
 - Docker-first operation with a persistent `/data` volume and non-root runtime
 
-The production pipeline clones the repository, detects its framework, discovers Solidity requirements, downloads missing official compilers through `solc-select`, caches them under the persistent data directory, verifies the selected compiler, and invokes Slither with that compiler configuration. Findings are normalised and displayed throughout the dashboard and review pages. The mock scanner remains only as an automated test fixture. Scan depth is stored but does not change behaviour in V0.1.2.
+The production pipeline clones the repository, detects its framework, prepares approved pinned submodules and lockfile-based npm dependencies, discovers Solidity requirements, downloads missing official compilers through `solc-select`, verifies the selected compiler, and invokes Slither. Findings are normalised and displayed throughout the dashboard and review pages. Scan depth is stored but does not change behaviour in V0.1.3.
 
 ## Architecture
 
@@ -31,7 +56,7 @@ The Next.js process hosts the UI, route handlers, and a deliberately small in-pr
 apps/web/              Next.js UI, API routes, and job-runner adapter
 packages/core/         Domain models, Zod schemas, config, git safety, state machine
 packages/db/           Drizzle schema and SQLite repository functions
-packages/scanners/     Compiler manager, Slither integration, bounded process runner, parsers
+packages/scanners/     Dependency/compiler managers, Slither integration, safe process runner
 data/                  Local database and cloned repositories (gitignored)
 Dockerfile             Multi-stage, non-root production image
 docker-compose.yml     Application and persistent data volume
@@ -81,7 +106,9 @@ npm start
 
 ## Security assumptions
 
-- Repository content is hostile input. ContractHunter never runs package managers, dependency installers, project scripts, Hardhat configuration, Forge commands, Makefiles, or shell scripts to resolve compilers.
+- Repository content is hostile input. Dependency preparation is limited to pinned approved Git submodules and `npm ci` with lifecycle scripts disabled. ContractHunter never runs repository scripts, Hardhat configuration, Forge commands, Makefiles, or shell commands.
+- `.gitmodules`, package manifests, and lockfiles are parsed as data. Submodule paths cannot escape the repository; only credential-free HTTPS hosts on the configured allowlist are accepted. Nested modules are validated before their level is fetched.
+- npm uses an isolated configuration and cache, does not inherit host credentials, and rejects local, directory, SSH, unusual Git-host, and arbitrary remote-tarball dependencies. Repository `.npmrc` settings cannot override the policy.
 - `foundry.toml` is parsed strictly as TOML data. Solidity source pragmas are inspected statically with comments ignored. Symlinks escaping the scan workspace and generated output directories are excluded.
 - Compiler installation is a narrow trusted operation: only resolver-produced stable version strings are passed to `solc-select` using fixed argument arrays, bounded output, and timeouts. Compiler selection is child-process-local and does not mutate global application state.
 - Git is launched directly with argument arrays, terminal prompting disabled, and a bounded timeout. URLs are restricted to GitHub HTTPS owner/repository paths; refs are validated before use.
@@ -92,10 +119,10 @@ npm start
 - Slither may invoke its supported Solidity compilation tooling to analyse source, but ContractHunter does not execute repository setup commands.
 - The production container runs as the unprivileged `node` user, drops Linux capabilities, and persists only `/data`.
 
-## Current dependency limitation
+## Current dependency limitations
 
-Missing project dependencies are not installed automatically. The repository must already contain the imports required for compilation. ContractHunter will not run `npm install`, `yarn`, `pnpm`, `forge install`, or repository-provided setup scripts.
+Only approved HTTPS Git submodules and npm lockfile installs are prepared. Yarn, pnpm, `forge install`, npm without a lockfile, private registries, credentials, arbitrary remote tarballs, and repository-provided setup scripts are intentionally unsupported.
 
 ## Roadmap
 
-Future scanner implementations may integrate Aderyn, AI-assisted review, Foundry proof-of-concepts, fuzzing, and Echidna. Those integrations, dependency installation, bounty scraping, live chain access, wallets, authentication, and automatic PoCs are intentionally outside V0.1.2.
+Additional scanners and broader dependency mechanisms remain outside V0.1.3.

@@ -41,6 +41,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends git ca-certific
   && python3 -m venv /opt/slither \
   && /opt/slither/bin/pip install --no-cache-dir "slither-analyzer==${SLITHER_VERSION}" \
   && chmod 755 /usr/local/bin/solc-select \
+  && git --version \
+  && npm --version \
   && slither --version \
   && solc-select --version \
   && mkdir -p /data/repositories /data/tool-home /home/node \

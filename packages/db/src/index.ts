@@ -4,7 +4,7 @@ import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/better-sqlite3";
-import type { CompilerStatus, CreateScanInput, FindingStatus, NewFinding, ScannerStatus, ScanStatus, Severity } from "@contracthunter/core";
+import type { CompilerStatus, CreateScanInput, DependencyStatus, FindingStatus, NewFinding, ScannerStatus, ScanStatus, Severity } from "@contracthunter/core";
 import { assertTransition, findingSchema, loadConfig, scanSchema } from "@contracthunter/core";
 import { findings, scans, type FindingRow, type ScanRow } from "./schema";
 
@@ -24,7 +24,8 @@ export function createDatabase(databasePath: string) {
       depth TEXT NOT NULL, created_at INTEGER NOT NULL, started_at INTEGER, completed_at INTEGER, error TEXT,
       scanner_name TEXT, scanner_status TEXT NOT NULL DEFAULT 'pending', scanner_duration_ms INTEGER,
       compiler_constraints TEXT, compiler_versions TEXT, compiler_detection_source TEXT,
-      compiler_status TEXT NOT NULL DEFAULT 'pending', compiler_error TEXT
+      compiler_status TEXT NOT NULL DEFAULT 'pending', compiler_error TEXT,
+      dependency_status TEXT NOT NULL DEFAULT 'pending', dependency_metadata TEXT, dependency_error TEXT
     );
     CREATE TABLE IF NOT EXISTS findings (
       id TEXT PRIMARY KEY, scan_id TEXT NOT NULL REFERENCES scans(id) ON DELETE CASCADE,
@@ -44,6 +45,9 @@ export function createDatabase(databasePath: string) {
   if (!scanColumns.has("compiler_detection_source")) sqlite.exec("ALTER TABLE scans ADD COLUMN compiler_detection_source TEXT");
   if (!scanColumns.has("compiler_status")) sqlite.exec("ALTER TABLE scans ADD COLUMN compiler_status TEXT NOT NULL DEFAULT 'pending'");
   if (!scanColumns.has("compiler_error")) sqlite.exec("ALTER TABLE scans ADD COLUMN compiler_error TEXT");
+  if (!scanColumns.has("dependency_status")) sqlite.exec("ALTER TABLE scans ADD COLUMN dependency_status TEXT NOT NULL DEFAULT 'pending'");
+  if (!scanColumns.has("dependency_metadata")) sqlite.exec("ALTER TABLE scans ADD COLUMN dependency_metadata TEXT");
+  if (!scanColumns.has("dependency_error")) sqlite.exec("ALTER TABLE scans ADD COLUMN dependency_error TEXT");
   const findingColumns = new Set((sqlite.prepare("PRAGMA table_info(findings)").all() as Array<{ name: string }>).map((column) => column.name));
   if (!findingColumns.has("detector_id")) sqlite.exec("ALTER TABLE findings ADD COLUMN detector_id TEXT");
   if (!findingColumns.has("fingerprint")) sqlite.exec("ALTER TABLE findings ADD COLUMN fingerprint TEXT");
@@ -74,6 +78,7 @@ export function createScan(database: DatabaseClient, input: CreateScanInput & { 
     depth: input.depth, createdAt: new Date(), startedAt: null, completedAt: null, error: null,
     scannerName: "Slither", scannerStatus: "pending", scannerDurationMs: null,
     compilerConstraints: null, compilerVersions: null, compilerDetectionSource: null, compilerStatus: "pending", compilerError: null,
+    dependencyStatus: "pending", dependencyMetadata: null, dependencyError: null,
   };
   scanSchema.parse(row);
   database.orm.insert(scans).values(row).run();
@@ -128,9 +133,17 @@ export function updateCompilerState(database: DatabaseClient, id: string, update
   }).where(eq(scans.id, id)).run();
 }
 
+export function updateDependencyState(database: DatabaseClient, id: string, status: DependencyStatus, metadata?: unknown, error?: string | null): void {
+  database.orm.update(scans).set({
+    dependencyStatus: status,
+    ...(metadata === undefined ? {} : { dependencyMetadata: JSON.stringify(metadata) }),
+    ...(error === undefined ? {} : { dependencyError: error }),
+  }).where(eq(scans.id, id)).run();
+}
+
 export function markActiveScansInterrupted(database: DatabaseClient): number {
-  const active: ScanStatus[] = ["queued", "cloning", "detecting", "scanning"];
-  return database.orm.update(scans).set({ status: "failed", scannerStatus: "failed", compilerStatus: "failed", completedAt: new Date(), error: "Scan interrupted by application restart." }).where(inArray(scans.status, active)).run().changes;
+  const active: ScanStatus[] = ["queued", "cloning", "detecting", "preparing_dependencies", "preparing_compiler", "scanning"];
+  return database.orm.update(scans).set({ status: "failed", scannerStatus: "failed", compilerStatus: "failed", dependencyStatus: "failed", completedAt: new Date(), error: "Scan interrupted by application restart." }).where(inArray(scans.status, active)).run().changes;
 }
 
 export function insertFindings(database: DatabaseClient, scanId: string, input: NewFinding[]): FindingRow[] {

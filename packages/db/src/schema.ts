@@ -1,5 +1,5 @@
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
-import { compilerStatuses, findingStatuses, frameworks, scannerStatuses, scanDepths, scanStatuses, severities } from "@contracthunter/core";
+import { compilerStatuses, dependencyStatuses, findingStatuses, frameworks, scannerStatuses, scanDepths, scanStatuses, severities } from "@contracthunter/core";
 
 export const scans = sqliteTable("scans", {
   id: text("id").primaryKey(),
@@ -22,6 +22,9 @@ export const scans = sqliteTable("scans", {
   compilerDetectionSource: text("compiler_detection_source", { enum: ["foundry-config", "pragma"] }),
   compilerStatus: text("compiler_status", { enum: compilerStatuses }).notNull(),
   compilerError: text("compiler_error"),
+  dependencyStatus: text("dependency_status", { enum: dependencyStatuses }).notNull(),
+  dependencyMetadata: text("dependency_metadata"),
+  dependencyError: text("dependency_error"),
 });
 
 export const findings = sqliteTable("findings", {

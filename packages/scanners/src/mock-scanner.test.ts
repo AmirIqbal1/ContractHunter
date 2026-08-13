@@ -13,6 +13,7 @@ describe("MockScanner", () => {
         createdAt: new Date(), startedAt: new Date(), completedAt: null, error: null,
         scannerName: "ContractHunter Mock Scanner", scannerStatus: "running", scannerDurationMs: null,
         compilerConstraints: null, compilerVersions: null, compilerDetectionSource: null, compilerStatus: "pending", compilerError: null,
+        dependencyStatus: "ready", dependencyMetadata: null, dependencyError: null,
       },
     } satisfies ScanContext;
     expect(await scanner.isAvailable()).toBe(true);

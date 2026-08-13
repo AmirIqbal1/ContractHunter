@@ -15,6 +15,20 @@ export const configSchema = z.object({
   MAX_SOLC_VERSIONS_PER_SCAN: z.coerce.number().int().min(1).max(32).default(8),
   ALLOW_COMPILER_DOWNLOADS: z.enum(["true", "false"]).default("true").transform((value) => value === "true"),
   TOOL_HOME_DIR: absolutePath,
+  DEPENDENCY_PREP_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(1_800_000).default(300_000),
+  MAX_DEPENDENCY_OUTPUT_BYTES: z.coerce.number().int().min(1_024).max(104_857_600).default(20_971_520),
+  MAX_SUBMODULE_DEPTH: z.coerce.number().int().min(1).max(20).default(5),
+  MAX_SUBMODULES_PER_SCAN: z.coerce.number().int().min(1).max(1_000).default(100),
+  ALLOW_NPM_DEPENDENCIES: z.enum(["true", "false"]).default("true").transform((value) => value === "true"),
+  ALLOW_GIT_SUBMODULES: z.enum(["true", "false"]).default("true").transform((value) => value === "true"),
+  ALLOWED_GIT_DEPENDENCY_HOSTS: z.string().default("github.com").transform((value, context) => {
+    const hosts = [...new Set(value.split(",").map((host) => host.trim().toLowerCase()).filter(Boolean))];
+    if (!hosts.length || hosts.some((host) => !/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(?:\.(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?))*$/.test(host))) {
+      context.addIssue({ code: "custom", message: "must be a comma-separated hostname allowlist" });
+      return z.NEVER;
+    }
+    return hosts;
+  }),
 }).superRefine((config, context) => {
   const data = path.resolve(config.DATA_DIR);
   const repo = path.resolve(config.REPOSITORY_DIR);
@@ -42,5 +56,12 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppCon
     MAX_SOLC_VERSIONS_PER_SCAN: environment.MAX_SOLC_VERSIONS_PER_SCAN,
     ALLOW_COMPILER_DOWNLOADS: environment.ALLOW_COMPILER_DOWNLOADS,
     TOOL_HOME_DIR: environment.TOOL_HOME_DIR ?? path.join(localData, "tool-home"),
+    DEPENDENCY_PREP_TIMEOUT_MS: environment.DEPENDENCY_PREP_TIMEOUT_MS,
+    MAX_DEPENDENCY_OUTPUT_BYTES: environment.MAX_DEPENDENCY_OUTPUT_BYTES,
+    MAX_SUBMODULE_DEPTH: environment.MAX_SUBMODULE_DEPTH,
+    MAX_SUBMODULES_PER_SCAN: environment.MAX_SUBMODULES_PER_SCAN,
+    ALLOW_NPM_DEPENDENCIES: environment.ALLOW_NPM_DEPENDENCIES,
+    ALLOW_GIT_SUBMODULES: environment.ALLOW_GIT_SUBMODULES,
+    ALLOWED_GIT_DEPENDENCY_HOSTS: environment.ALLOWED_GIT_DEPENDENCY_HOSTS,
   });
 }

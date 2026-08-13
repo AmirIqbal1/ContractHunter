@@ -1,6 +1,6 @@
 import { cloneRepository, detectFramework, loadConfig, sanitiseError, type Scanner } from "@contracthunter/core";
-import { getDatabase, getScan, insertFindings, markActiveScansInterrupted, transitionScan, updateCompilerState, updateScannerState } from "@contracthunter/db";
-import { SlitherScanner } from "@contracthunter/scanners";
+import { getDatabase, getScan, insertFindings, markActiveScansInterrupted, transitionScan, updateCompilerState, updateDependencyState, updateScannerState } from "@contracthunter/db";
+import { DependencyManager, SlitherScanner } from "@contracthunter/scanners";
 
 export interface JobRunner {
   enqueue(scanId: string): void;
@@ -38,7 +38,21 @@ class InProcessJobRunner implements JobRunner {
       });
       scan = transitionScan(database, scanId, "detecting", { resolvedCommit: cloned.commit });
       const framework = detectFramework(cloned.path);
-      scan = transitionScan(database, scanId, "scanning", { framework });
+      scan = transitionScan(database, scanId, "preparing_dependencies", { framework });
+      const dependencyManager = new DependencyManager({
+        workspaceRoot: config.REPOSITORY_DIR,
+        toolHomeDir: config.TOOL_HOME_DIR,
+        timeoutMs: config.DEPENDENCY_PREP_TIMEOUT_MS,
+        maxOutputBytes: config.MAX_DEPENDENCY_OUTPUT_BYTES,
+        maxSubmoduleDepth: config.MAX_SUBMODULE_DEPTH,
+        maxSubmodules: config.MAX_SUBMODULES_PER_SCAN,
+        allowNpm: config.ALLOW_NPM_DEPENDENCIES,
+        allowGitSubmodules: config.ALLOW_GIT_SUBMODULES,
+        allowedGitHosts: config.ALLOWED_GIT_DEPENDENCY_HOSTS,
+        onStatus: (status, metadata, error) => updateDependencyState(database, scanId, status, metadata, error ?? null),
+      });
+      await dependencyManager.prepare(cloned.path);
+      scan = transitionScan(database, scanId, "preparing_compiler");
       for (const scanner of this.scanners) {
         if (!await scanner.isAvailable()) {
           updateScannerState(database, scanId, scanner.name, "failed");
@@ -81,13 +95,18 @@ export function getJobRunner(): JobRunner {
       installTimeoutMs: config.SOLC_INSTALL_TIMEOUT_MS,
       maxSolcVersions: config.MAX_SOLC_VERSIONS_PER_SCAN,
       allowCompilerDownloads: config.ALLOW_COMPILER_DOWNLOADS,
-      onCompilerStatus: (scanId, status, metadata, error) => updateCompilerState(getDatabase(), scanId, {
-        status,
-        constraints: metadata?.constraints,
-        versions: metadata?.versions,
-        detectionSource: metadata?.source,
-        error: error ?? null,
-      }),
+      onCompilerStatus: (scanId, status, metadata, error) => {
+        const database = getDatabase();
+        updateCompilerState(database, scanId, {
+          status,
+          constraints: metadata?.constraints,
+          versions: metadata?.versions,
+          detectionSource: metadata?.source,
+          error: error ?? null,
+        });
+        const scan = getScan(database, scanId);
+        if (scan?.status === "preparing_compiler" && (status === "ready" || status === "cached")) transitionScan(database, scanId, "scanning");
+      },
     })]);
   }
   return globalRunner.contractHunterRunner;

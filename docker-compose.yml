@@ -14,6 +14,13 @@ services:
       MAX_SOLC_VERSIONS_PER_SCAN: 8
       ALLOW_COMPILER_DOWNLOADS: "true"
       TOOL_HOME_DIR: /data/tool-home
+      DEPENDENCY_PREP_TIMEOUT_MS: 300000
+      MAX_DEPENDENCY_OUTPUT_BYTES: 20971520
+      MAX_SUBMODULE_DEPTH: 5
+      MAX_SUBMODULES_PER_SCAN: 100
+      ALLOW_NPM_DEPENDENCIES: "true"
+      ALLOW_GIT_SUBMODULES: "true"
+      ALLOWED_GIT_DEPENDENCY_HOSTS: github.com
     volumes:
       - contracthunter-data:/data
     init: true

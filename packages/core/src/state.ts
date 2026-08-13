@@ -3,7 +3,9 @@ import type { ScanStatus } from "./domain";
 const transitions: Record<ScanStatus, readonly ScanStatus[]> = {
   queued: ["cloning", "failed"],
   cloning: ["detecting", "failed"],
-  detecting: ["scanning", "failed"],
+  detecting: ["preparing_dependencies", "failed"],
+  preparing_dependencies: ["preparing_compiler", "failed"],
+  preparing_compiler: ["scanning", "failed"],
   scanning: ["completed", "failed"],
   completed: [],
   failed: [],

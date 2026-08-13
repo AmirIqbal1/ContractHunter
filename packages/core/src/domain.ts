@@ -1,12 +1,13 @@
 import { z } from "zod";
 
-export const scanStatuses = ["queued", "cloning", "detecting", "scanning", "completed", "failed"] as const;
+export const scanStatuses = ["queued", "cloning", "detecting", "preparing_dependencies", "preparing_compiler", "scanning", "completed", "failed"] as const;
 export const frameworks = ["foundry", "hardhat", "unknown"] as const;
 export const scanDepths = ["quick", "deep", "maximum"] as const;
 export const findingStatuses = ["candidate", "investigating", "verified", "rejected"] as const;
 export const severities = ["critical", "high", "medium", "low", "informational"] as const;
 export const scannerStatuses = ["pending", "available", "running", "completed", "failed"] as const;
 export const compilerStatuses = ["pending", "detecting", "downloading", "cached", "ready", "failed"] as const;
+export const dependencyStatuses = ["pending", "inspecting", "preparing", "ready", "skipped", "failed"] as const;
 
 export type ScanStatus = (typeof scanStatuses)[number];
 export type Framework = (typeof frameworks)[number];
@@ -15,6 +16,7 @@ export type FindingStatus = (typeof findingStatuses)[number];
 export type Severity = (typeof severities)[number];
 export type ScannerStatus = (typeof scannerStatuses)[number];
 export type CompilerStatus = (typeof compilerStatuses)[number];
+export type DependencyStatus = (typeof dependencyStatuses)[number];
 
 export const scanSchema = z.object({
   id: z.string().uuid(),
@@ -37,6 +39,9 @@ export const scanSchema = z.object({
   compilerDetectionSource: z.enum(["foundry-config", "pragma"]).nullable(),
   compilerStatus: z.enum(compilerStatuses),
   compilerError: z.string().nullable(),
+  dependencyStatus: z.enum(dependencyStatuses),
+  dependencyMetadata: z.string().nullable(),
+  dependencyError: z.string().nullable(),
 });
 
 export const findingSchema = z.object({

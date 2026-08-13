@@ -19,6 +19,7 @@ async function setup(pragmas = ["0.8.24"]) {
       createdAt: new Date(), startedAt: new Date(), completedAt: null, error: null,
       scannerName: "Slither", scannerStatus: "running", scannerDurationMs: null,
       compilerConstraints: null, compilerVersions: null, compilerDetectionSource: null, compilerStatus: "pending", compilerError: null,
+      dependencyStatus: "ready", dependencyMetadata: null, dependencyError: null,
     },
   };
   return { root, context };
