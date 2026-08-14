@@ -3,6 +3,7 @@ import { z } from "zod";
 export const verificationRunStatuses = ["queued", "running", "completed", "failed"] as const;
 export const verificationOutcomes = ["confirmed", "refuted", "inconclusive"] as const;
 export const dynamicEvidenceDirections = ["supports", "contradicts", "neutral"] as const;
+export const VERIFICATION_HARNESS_MANIFEST = ".contracthunter-verification.json";
 
 export type VerificationRunStatus = (typeof verificationRunStatuses)[number];
 export type VerificationOutcome = (typeof verificationOutcomes)[number];
@@ -25,7 +26,17 @@ export const dynamicEvidenceSchema = z.object({
   details: verificationText,
 }).strict();
 
+export const verificationHarnessManifestSchema = z.object({
+  formatVersion: z.literal(1),
+  scanId: z.string().uuid(),
+  hypothesisId: z.string().uuid(),
+  resolvedCommit: z.string().regex(/^[a-f0-9]{40}$/),
+  generatedBy: z.literal("contracthunter"),
+  createdAt: z.string().datetime({ offset: true }),
+}).strict();
+
 export type DynamicEvidence = z.infer<typeof dynamicEvidenceSchema>;
+export type VerificationHarnessManifest = z.infer<typeof verificationHarnessManifestSchema>;
 
 export const createHypothesisVerificationRunSchema = z.object({
   hypothesisId: z.string().uuid(),
