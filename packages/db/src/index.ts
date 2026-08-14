@@ -4,9 +4,9 @@ import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/better-sqlite3";
-import type { AIAnalysisStatus, CompilerStatus, CreateScanInput, DependencyStatus, FindingStatus, HypothesisStatus, InvariantCategory, InvariantStatus, InvariantTestability, InvestigationStatus, NewFinding, ProtocolAnalysisResult, ReviewRunStatus, ReviewStageStatus, ScannerStatus, ScanStatus, SecurityReviewPlan, Severity, ValidatedEvidence } from "@contracthunter/core";
-import { assertTransition, buildInvestigations, correlateHypotheses, findingSchema, investigationSchema, loadConfig, scanSchema } from "@contracthunter/core";
-import { findings, hypothesisGroupMembers, hypothesisGroups, investigationFindings, investigations, invariants, protocolAnalyses, scans, scanScanners, securityReviewerRuns, securityReviewPlans, vulnerabilityHypotheses, type FindingRow, type HypothesisGroupRow, type InvariantRow, type InvestigationRow, type ProtocolAnalysisRow, type ScanRow, type ScanScannerRow, type SecurityReviewerRunRow, type SecurityReviewPlanRow, type VulnerabilityHypothesisRow } from "./schema";
+import type { AIAnalysisStatus, CompilerStatus, CompleteHypothesisVerificationRunInput, CreateHypothesisVerificationRunInput, CreateScanInput, DependencyStatus, DynamicEvidence, FailHypothesisVerificationRunInput, FindingStatus, HypothesisStatus, InvariantCategory, InvariantStatus, InvariantTestability, InvestigationStatus, NewFinding, ProtocolAnalysisResult, ReviewRunStatus, ReviewStageStatus, ScannerStatus, ScanStatus, SecurityReviewPlan, Severity, ValidatedEvidence } from "@contracthunter/core";
+import { assertTransition, assertVerificationRunTransition, buildInvestigations, completeHypothesisVerificationRunSchema, correlateHypotheses, createHypothesisVerificationRunSchema, dynamicEvidenceSchema, failHypothesisVerificationRunSchema, findingSchema, investigationSchema, loadConfig, scanSchema } from "@contracthunter/core";
+import { findings, hypothesisGroupMembers, hypothesisGroups, hypothesisVerificationRuns, investigationFindings, investigations, invariants, protocolAnalyses, scans, scanScanners, securityReviewerRuns, securityReviewPlans, vulnerabilityHypotheses, type FindingRow, type HypothesisGroupRow, type HypothesisVerificationRunRow, type InvariantRow, type InvestigationRow, type ProtocolAnalysisRow, type ScanRow, type ScanScannerRow, type SecurityReviewerRunRow, type SecurityReviewPlanRow, type VulnerabilityHypothesisRow } from "./schema";
 
 export * from "./schema";
 
@@ -81,6 +81,13 @@ export function createDatabase(databasePath: string) {
       id TEXT PRIMARY KEY, scan_id TEXT NOT NULL REFERENCES scans(id) ON DELETE CASCADE, protocol_analysis_id TEXT NOT NULL REFERENCES protocol_analyses(id) ON DELETE CASCADE, reviewer_id TEXT NOT NULL, reviewer_run_id TEXT NOT NULL REFERENCES security_reviewer_runs(id) ON DELETE CASCADE,
       title TEXT NOT NULL, category TEXT NOT NULL, severity TEXT NOT NULL, severity_justification TEXT NOT NULL, confidence INTEGER NOT NULL, status TEXT NOT NULL, summary TEXT NOT NULL, root_cause TEXT NOT NULL, preconditions TEXT NOT NULL, attack_path TEXT NOT NULL, impact TEXT NOT NULL, affected_assets TEXT NOT NULL, affected_contracts TEXT NOT NULL, affected_functions TEXT NOT NULL, evidence TEXT NOT NULL, violated_invariant_ids TEXT NOT NULL, related_investigation_ids TEXT NOT NULL, false_positive_risks TEXT NOT NULL, verification_strategy TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS hypothesis_verification_runs (
+      id TEXT PRIMARY KEY, hypothesis_id TEXT NOT NULL REFERENCES vulnerability_hypotheses(id) ON DELETE CASCADE, scan_id TEXT NOT NULL REFERENCES scans(id) ON DELETE CASCADE,
+      resolved_commit TEXT NOT NULL, status TEXT NOT NULL, outcome TEXT, verifier_id TEXT NOT NULL, tool_name TEXT NOT NULL, tool_version TEXT, verification_strategy TEXT NOT NULL,
+      result_summary TEXT, test_count INTEGER NOT NULL DEFAULT 0, passed_test_count INTEGER NOT NULL DEFAULT 0, failed_test_count INTEGER NOT NULL DEFAULT 0,
+      stdout_summary TEXT NOT NULL DEFAULT '', stderr_summary TEXT NOT NULL DEFAULT '', dynamic_evidence TEXT NOT NULL DEFAULT '[]', error TEXT,
+      created_at INTEGER NOT NULL, started_at INTEGER, completed_at INTEGER, duration_ms INTEGER
+    );
     CREATE TABLE IF NOT EXISTS hypothesis_groups (
       id TEXT PRIMARY KEY, plan_id TEXT NOT NULL REFERENCES security_review_plans(id) ON DELETE CASCADE, scan_id TEXT NOT NULL REFERENCES scans(id) ON DELETE CASCADE, fingerprint TEXT NOT NULL, priority_score INTEGER NOT NULL, confidence_score INTEGER NOT NULL, evidence_classes TEXT NOT NULL, reasons TEXT NOT NULL, created_at INTEGER NOT NULL
     );
@@ -121,10 +128,11 @@ export function createDatabase(databasePath: string) {
     CREATE INDEX IF NOT EXISTS security_review_plans_scan_idx ON security_review_plans(scan_id, is_latest);
     CREATE INDEX IF NOT EXISTS security_reviewer_runs_plan_idx ON security_reviewer_runs(plan_id, status);
     CREATE INDEX IF NOT EXISTS vulnerability_hypotheses_scan_idx ON vulnerability_hypotheses(scan_id, severity, status, confidence);
+    CREATE INDEX IF NOT EXISTS hypothesis_verification_runs_hypothesis_idx ON hypothesis_verification_runs(hypothesis_id, created_at);
     CREATE INDEX IF NOT EXISTS hypothesis_groups_plan_idx ON hypothesis_groups(plan_id, priority_score);
     CREATE INDEX IF NOT EXISTS hypothesis_group_members_hypothesis_idx ON hypothesis_group_members(hypothesis_id);
   `);
-  const orm = drizzle(sqlite, { schema: { scans, findings, scanScanners, investigations, investigationFindings, protocolAnalyses, invariants, securityReviewPlans, securityReviewerRuns, vulnerabilityHypotheses, hypothesisGroups, hypothesisGroupMembers } });
+  const orm = drizzle(sqlite, { schema: { scans, findings, scanScanners, investigations, investigationFindings, protocolAnalyses, invariants, securityReviewPlans, securityReviewerRuns, vulnerabilityHypotheses, hypothesisVerificationRuns, hypothesisGroups, hypothesisGroupMembers } });
   return { sqlite, orm };
 }
 
@@ -437,7 +445,71 @@ export function insertVulnerabilityHypotheses(database: DatabaseClient, input: P
   if (rows.length) database.orm.insert(vulnerabilityHypotheses).values(rows).run(); return rows;
 }
 export function getVulnerabilityHypothesis(database: DatabaseClient, id: string): VulnerabilityHypothesisRow | undefined { return database.orm.select().from(vulnerabilityHypotheses).where(eq(vulnerabilityHypotheses.id, id)).get(); }
-export function updateVulnerabilityHypothesisStatus(database: DatabaseClient, id: string, status: Exclude<HypothesisStatus, "verified">): VulnerabilityHypothesisRow | undefined { database.orm.update(vulnerabilityHypotheses).set({ status, updatedAt: new Date() }).where(eq(vulnerabilityHypotheses.id, id)).run(); return getVulnerabilityHypothesis(database, id); }
+export function updateVulnerabilityHypothesisStatus(database: DatabaseClient, id: string, status: Exclude<HypothesisStatus, "verified">): VulnerabilityHypothesisRow | undefined {
+  if ((status as HypothesisStatus) === "verified") throw new Error("Verified status requires confirmed dynamic evidence.");
+  database.orm.update(vulnerabilityHypotheses).set({ status, updatedAt: new Date() }).where(eq(vulnerabilityHypotheses.id, id)).run(); return getVulnerabilityHypothesis(database, id);
+}
+
+function requireHypothesisVerificationRun(database: DatabaseClient, id: string): HypothesisVerificationRunRow {
+  const run = getHypothesisVerificationRun(database, id);
+  if (!run) throw new Error("Hypothesis verification run not found.");
+  return run;
+}
+
+export function createHypothesisVerificationRun(database: DatabaseClient, input: CreateHypothesisVerificationRunInput): HypothesisVerificationRunRow {
+  const parsed = createHypothesisVerificationRunSchema.parse(input);
+  const hypothesis = getVulnerabilityHypothesis(database, parsed.hypothesisId);
+  if (!hypothesis) throw new Error("Vulnerability hypothesis not found.");
+  if (hypothesis.scanId !== parsed.scanId) throw new Error("Verification scan does not match the hypothesis scan.");
+  const scan = getScan(database, parsed.scanId);
+  if (!scan || scan.resolvedCommit !== parsed.resolvedCommit) throw new Error("Verification commit does not match the resolved scan commit.");
+  const row: HypothesisVerificationRunRow = {
+    id: randomUUID(), hypothesisId: parsed.hypothesisId, scanId: parsed.scanId, resolvedCommit: parsed.resolvedCommit,
+    status: "queued", outcome: null, verifierId: parsed.verifierId, toolName: parsed.toolName, toolVersion: parsed.toolVersion,
+    verificationStrategy: JSON.stringify(parsed.verificationStrategy), resultSummary: null, testCount: 0, passedTestCount: 0, failedTestCount: 0,
+    stdoutSummary: "", stderrSummary: "", dynamicEvidence: "[]", error: null, createdAt: new Date(), startedAt: null, completedAt: null, durationMs: null,
+  };
+  database.orm.insert(hypothesisVerificationRuns).values(row).run();
+  return row;
+}
+
+export function markHypothesisVerificationRunRunning(database: DatabaseClient, id: string): HypothesisVerificationRunRow {
+  const run = requireHypothesisVerificationRun(database, id); assertVerificationRunTransition(run.status, "running");
+  database.orm.update(hypothesisVerificationRuns).set({ status: "running", startedAt: new Date() }).where(eq(hypothesisVerificationRuns.id, id)).run();
+  return requireHypothesisVerificationRun(database, id);
+}
+
+export function completeHypothesisVerificationRun(database: DatabaseClient, id: string, input: CompleteHypothesisVerificationRunInput): HypothesisVerificationRunRow {
+  const run = requireHypothesisVerificationRun(database, id); assertVerificationRunTransition(run.status, "completed");
+  const parsed = completeHypothesisVerificationRunSchema.parse(input); const completedAt = new Date();
+  database.sqlite.transaction(() => {
+    database.orm.update(hypothesisVerificationRuns).set({ status: "completed", outcome: parsed.outcome, resultSummary: parsed.resultSummary, durationMs: parsed.durationMs, testCount: parsed.testCount, passedTestCount: parsed.passedTestCount, failedTestCount: parsed.failedTestCount, stdoutSummary: parsed.stdoutSummary, stderrSummary: parsed.stderrSummary, dynamicEvidence: JSON.stringify(parsed.dynamicEvidence), error: null, completedAt }).where(eq(hypothesisVerificationRuns.id, id)).run();
+    if (parsed.outcome === "confirmed" && parsed.dynamicEvidence.some((item) => item.direction === "supports")) verifyHypothesisFromDynamicEvidence(database, id);
+  })();
+  return requireHypothesisVerificationRun(database, id);
+}
+
+export function failHypothesisVerificationRun(database: DatabaseClient, id: string, input: FailHypothesisVerificationRunInput): HypothesisVerificationRunRow {
+  const run = requireHypothesisVerificationRun(database, id); assertVerificationRunTransition(run.status, "failed");
+  const parsed = failHypothesisVerificationRunSchema.parse(input);
+  database.orm.update(hypothesisVerificationRuns).set({ status: "failed", outcome: null, durationMs: parsed.durationMs, stdoutSummary: parsed.stdoutSummary, stderrSummary: parsed.stderrSummary, error: parsed.error, completedAt: new Date() }).where(eq(hypothesisVerificationRuns.id, id)).run();
+  return requireHypothesisVerificationRun(database, id);
+}
+
+export function getHypothesisVerificationRun(database: DatabaseClient, id: string): HypothesisVerificationRunRow | undefined { return database.orm.select().from(hypothesisVerificationRuns).where(eq(hypothesisVerificationRuns.id, id)).get(); }
+export function listHypothesisVerificationRuns(database: DatabaseClient, hypothesisId: string): HypothesisVerificationRunRow[] { return database.orm.select().from(hypothesisVerificationRuns).where(eq(hypothesisVerificationRuns.hypothesisId, hypothesisId)).orderBy(desc(hypothesisVerificationRuns.createdAt), desc(sql`rowid`)).all(); }
+export function getLatestHypothesisVerificationRun(database: DatabaseClient, hypothesisId: string): HypothesisVerificationRunRow | undefined { return listHypothesisVerificationRuns(database, hypothesisId)[0]; }
+
+export function verifyHypothesisFromDynamicEvidence(database: DatabaseClient, verificationRunId: string): VulnerabilityHypothesisRow {
+  const run = requireHypothesisVerificationRun(database, verificationRunId);
+  if (run.status !== "completed" || run.outcome !== "confirmed") throw new Error("Only a completed, confirmed verification run can verify a hypothesis.");
+  const evidence = dynamicEvidenceSchema.array().parse(JSON.parse(run.dynamicEvidence)) as DynamicEvidence[];
+  if (!evidence.some((item) => item.direction === "supports")) throw new Error("Verified status requires supporting dynamic evidence.");
+  database.orm.update(vulnerabilityHypotheses).set({ status: "verified", updatedAt: new Date() }).where(eq(vulnerabilityHypotheses.id, run.hypothesisId)).run();
+  const hypothesis = getVulnerabilityHypothesis(database, run.hypothesisId);
+  if (!hypothesis) throw new Error("Vulnerability hypothesis not found.");
+  return hypothesis;
+}
 
 export type HypothesisFilters = { scanId?: string; severity?: Severity; category?: string; reviewerId?: string; status?: HypothesisStatus; minimumConfidence?: number; evidenceClass?: string; includeHistory?: boolean };
 export type RankedHypothesis = VulnerabilityHypothesisRow & { priorityScore: number; groupConfidenceScore: number; evidenceClasses: string[]; groupId: string | null };

@@ -1,5 +1,5 @@
 import { integer, primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core";
-import { aiAnalysisStatuses, compilerStatuses, coverageStatuses, dependencyStatuses, findingStatuses, frameworks, hypothesisStatuses, invariantCategories, invariantStatuses, invariantTestabilities, investigationStatuses, reviewRunStatuses, reviewStageStatuses, scannerStatuses, scanDepths, scanStatuses, severities, vulnerabilityCategories } from "@contracthunter/core";
+import { aiAnalysisStatuses, compilerStatuses, coverageStatuses, dependencyStatuses, findingStatuses, frameworks, hypothesisStatuses, invariantCategories, invariantStatuses, invariantTestabilities, investigationStatuses, reviewRunStatuses, reviewStageStatuses, scannerStatuses, scanDepths, scanStatuses, severities, verificationOutcomes, verificationRunStatuses, vulnerabilityCategories } from "@contracthunter/core";
 
 export const scans = sqliteTable("scans", {
   id: text("id").primaryKey(),
@@ -121,6 +121,31 @@ export const vulnerabilityHypotheses = sqliteTable("vulnerability_hypotheses", {
   title: text("title").notNull(), category: text("category").notNull(), severity: text("severity", { enum: severities }).notNull(), severityJustification: text("severity_justification").notNull(), confidence: integer("confidence").notNull(), status: text("status", { enum: hypothesisStatuses }).notNull(), summary: text("summary").notNull(), rootCause: text("root_cause").notNull(), preconditions: text("preconditions").notNull(), attackPath: text("attack_path").notNull(), impact: text("impact").notNull(), affectedAssets: text("affected_assets").notNull(), affectedContracts: text("affected_contracts").notNull(), affectedFunctions: text("affected_functions").notNull(), evidence: text("evidence").notNull(), violatedInvariantIds: text("violated_invariant_ids").notNull(), relatedInvestigationIds: text("related_investigation_ids").notNull(), falsePositiveRisks: text("false_positive_risks").notNull(), verificationStrategy: text("verification_strategy").notNull(), createdAt: integer("created_at", { mode: "timestamp" }).notNull(), updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 });
 
+export const hypothesisVerificationRuns = sqliteTable("hypothesis_verification_runs", {
+  id: text("id").primaryKey(),
+  hypothesisId: text("hypothesis_id").notNull().references(() => vulnerabilityHypotheses.id, { onDelete: "cascade" }),
+  scanId: text("scan_id").notNull().references(() => scans.id, { onDelete: "cascade" }),
+  resolvedCommit: text("resolved_commit").notNull(),
+  status: text("status", { enum: verificationRunStatuses }).notNull(),
+  outcome: text("outcome", { enum: verificationOutcomes }),
+  verifierId: text("verifier_id").notNull(),
+  toolName: text("tool_name").notNull(),
+  toolVersion: text("tool_version"),
+  verificationStrategy: text("verification_strategy").notNull(),
+  resultSummary: text("result_summary"),
+  testCount: integer("test_count").notNull(),
+  passedTestCount: integer("passed_test_count").notNull(),
+  failedTestCount: integer("failed_test_count").notNull(),
+  stdoutSummary: text("stdout_summary").notNull(),
+  stderrSummary: text("stderr_summary").notNull(),
+  dynamicEvidence: text("dynamic_evidence").notNull(),
+  error: text("error"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  startedAt: integer("started_at", { mode: "timestamp" }),
+  completedAt: integer("completed_at", { mode: "timestamp" }),
+  durationMs: integer("duration_ms"),
+});
+
 export const hypothesisGroups = sqliteTable("hypothesis_groups", {
   id: text("id").primaryKey(), planId: text("plan_id").notNull().references(() => securityReviewPlans.id, { onDelete: "cascade" }), scanId: text("scan_id").notNull().references(() => scans.id, { onDelete: "cascade" }), fingerprint: text("fingerprint").notNull(), priorityScore: integer("priority_score").notNull(), confidenceScore: integer("confidence_score").notNull(), evidenceClasses: text("evidence_classes").notNull(), reasons: text("reasons").notNull(), createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
@@ -138,4 +163,5 @@ export type InvariantRow = typeof invariants.$inferSelect;
 export type SecurityReviewPlanRow = typeof securityReviewPlans.$inferSelect;
 export type SecurityReviewerRunRow = typeof securityReviewerRuns.$inferSelect;
 export type VulnerabilityHypothesisRow = typeof vulnerabilityHypotheses.$inferSelect;
+export type HypothesisVerificationRunRow = typeof hypothesisVerificationRuns.$inferSelect;
 export type HypothesisGroupRow = typeof hypothesisGroups.$inferSelect;
