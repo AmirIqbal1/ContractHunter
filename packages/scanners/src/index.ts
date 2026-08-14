@@ -4,6 +4,7 @@ export * from "./aderyn-scanner";
 export * from "./compiler-detection";
 export * from "./compiler-manager";
 export * from "./dependency-manager";
+export * from "./foundry-verification-runner";
 export * from "./process-runner";
 export * from "./scanner-runner";
 export * from "./slither-parser";
