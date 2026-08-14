@@ -1,0 +1,7 @@
+import { getDatabase, getSecurityReviewerRun, getVulnerabilityHypothesis, updateVulnerabilityHypothesisStatus } from "@contracthunter/db";
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import { idSchema } from "@/lib/api";
+const update = z.object({ status: z.enum(["candidate", "investigating", "likely-valid", "rejected"]) }).strict();
+export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) { const id = idSchema.safeParse((await context.params).id); if (!id.success) return NextResponse.json({ error: "Invalid hypothesis identifier." }, { status: 400 }); const hypothesis = getVulnerabilityHypothesis(getDatabase(), id.data); return hypothesis ? NextResponse.json({ hypothesis, reviewerRun: getSecurityReviewerRun(getDatabase(), hypothesis.reviewerRunId) }) : NextResponse.json({ error: "Hypothesis not found." }, { status: 404 }); }
+export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) { const id = idSchema.safeParse((await context.params).id); const body = update.safeParse(await request.json().catch(() => null)); if (!id.success || !body.success) return NextResponse.json({ error: "Invalid hypothesis status." }, { status: 400 }); const hypothesis = updateVulnerabilityHypothesisStatus(getDatabase(), id.data, body.data.status); return hypothesis ? NextResponse.json({ hypothesis }) : NextResponse.json({ error: "Hypothesis not found." }, { status: 404 }); }

@@ -1,0 +1,9 @@
+"use client";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+export function SecurityReviewControl({ scanId, enabled, configured, label }: { scanId: string; enabled: boolean; configured: boolean; label: string }) {
+  const router = useRouter(); const [running, setRunning] = useState(false); const [error, setError] = useState(""); const [estimate, setEstimate] = useState<{ approximateSourceBytes: number; approximateRequestCount: number; selectedReviewers: unknown[] } | null>(null);
+  useEffect(() => { if (!enabled || !configured) return; void fetch(`/api/scans/${scanId}/security-review`).then((response) => response.ok ? response.json() : null).then(setEstimate).catch(() => undefined); }, [configured, enabled, scanId]);
+  async function run() { setRunning(true); setError(""); const response = await fetch(`/api/scans/${scanId}/security-review`, { method: "POST" }).catch(() => null); if (!response?.ok) setError(response ? ((await response.json().catch(() => ({}))) as { error?: string }).error ?? "Unable to start security review." : "Unable to start security review."); else { router.refresh(); setTimeout(() => router.refresh(), 1500); } setRunning(false); }
+  return <div><button className="button" disabled={running || !enabled || !configured} onClick={() => void run()}>{running ? "STARTING…" : label}</button>{estimate && <div className="hint" style={{ marginTop: 8 }}>{estimate.selectedReviewers.length} reviewers · {estimate.approximateRequestCount} requests · ~{Math.ceil(estimate.approximateSourceBytes / 1024)} KiB aggregate source context.</div>}{!enabled && <div className="hint" style={{ marginTop: 8 }}>Set AI_ENABLED=true to enable this stage.</div>}{enabled && !configured && <div className="hint" style={{ marginTop: 8 }}>Configure OPENAI_API_KEY on the server.</div>}{error && <div className="error" style={{ marginTop: 8, marginBottom: 0 }}>{error}</div>}</div>;
+}

@@ -49,6 +49,10 @@ export type AnalysisContext = {
 
 export type AIProviderResult = { analysis: ProtocolAnalysisResult; actualModel: string | null; requestId: string | null; inputTokens: number | null; outputTokens: number | null; totalTokens: number | null; durationMs: number };
 export type ProtocolAnalysisInput = { model: string; promptVersion: string; systemPrompt: string; context: AnalysisContext; timeoutMs: number };
-export interface AIProvider { id: string; analyzeProtocol(input: ProtocolAnalysisInput): Promise<AIProviderResult>; }
+export interface AIProvider {
+  id: string;
+  analyzeProtocol(input: ProtocolAnalysisInput): Promise<AIProviderResult>;
+  reviewSecurity(input: import("./security-review").SecurityReviewInput): Promise<import("./security-review").SecurityReviewProviderResult>;
+}
 
 export type ValidatedEvidence = SourceEvidence & { valid: boolean; validationError: string | null };

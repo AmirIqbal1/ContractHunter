@@ -1,9 +1,24 @@
 # ContractHunter
 
-ContractHunter is a locally hosted smart-contract security analysis workstation. V0.1.6 combines deterministic static analysis with optional, structured AI protocol understanding and security-invariant discovery.
+ContractHunter is a locally hosted smart-contract security analysis workstation. V0.1.7 combines deterministic static analysis, protocol understanding, security invariants, and specialist AI vulnerability-hypothesis reviews.
 
 > [!WARNING]
 > **ContractHunter must only be used against smart contracts and repositories the user is authorised to analyse. Repository content is treated as untrusted.**
+
+## v0.1.7 — Specialist AI security reviews
+
+After protocol analysis, ContractHunter deterministically selects a bounded set of relevant security specialists—such as accounting, access control, state transitions, external calls, oracle, token integration, reentrancy, upgradeability, economic logic, and protocol-specific vault/lending/bridge reviewers. Each receives a deterministic, reviewer-specific subset of the source plus relevant protocol elements, invariants, and static Investigations. Requests use structured outputs, no model tools, bounded concurrency, hard request limits, and isolated failure handling.
+
+The evidence layers have distinct meanings:
+
+- **Static findings** are individual tool-generated Slither or Aderyn warnings.
+- **Investigations** are deterministically correlated static-analysis candidates.
+- **Invariants** are expected protocol security properties that are still hypotheses.
+- **Hypotheses** are AI-generated explanations of how an expected property might fail.
+
+Hypotheses are **not verified vulnerabilities**. AI-created records always start as `candidate`, confidence is capped at 85 before executable verification, and the UI cannot set `verified`. Safe local dynamic testing will be introduced in a later version. ContractHunter does not generate or run exploit scripts, use wallets, contact live chains, browse the web, or create bounty submissions.
+
+Reviewer outputs must provide a concrete root cause, preconditions, high-level attack path, impact, exact source evidence, false-positive risks, and a safe local verification plan. Evidence is validated against the cloned repository before persistence; vague and unsupported observations are rejected. Related originals remain intact while deterministic hypothesis groups rank candidates using severity, evidence quality, static corroboration, invariant linkage, and distinct evidence classes. Agreement between multiple AI reviewers gets only a modest boost because same-provider reviewers are not independent engines.
 
 ## v0.1.6 — AI protocol understanding
 
@@ -23,6 +38,12 @@ AI_TIMEOUT_MS=180000
 AI_MAX_SOURCE_BYTES=500000
 AI_MAX_FILES=120
 AI_MAX_FILE_BYTES=75000
+AI_REVIEW_MAX_SOURCE_BYTES=300000
+AI_REVIEW_MAX_FILES=80
+AI_MAX_REVIEWERS=10
+AI_REVIEW_CONCURRENCY=2
+AI_REVIEW_TIMEOUT_MS=180000
+AI_REVIEW_MAX_TOTAL_REQUESTS=12
 ```
 
 The API key remains server-side and is never stored, logged, returned by health/API routes, or included in browser code. AI failures and disabled/unconfigured AI do not invalidate successful static-analysis results. Manual reruns preserve previous analysis versions.
@@ -89,7 +110,7 @@ Not yet supported:
 - Validated JSON endpoints and a container health endpoint
 - Docker-first operation with a persistent `/data` volume and non-root runtime
 
-The production pipeline clones the repository, detects its framework, prepares approved pinned submodules and lockfile-based npm dependencies, resolves compiler requirements, invokes Slither followed by Aderyn, and then correlates all successful static-analysis output. When enabled, bounded AI protocol analysis follows correlation without changing static-scan success semantics. Scan depth is stored but does not change behaviour in V0.1.6.
+The production pipeline clones the repository, detects its framework, prepares approved pinned submodules and lockfile-based npm dependencies, resolves compiler requirements, invokes Slither followed by Aderyn, correlates static output, builds a protocol model and invariants, and then runs the selected specialist reviewers. AI stage failures never remove successful static results. Scan depth is stored but does not change behaviour in V0.1.7.
 
 ## Architecture
 
@@ -153,6 +174,9 @@ npm start
 - `GET /api/protocol-analyses/:id` — retrieve one historical protocol model and its invariants
 - `GET /api/invariants` — list current invariants with category, impact, status, and testability filters
 - `GET/PATCH /api/invariants/:id` — retrieve an invariant or manually accept/reject it
+- `GET/POST /api/scans/:id/security-review` — preview cost controls or run/rerun the specialist review stage
+- `GET /api/hypotheses` — list current ranked hypotheses with severity, category, reviewer, status, confidence, and evidence-class filters
+- `GET/PATCH /api/hypotheses/:id` — retrieve a hypothesis or set candidate/investigating/likely-valid/rejected status
 - `GET /api/health` — process and database health
 
 ## Security assumptions
@@ -176,4 +200,4 @@ Only approved HTTPS Git submodules and npm lockfile installs are prepared. Yarn,
 
 ## Roadmap
 
-AI-generated vulnerability findings, AI verification, fuzzing, invariant execution, PoCs, and broader dependency mechanisms remain outside V0.1.6.
+Executable verification, Foundry PoC execution, fuzzing, Echidna, live-chain interaction, exploit generation, bounty submissions, and broader dependency mechanisms remain outside V0.1.7.

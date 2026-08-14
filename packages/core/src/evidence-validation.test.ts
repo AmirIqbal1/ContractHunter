@@ -9,5 +9,5 @@ afterAll(() => rmSync(root, { recursive: true, force: true }));
 const base = { filePath: "src/Vault.sol", contract: "Vault", functionName: "withdraw", startLine: 2, endLine: 2 };
 describe("AI evidence validation", () => {
   it("validates real relative source evidence", () => expect(validateEvidence(root, base)).toMatchObject({ valid: true, validationError: null }));
-  it.each([{ ...base, filePath: "missing.sol" }, { ...base, filePath: "../Vault.sol" }, { ...base, filePath: "/etc/passwd" }, { ...base, startLine: 99, endLine: 99 }])("marks invalid references without throwing", (evidence) => expect(validateEvidence(root, evidence)).toMatchObject({ valid: false }));
+  it.each([{ ...base, filePath: "missing.sol" }, { ...base, filePath: "../Vault.sol" }, { ...base, filePath: "/etc/passwd" }, { ...base, startLine: 99, endLine: 99 }, { ...base, contract: "Missing" }, { ...base, functionName: "missingFunction" }])("marks invalid references without throwing", (evidence) => expect(validateEvidence(root, evidence)).toMatchObject({ valid: false }));
 });

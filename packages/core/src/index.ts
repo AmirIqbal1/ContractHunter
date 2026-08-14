@@ -8,3 +8,6 @@ export * from "./analysis-context";
 export * from "./evidence-validation";
 export * from "./mock-ai-provider";
 export * from "./prompts/protocol-analysis-v1";
+export * from "./security-review";
+export * from "./reviewer-context";
+export * from "./ai-test-fixture";

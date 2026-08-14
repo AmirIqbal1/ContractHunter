@@ -63,5 +63,8 @@ describe("configuration validation", () => {
     expect(configSchema.safeParse({ ...valid, REPOSITORY_DIR: "/tmp/outside" }).success).toBe(false);
     expect(configSchema.safeParse({ ...valid, AI_ENABLED: "true", OPENAI_MODEL: "" }).success).toBe(false);
     expect(configSchema.safeParse({ ...valid, AI_ENABLED: "true", OPENAI_MODEL: "gpt-5-mini" }).success).toBe(true);
+    expect(configSchema.safeParse({ ...valid, AI_MAX_REVIEWERS: 99 }).success).toBe(false);
+    expect(configSchema.safeParse({ ...valid, AI_REVIEW_CONCURRENCY: 0 }).success).toBe(false);
+    expect(configSchema.safeParse({ ...valid, AI_REVIEW_MAX_TOTAL_REQUESTS: 0 }).success).toBe(false);
   });
 });

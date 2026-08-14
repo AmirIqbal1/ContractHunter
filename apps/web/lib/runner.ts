@@ -2,6 +2,7 @@ import { cloneRepository, detectFramework, loadConfig, sanitiseError, type Scann
 import { getDatabase, getScan, insertFindings, markActiveScansInterrupted, reconcileInvestigations, transitionScan, updateCompilerState, updateDependencyState, updateScannerState, upsertScanScanner } from "@contracthunter/db";
 import { AderynScanner, DependencyManager, executeScanners, SlitherScanner } from "@contracthunter/scanners";
 import { runProtocolAnalysis } from "@/lib/ai/analysis-service";
+import { runSecurityReview } from "@/lib/ai/security-review-service";
 
 export interface JobRunner {
   enqueue(scanId: string): void;
@@ -72,7 +73,8 @@ class InProcessJobRunner implements JobRunner {
       const current = getScan(database, scanId);
       if (current?.status === "preparing_compiler") transitionScan(database, scanId, "scanning");
       reconcileInvestigations(database, scanId);
-      await runProtocolAnalysis({ scanId, database, repositoryPath: cloned.path });
+      const analysis = await runProtocolAnalysis({ scanId, database, repositoryPath: cloned.path });
+      if (analysis) await runSecurityReview({ scanId, database, repositoryPath: cloned.path });
       transitionScan(database, scanId, "completed");
     } catch (error) {
       const scan = getScan(database, scanId);

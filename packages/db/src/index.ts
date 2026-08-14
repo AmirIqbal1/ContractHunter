@@ -4,9 +4,9 @@ import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/better-sqlite3";
-import type { AIAnalysisStatus, CompilerStatus, CreateScanInput, DependencyStatus, FindingStatus, InvariantCategory, InvariantStatus, InvariantTestability, InvestigationStatus, NewFinding, ProtocolAnalysisResult, ScannerStatus, ScanStatus, Severity, ValidatedEvidence } from "@contracthunter/core";
-import { assertTransition, buildInvestigations, findingSchema, investigationSchema, loadConfig, scanSchema } from "@contracthunter/core";
-import { findings, investigationFindings, investigations, invariants, protocolAnalyses, scans, scanScanners, type FindingRow, type InvariantRow, type InvestigationRow, type ProtocolAnalysisRow, type ScanRow, type ScanScannerRow } from "./schema";
+import type { AIAnalysisStatus, CompilerStatus, CreateScanInput, DependencyStatus, FindingStatus, HypothesisStatus, InvariantCategory, InvariantStatus, InvariantTestability, InvestigationStatus, NewFinding, ProtocolAnalysisResult, ReviewRunStatus, ReviewStageStatus, ScannerStatus, ScanStatus, SecurityReviewPlan, Severity, ValidatedEvidence } from "@contracthunter/core";
+import { assertTransition, buildInvestigations, correlateHypotheses, findingSchema, investigationSchema, loadConfig, scanSchema } from "@contracthunter/core";
+import { findings, hypothesisGroupMembers, hypothesisGroups, investigationFindings, investigations, invariants, protocolAnalyses, scans, scanScanners, securityReviewerRuns, securityReviewPlans, vulnerabilityHypotheses, type FindingRow, type HypothesisGroupRow, type InvariantRow, type InvestigationRow, type ProtocolAnalysisRow, type ScanRow, type ScanScannerRow, type SecurityReviewerRunRow, type SecurityReviewPlanRow, type VulnerabilityHypothesisRow } from "./schema";
 
 export * from "./schema";
 
@@ -26,7 +26,8 @@ export function createDatabase(databasePath: string) {
       compiler_constraints TEXT, compiler_versions TEXT, compiler_detection_source TEXT,
       compiler_status TEXT NOT NULL DEFAULT 'pending', compiler_error TEXT,
       dependency_status TEXT NOT NULL DEFAULT 'pending', dependency_metadata TEXT, dependency_error TEXT,
-      ai_status TEXT NOT NULL DEFAULT 'disabled', ai_error TEXT
+      ai_status TEXT NOT NULL DEFAULT 'disabled', ai_error TEXT,
+      review_status TEXT NOT NULL DEFAULT 'disabled', review_error TEXT
     );
     CREATE TABLE IF NOT EXISTS findings (
       id TEXT PRIMARY KEY, scan_id TEXT NOT NULL REFERENCES scans(id) ON DELETE CASCADE,
@@ -66,6 +67,26 @@ export function createDatabase(databasePath: string) {
       title TEXT NOT NULL, description TEXT NOT NULL, category TEXT NOT NULL, severity_if_violated TEXT NOT NULL, confidence INTEGER NOT NULL, rationale TEXT NOT NULL,
       related_contracts TEXT NOT NULL, related_functions TEXT NOT NULL, related_state TEXT NOT NULL, source_evidence TEXT NOT NULL, testability TEXT NOT NULL, status TEXT NOT NULL, created_at INTEGER NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS security_review_plans (
+      id TEXT PRIMARY KEY, scan_id TEXT NOT NULL REFERENCES scans(id) ON DELETE CASCADE, protocol_analysis_id TEXT NOT NULL REFERENCES protocol_analyses(id) ON DELETE CASCADE,
+      status TEXT NOT NULL, selected_reviewers TEXT NOT NULL, skipped_reviewers TEXT NOT NULL, estimated_source_bytes INTEGER NOT NULL, estimated_request_count INTEGER NOT NULL, actual_request_count INTEGER NOT NULL DEFAULT 0,
+      total_input_tokens INTEGER, total_output_tokens INTEGER, total_tokens INTEGER, duration_ms INTEGER, error TEXT, created_at INTEGER NOT NULL, completed_at INTEGER, is_latest INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS security_reviewer_runs (
+      id TEXT PRIMARY KEY, plan_id TEXT NOT NULL REFERENCES security_review_plans(id) ON DELETE CASCADE, scan_id TEXT NOT NULL REFERENCES scans(id) ON DELETE CASCADE, protocol_analysis_id TEXT NOT NULL REFERENCES protocol_analyses(id) ON DELETE CASCADE,
+      reviewer_id TEXT NOT NULL, reviewer_name TEXT NOT NULL, selection_reason TEXT NOT NULL, status TEXT NOT NULL, prompt_version TEXT NOT NULL, provider TEXT NOT NULL, requested_model TEXT NOT NULL, actual_model TEXT, context_manifest TEXT NOT NULL,
+      summary TEXT, areas_reviewed TEXT NOT NULL, limitations TEXT NOT NULL, hypothesis_count INTEGER NOT NULL DEFAULT 0, input_tokens INTEGER, output_tokens INTEGER, total_tokens INTEGER, duration_ms INTEGER, request_id TEXT, error TEXT, created_at INTEGER NOT NULL, started_at INTEGER, completed_at INTEGER
+    );
+    CREATE TABLE IF NOT EXISTS vulnerability_hypotheses (
+      id TEXT PRIMARY KEY, scan_id TEXT NOT NULL REFERENCES scans(id) ON DELETE CASCADE, protocol_analysis_id TEXT NOT NULL REFERENCES protocol_analyses(id) ON DELETE CASCADE, reviewer_id TEXT NOT NULL, reviewer_run_id TEXT NOT NULL REFERENCES security_reviewer_runs(id) ON DELETE CASCADE,
+      title TEXT NOT NULL, category TEXT NOT NULL, severity TEXT NOT NULL, severity_justification TEXT NOT NULL, confidence INTEGER NOT NULL, status TEXT NOT NULL, summary TEXT NOT NULL, root_cause TEXT NOT NULL, preconditions TEXT NOT NULL, attack_path TEXT NOT NULL, impact TEXT NOT NULL, affected_assets TEXT NOT NULL, affected_contracts TEXT NOT NULL, affected_functions TEXT NOT NULL, evidence TEXT NOT NULL, violated_invariant_ids TEXT NOT NULL, related_investigation_ids TEXT NOT NULL, false_positive_risks TEXT NOT NULL, verification_strategy TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS hypothesis_groups (
+      id TEXT PRIMARY KEY, plan_id TEXT NOT NULL REFERENCES security_review_plans(id) ON DELETE CASCADE, scan_id TEXT NOT NULL REFERENCES scans(id) ON DELETE CASCADE, fingerprint TEXT NOT NULL, priority_score INTEGER NOT NULL, confidence_score INTEGER NOT NULL, evidence_classes TEXT NOT NULL, reasons TEXT NOT NULL, created_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS hypothesis_group_members (
+      group_id TEXT NOT NULL REFERENCES hypothesis_groups(id) ON DELETE CASCADE, hypothesis_id TEXT NOT NULL REFERENCES vulnerability_hypotheses(id) ON DELETE CASCADE, PRIMARY KEY (group_id, hypothesis_id)
+    );
   `);
   const scanColumns = new Set((sqlite.prepare("PRAGMA table_info(scans)").all() as Array<{ name: string }>).map((column) => column.name));
   if (!scanColumns.has("scanner_name")) sqlite.exec("ALTER TABLE scans ADD COLUMN scanner_name TEXT");
@@ -81,6 +102,8 @@ export function createDatabase(databasePath: string) {
   if (!scanColumns.has("dependency_error")) sqlite.exec("ALTER TABLE scans ADD COLUMN dependency_error TEXT");
   if (!scanColumns.has("ai_status")) sqlite.exec("ALTER TABLE scans ADD COLUMN ai_status TEXT NOT NULL DEFAULT 'disabled'");
   if (!scanColumns.has("ai_error")) sqlite.exec("ALTER TABLE scans ADD COLUMN ai_error TEXT");
+  if (!scanColumns.has("review_status")) sqlite.exec("ALTER TABLE scans ADD COLUMN review_status TEXT NOT NULL DEFAULT 'disabled'");
+  if (!scanColumns.has("review_error")) sqlite.exec("ALTER TABLE scans ADD COLUMN review_error TEXT");
   const findingColumns = new Set((sqlite.prepare("PRAGMA table_info(findings)").all() as Array<{ name: string }>).map((column) => column.name));
   if (!findingColumns.has("detector_id")) sqlite.exec("ALTER TABLE findings ADD COLUMN detector_id TEXT");
   if (!findingColumns.has("fingerprint")) sqlite.exec("ALTER TABLE findings ADD COLUMN fingerprint TEXT");
@@ -95,8 +118,13 @@ export function createDatabase(databasePath: string) {
     CREATE INDEX IF NOT EXISTS investigation_findings_finding_id_idx ON investigation_findings(finding_id);
     CREATE INDEX IF NOT EXISTS protocol_analyses_scan_idx ON protocol_analyses(scan_id, is_latest);
     CREATE INDEX IF NOT EXISTS invariants_scan_idx ON invariants(scan_id, severity_if_violated, status);
+    CREATE INDEX IF NOT EXISTS security_review_plans_scan_idx ON security_review_plans(scan_id, is_latest);
+    CREATE INDEX IF NOT EXISTS security_reviewer_runs_plan_idx ON security_reviewer_runs(plan_id, status);
+    CREATE INDEX IF NOT EXISTS vulnerability_hypotheses_scan_idx ON vulnerability_hypotheses(scan_id, severity, status, confidence);
+    CREATE INDEX IF NOT EXISTS hypothesis_groups_plan_idx ON hypothesis_groups(plan_id, priority_score);
+    CREATE INDEX IF NOT EXISTS hypothesis_group_members_hypothesis_idx ON hypothesis_group_members(hypothesis_id);
   `);
-  const orm = drizzle(sqlite, { schema: { scans, findings, scanScanners, investigations, investigationFindings, protocolAnalyses, invariants } });
+  const orm = drizzle(sqlite, { schema: { scans, findings, scanScanners, investigations, investigationFindings, protocolAnalyses, invariants, securityReviewPlans, securityReviewerRuns, vulnerabilityHypotheses, hypothesisGroups, hypothesisGroupMembers } });
   return { sqlite, orm };
 }
 
@@ -122,6 +150,7 @@ export function createScan(database: DatabaseClient, input: CreateScanInput & { 
     compilerConstraints: null, compilerVersions: null, compilerDetectionSource: null, compilerStatus: "pending", compilerError: null,
     dependencyStatus: "pending", dependencyMetadata: null, dependencyError: null,
     aiStatus: "disabled", aiError: null,
+    reviewStatus: "disabled", reviewError: null,
   };
   scanSchema.parse(row);
   database.orm.insert(scans).values(row).run();
@@ -225,11 +254,18 @@ export function updateAIState(database: DatabaseClient, id: string, status: AIAn
   database.orm.update(scans).set({ aiStatus: status, aiError: error }).where(eq(scans.id, id)).run();
 }
 
+export function updateSecurityReviewState(database: DatabaseClient, id: string, status: ReviewStageStatus, error: string | null = null): void {
+  database.orm.update(scans).set({ reviewStatus: status, reviewError: error }).where(eq(scans.id, id)).run();
+}
+
 export function markActiveScansInterrupted(database: DatabaseClient): number {
   const active: ScanStatus[] = ["queued", "cloning", "detecting", "preparing_dependencies", "preparing_compiler", "scanning"];
   const result = database.orm.update(scans).set({ status: "failed", scannerStatus: "failed", compilerStatus: "failed", dependencyStatus: "failed", completedAt: new Date(), error: "Scan interrupted by application restart." }).where(inArray(scans.status, active)).run().changes;
   database.sqlite.prepare("UPDATE scan_scanners SET status = 'failed', error = 'Scan interrupted by application restart.' WHERE status IN ('pending', 'available', 'running')").run();
   database.sqlite.prepare("UPDATE scans SET ai_status = 'failed', ai_error = 'AI analysis interrupted by application restart.' WHERE ai_status IN ('pending', 'running')").run();
+  database.sqlite.prepare("UPDATE scans SET review_status = 'failed', review_error = 'Security review interrupted by application restart.' WHERE review_status IN ('pending', 'running')").run();
+  database.sqlite.prepare("UPDATE security_review_plans SET status = 'failed', error = 'Security review interrupted by application restart.', completed_at = unixepoch() * 1000 WHERE status IN ('pending', 'running')").run();
+  database.sqlite.prepare("UPDATE security_reviewer_runs SET status = 'failed', error = 'Reviewer interrupted by application restart.', completed_at = unixepoch() * 1000 WHERE status IN ('queued', 'running')").run();
   return result;
 }
 
@@ -373,6 +409,55 @@ export function getInvariant(database: DatabaseClient, id: string): InvariantRow
 export function updateInvariantStatus(database: DatabaseClient, id: string, status: InvariantStatus): InvariantRow | undefined {
   database.orm.update(invariants).set({ status }).where(eq(invariants.id, id)).run();
   return getInvariant(database, id);
+}
+
+export function createSecurityReviewPlan(database: DatabaseClient, input: { scanId: string; protocolAnalysisId: string; plan: SecurityReviewPlan; estimatedSourceBytes: number }): SecurityReviewPlanRow {
+  const row: SecurityReviewPlanRow = { id: randomUUID(), scanId: input.scanId, protocolAnalysisId: input.protocolAnalysisId, status: "pending", selectedReviewers: JSON.stringify(input.plan.selected), skippedReviewers: JSON.stringify(input.plan.skipped), estimatedSourceBytes: input.estimatedSourceBytes, estimatedRequestCount: input.plan.estimatedRequestCount, actualRequestCount: 0, totalInputTokens: null, totalOutputTokens: null, totalTokens: null, durationMs: null, error: null, createdAt: new Date(), completedAt: null, isLatest: true };
+  database.sqlite.transaction(() => { database.orm.update(securityReviewPlans).set({ isLatest: false }).where(eq(securityReviewPlans.scanId, input.scanId)).run(); database.orm.insert(securityReviewPlans).values(row).run(); updateSecurityReviewState(database, input.scanId, "pending"); })();
+  return row;
+}
+export function getCurrentSecurityReviewPlan(database: DatabaseClient, scanId: string): SecurityReviewPlanRow | undefined { return database.orm.select().from(securityReviewPlans).where(and(eq(securityReviewPlans.scanId, scanId), eq(securityReviewPlans.isLatest, true))).get(); }
+export function getSecurityReviewPlan(database: DatabaseClient, id: string): SecurityReviewPlanRow | undefined { return database.orm.select().from(securityReviewPlans).where(eq(securityReviewPlans.id, id)).get(); }
+export function listSecurityReviewPlans(database: DatabaseClient, scanId: string): SecurityReviewPlanRow[] { return database.orm.select().from(securityReviewPlans).where(eq(securityReviewPlans.scanId, scanId)).orderBy(desc(securityReviewPlans.createdAt)).all(); }
+export function updateSecurityReviewPlan(database: DatabaseClient, id: string, fields: Partial<Pick<SecurityReviewPlanRow, "status" | "actualRequestCount" | "totalInputTokens" | "totalOutputTokens" | "totalTokens" | "durationMs" | "error" | "completedAt">>): void { database.orm.update(securityReviewPlans).set(fields).where(eq(securityReviewPlans.id, id)).run(); }
+
+export function createSecurityReviewerRun(database: DatabaseClient, input: { planId: string; scanId: string; protocolAnalysisId: string; reviewerId: string; reviewerName: string; selectionReason: string; promptVersion: string; provider: string; requestedModel: string; contextManifest: unknown }): SecurityReviewerRunRow {
+  const row: SecurityReviewerRunRow = { id: randomUUID(), planId: input.planId, scanId: input.scanId, protocolAnalysisId: input.protocolAnalysisId, reviewerId: input.reviewerId, reviewerName: input.reviewerName, selectionReason: input.selectionReason, status: "queued", promptVersion: input.promptVersion, provider: input.provider, requestedModel: input.requestedModel, actualModel: null, contextManifest: JSON.stringify(input.contextManifest), summary: null, areasReviewed: "[]", limitations: "[]", hypothesisCount: 0, inputTokens: null, outputTokens: null, totalTokens: null, durationMs: null, requestId: null, error: null, createdAt: new Date(), startedAt: null, completedAt: null };
+  database.orm.insert(securityReviewerRuns).values(row).run(); return row;
+}
+export function updateSecurityReviewerRun(database: DatabaseClient, id: string, status: ReviewRunStatus, fields: Partial<Pick<SecurityReviewerRunRow, "actualModel" | "summary" | "areasReviewed" | "limitations" | "hypothesisCount" | "inputTokens" | "outputTokens" | "totalTokens" | "durationMs" | "requestId" | "error">> = {}): void {
+  database.orm.update(securityReviewerRuns).set({ status, ...fields, ...(status === "running" ? { startedAt: new Date() } : {}), ...(["completed", "failed"].includes(status) ? { completedAt: new Date() } : {}) }).where(eq(securityReviewerRuns.id, id)).run();
+}
+export function listSecurityReviewerRuns(database: DatabaseClient, planId: string): SecurityReviewerRunRow[] { return database.orm.select().from(securityReviewerRuns).where(eq(securityReviewerRuns.planId, planId)).orderBy(securityReviewerRuns.createdAt, securityReviewerRuns.reviewerId).all(); }
+export function getSecurityReviewerRun(database: DatabaseClient, id: string): SecurityReviewerRunRow | undefined { return database.orm.select().from(securityReviewerRuns).where(eq(securityReviewerRuns.id, id)).get(); }
+
+export type PersistHypothesisInput = Omit<VulnerabilityHypothesisRow, "id" | "createdAt" | "updatedAt" | "status">;
+export function insertVulnerabilityHypotheses(database: DatabaseClient, input: PersistHypothesisInput[]): VulnerabilityHypothesisRow[] {
+  const now = new Date(); const rows: VulnerabilityHypothesisRow[] = input.map((item) => ({ ...item, id: randomUUID(), status: "candidate", createdAt: now, updatedAt: now }));
+  if (rows.length) database.orm.insert(vulnerabilityHypotheses).values(rows).run(); return rows;
+}
+export function getVulnerabilityHypothesis(database: DatabaseClient, id: string): VulnerabilityHypothesisRow | undefined { return database.orm.select().from(vulnerabilityHypotheses).where(eq(vulnerabilityHypotheses.id, id)).get(); }
+export function updateVulnerabilityHypothesisStatus(database: DatabaseClient, id: string, status: Exclude<HypothesisStatus, "verified">): VulnerabilityHypothesisRow | undefined { database.orm.update(vulnerabilityHypotheses).set({ status, updatedAt: new Date() }).where(eq(vulnerabilityHypotheses.id, id)).run(); return getVulnerabilityHypothesis(database, id); }
+
+export type HypothesisFilters = { scanId?: string; severity?: Severity; category?: string; reviewerId?: string; status?: HypothesisStatus; minimumConfidence?: number; evidenceClass?: string; includeHistory?: boolean };
+export type RankedHypothesis = VulnerabilityHypothesisRow & { priorityScore: number; groupConfidenceScore: number; evidenceClasses: string[]; groupId: string | null };
+export function listVulnerabilityHypotheses(database: DatabaseClient, filters: HypothesisFilters = {}): RankedHypothesis[] {
+  const plans = filters.includeHistory ? database.orm.select().from(securityReviewPlans).all() : database.orm.select().from(securityReviewPlans).where(eq(securityReviewPlans.isLatest, true)).all();
+  const planIds = plans.filter((plan) => !filters.scanId || plan.scanId === filters.scanId).map((plan) => plan.id); if (!planIds.length) return [];
+  const runs = database.orm.select().from(securityReviewerRuns).where(inArray(securityReviewerRuns.planId, planIds)).all(); const runIds = runs.map((run) => run.id); if (!runIds.length) return [];
+  const rows = database.orm.select().from(vulnerabilityHypotheses).where(inArray(vulnerabilityHypotheses.reviewerRunId, runIds)).all();
+  const memberships = database.orm.select().from(hypothesisGroupMembers).all(); const groupRows = database.orm.select().from(hypothesisGroups).where(inArray(hypothesisGroups.planId, planIds)).all(); const groupsById = new Map(groupRows.map((group) => [group.id, group])); const groupByHypothesis = new Map(memberships.map((member) => [member.hypothesisId, groupsById.get(member.groupId)]));
+  return rows.map((row) => { const group = groupByHypothesis.get(row.id); return { ...row, priorityScore: group?.priorityScore ?? 0, groupConfidenceScore: group?.confidenceScore ?? row.confidence, evidenceClasses: group ? JSON.parse(group.evidenceClasses) as string[] : ["semantic"], groupId: group?.id ?? null }; }).filter((row) => (!filters.scanId || row.scanId === filters.scanId) && (!filters.severity || row.severity === filters.severity) && (!filters.category || row.category === filters.category) && (!filters.reviewerId || row.reviewerId === filters.reviewerId) && (!filters.status || row.status === filters.status) && (filters.minimumConfidence === undefined || row.confidence >= filters.minimumConfidence) && (!filters.evidenceClass || row.evidenceClasses.includes(filters.evidenceClass))).sort((a, b) => b.priorityScore - a.priorityScore || b.confidence - a.confidence || a.title.localeCompare(b.title));
+}
+export function listHypothesesForInvestigation(database: DatabaseClient, investigationId: string): RankedHypothesis[] { return listVulnerabilityHypotheses(database).filter((item) => { try { return (JSON.parse(item.relatedInvestigationIds) as string[]).includes(investigationId); } catch { return false; } }); }
+export function countHypothesesByInvariant(database: DatabaseClient, invariantId: string): number { return listVulnerabilityHypotheses(database).filter((item) => { try { return (JSON.parse(item.violatedInvariantIds) as string[]).includes(invariantId); } catch { return false; } }).length; }
+
+export function correlateAndPersistHypotheses(database: DatabaseClient, planId: string): HypothesisGroupRow[] {
+  const plan = getSecurityReviewPlan(database, planId); if (!plan) throw new Error("Security review plan not found.");
+  const runs = listSecurityReviewerRuns(database, planId); const runIds = runs.map((run) => run.id); const rows = runIds.length ? database.orm.select().from(vulnerabilityHypotheses).where(inArray(vulnerabilityHypotheses.reviewerRunId, runIds)).all() : [];
+  const candidates = correlateHypotheses(rows.map((row) => ({ id: row.id, reviewerId: row.reviewerId, category: row.category, severity: row.severity, confidence: row.confidence, rootCause: row.rootCause, evidence: JSON.parse(row.evidence) as ValidatedEvidence[], violatedInvariantIds: JSON.parse(row.violatedInvariantIds) as string[], relatedInvestigationIds: JSON.parse(row.relatedInvestigationIds) as string[] })));
+  const now = new Date(); const groups: HypothesisGroupRow[] = candidates.map((candidate) => ({ id: randomUUID(), planId, scanId: plan.scanId, fingerprint: candidate.fingerprint, priorityScore: candidate.priorityScore, confidenceScore: candidate.confidenceScore, evidenceClasses: JSON.stringify(candidate.evidenceClasses), reasons: JSON.stringify(candidate.reasons), createdAt: now }));
+  database.sqlite.transaction(() => { database.orm.delete(hypothesisGroups).where(eq(hypothesisGroups.planId, planId)).run(); if (groups.length) database.orm.insert(hypothesisGroups).values(groups).run(); for (let index = 0; index < groups.length; index++) database.orm.insert(hypothesisGroupMembers).values(candidates[index].memberIds.map((hypothesisId) => ({ groupId: groups[index].id, hypothesisId }))).run(); })(); return groups;
 }
 
 export function dashboardStats(database: DatabaseClient) {

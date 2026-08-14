@@ -37,6 +37,12 @@ export const configSchema = z.object({
   AI_MAX_SOURCE_BYTES: z.coerce.number().int().min(1_024).max(10_000_000).default(500_000),
   AI_MAX_FILES: z.coerce.number().int().min(1).max(1_000).default(120),
   AI_MAX_FILE_BYTES: z.coerce.number().int().min(1_024).max(1_000_000).default(75_000),
+  AI_REVIEW_MAX_SOURCE_BYTES: z.coerce.number().int().min(1_024).max(10_000_000).default(300_000),
+  AI_REVIEW_MAX_FILES: z.coerce.number().int().min(1).max(1_000).default(80),
+  AI_MAX_REVIEWERS: z.coerce.number().int().min(1).max(18).default(10),
+  AI_REVIEW_CONCURRENCY: z.coerce.number().int().min(1).max(8).default(2),
+  AI_REVIEW_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(600_000).default(180_000),
+  AI_REVIEW_MAX_TOTAL_REQUESTS: z.coerce.number().int().min(1).max(50).default(12),
 }).superRefine((config, context) => {
   const data = path.resolve(config.DATA_DIR);
   const repo = path.resolve(config.REPOSITORY_DIR);
@@ -80,5 +86,11 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppCon
     AI_MAX_SOURCE_BYTES: environment.AI_MAX_SOURCE_BYTES,
     AI_MAX_FILES: environment.AI_MAX_FILES,
     AI_MAX_FILE_BYTES: environment.AI_MAX_FILE_BYTES,
+    AI_REVIEW_MAX_SOURCE_BYTES: environment.AI_REVIEW_MAX_SOURCE_BYTES,
+    AI_REVIEW_MAX_FILES: environment.AI_REVIEW_MAX_FILES,
+    AI_MAX_REVIEWERS: environment.AI_MAX_REVIEWERS,
+    AI_REVIEW_CONCURRENCY: environment.AI_REVIEW_CONCURRENCY,
+    AI_REVIEW_TIMEOUT_MS: environment.AI_REVIEW_TIMEOUT_MS,
+    AI_REVIEW_MAX_TOTAL_REQUESTS: environment.AI_REVIEW_MAX_TOTAL_REQUESTS,
   });
 }
