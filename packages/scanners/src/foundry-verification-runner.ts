@@ -1,4 +1,5 @@
-import { lstat, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
+import { access, lstat, readFile, readlink, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
+import { constants as fsConstants } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { VERIFICATION_HARNESS_MANIFEST, verificationHarnessManifestSchema } from "@contracthunter/core";
@@ -10,6 +11,15 @@ const MAX_OUTPUT_BYTES = 20_971_520;
 const SAFE_TEST_FILTER = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const COMMIT = /^[a-f0-9]{40}$/;
+const FORBIDDEN_ENVIRONMENT_KEYS = new Set(["OPENAI_API_KEY", "GITHUB_TOKEN", "GH_TOKEN", "PRIVATE_KEY", "MNEMONIC", "RPC_URL", "ETH_RPC_URL", "ETHERSCAN_API_KEY", "NPM_TOKEN", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"]);
+const SAFE_ENVIRONMENT_KEYS = ["NODE_ENV", "LANG", "LC_ALL", "NO_COLOR", "FOUNDRY_PROFILE"] as const;
+const DEFAULT_RESOURCE_LIMITS: VerificationResourceLimits = {
+  maxCpuTimeSeconds: 300,
+  maxVirtualMemoryBytes: 2_147_483_648,
+  maxProcesses: 64,
+  maxOpenFiles: 256,
+  maxFileSizeBytes: 67_108_864,
+};
 
 export const CONTRACTHUNTER_FOUNDRY_CONFIG = `[profile.default]
 src = "src"
@@ -33,15 +43,188 @@ export type FoundryVerificationInput = {
   matchTest?: string;
 };
 
-export type VerificationIsolationConfirmation = { providerId: string; networkAccess: "disabled" };
+export type VerificationResourceLimits = {
+  maxCpuTimeSeconds: number;
+  maxVirtualMemoryBytes: number;
+  maxProcesses: number;
+  maxOpenFiles: number;
+  maxFileSizeBytes: number;
+};
+
+export type VerificationIsolationConfirmation = {
+  providerId: "linux-bubblewrap" | string;
+  isolationVersion: string;
+  networkAccess: "disabled";
+  networkIsolated: true;
+  processIsolated: true;
+  resourceLimitsApplied: VerificationResourceLimits;
+};
+export type VerificationIsolationMetadata = VerificationIsolationConfirmation & {
+  wallClockTimeoutMs: number;
+  maxOutputBytes: number;
+  writableProjectPath: string;
+};
+export type IsolatedExecutionResult = ObservedProcessResult & { isolation: VerificationIsolationMetadata };
 export interface VerificationIsolationProvider {
   confirmNetworkIsolation(): Promise<VerificationIsolationConfirmation | null>;
-  execute(request: ProcessRequest, processRunner: ObservedProcessRunner): Promise<ObservedProcessResult>;
+  execute(request: ProcessRequest, processRunner: ObservedProcessRunner): Promise<IsolatedExecutionResult>;
 }
 
 export class UnavailableVerificationIsolationProvider implements VerificationIsolationProvider {
   async confirmNetworkIsolation(): Promise<null> { return null; }
   async execute(): Promise<never> { throw new Error("Network isolation is unavailable."); }
+}
+
+export type LinuxBubblewrapIsolationProviderOptions = {
+  verificationRoot: string;
+  toolHomeDir: string;
+  executableSearchPath: string;
+  resourceLimits?: Partial<VerificationResourceLimits>;
+  platform?: NodeJS.Platform;
+  resolveExecutable?: (name: string) => Promise<string | null>;
+  capabilityProcessRunner?: ObservedProcessRunner;
+  readParentNetworkNamespace?: () => Promise<string>;
+};
+
+function validLimits(limits: VerificationResourceLimits): boolean {
+  return Number.isInteger(limits.maxCpuTimeSeconds) && limits.maxCpuTimeSeconds >= 1 && limits.maxCpuTimeSeconds <= 600
+    && Number.isInteger(limits.maxVirtualMemoryBytes) && limits.maxVirtualMemoryBytes >= 268_435_456 && limits.maxVirtualMemoryBytes <= 4_294_967_296
+    && Number.isInteger(limits.maxProcesses) && limits.maxProcesses >= 8 && limits.maxProcesses <= 256
+    && Number.isInteger(limits.maxOpenFiles) && limits.maxOpenFiles >= 32 && limits.maxOpenFiles <= 1_024
+    && Number.isInteger(limits.maxFileSizeBytes) && limits.maxFileSizeBytes >= 1_048_576 && limits.maxFileSizeBytes <= 268_435_456;
+}
+
+async function defaultExecutableResolver(searchPath: string, name: string): Promise<string | null> {
+  if (!/^[A-Za-z0-9._+-]+$/.test(name)) return null;
+  for (const directory of searchPath.split(path.delimiter)) {
+    if (!path.isAbsolute(directory)) continue;
+    const candidate = path.join(directory, name);
+    try { await access(candidate, fsConstants.X_OK); if ((await stat(candidate)).isFile()) return await realpath(candidate); }
+    catch { /* Continue through the fixed search path. */ }
+  }
+  return null;
+}
+
+async function existingSystemMounts(): Promise<string[]> {
+  const mounts: string[] = [];
+  for (const candidate of ["/usr/lib", "/usr/lib64", "/lib", "/lib64"]) {
+    try { if ((await stat(candidate)).isDirectory()) mounts.push(candidate); }
+    catch { /* Optional compatibility path is absent. */ }
+  }
+  return mounts;
+}
+
+export class LinuxBubblewrapIsolationProvider implements VerificationIsolationProvider {
+  private readonly limits: VerificationResourceLimits;
+  private readonly platform: NodeJS.Platform;
+  private readonly resolveExecutable: (name: string) => Promise<string | null>;
+  private readonly capabilityProcessRunner: ObservedProcessRunner;
+  private capability: Promise<VerificationIsolationConfirmation | null> | undefined;
+
+  constructor(private readonly options: LinuxBubblewrapIsolationProviderOptions) {
+    this.limits = { ...DEFAULT_RESOURCE_LIMITS, ...options.resourceLimits };
+    this.platform = options.platform ?? process.platform;
+    this.resolveExecutable = options.resolveExecutable ?? ((name) => defaultExecutableResolver(options.executableSearchPath, name));
+    this.capabilityProcessRunner = options.capabilityProcessRunner ?? runObservedProcess;
+  }
+
+  private prlimitArguments(cpuSeconds: number): string[] {
+    return [
+      `--cpu=${cpuSeconds}:${cpuSeconds}`,
+      `--as=${this.limits.maxVirtualMemoryBytes}:${this.limits.maxVirtualMemoryBytes}`,
+      `--nproc=${this.limits.maxProcesses}:${this.limits.maxProcesses}`,
+      `--nofile=${this.limits.maxOpenFiles}:${this.limits.maxOpenFiles}`,
+      `--fsize=${this.limits.maxFileSizeBytes}:${this.limits.maxFileSizeBytes}`,
+      "--",
+    ];
+  }
+
+  private async baseBubblewrapArguments(): Promise<string[]> {
+    const args = ["--die-with-parent", "--new-session", "--unshare-user", "--unshare-pid", "--unshare-net", "--unshare-ipc", "--unshare-uts", "--clearenv"];
+    for (const mount of await existingSystemMounts()) args.push("--ro-bind", mount, mount);
+    args.push("--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp");
+    return args;
+  }
+
+  private async probe(): Promise<VerificationIsolationConfirmation | null> {
+    if (this.platform !== "linux" || !validLimits(this.limits)) return null;
+    const [bwrap, prlimit, readlinkExecutable] = await Promise.all([this.resolveExecutable("bwrap"), this.resolveExecutable("prlimit"), this.resolveExecutable("readlink")]);
+    if (!bwrap || !prlimit || !readlinkExecutable) return null;
+    const environment: NodeJS.ProcessEnv = { NODE_ENV: "production", PATH: "/usr/bin:/bin", LANG: "C", LC_ALL: "C" };
+    try {
+      const version = await this.capabilityProcessRunner({ command: bwrap, args: ["--version"], timeoutMs: 2_000, maxOutputBytes: 1_024, env: environment, killProcessTree: true });
+      if (version.exitCode !== 0 || version.timedOut) return null;
+      const parentNetworkNamespace = (await (this.options.readParentNetworkNamespace ?? (() => readlink("/proc/self/ns/net")))()).trim();
+      if (!parentNetworkNamespace) return null;
+      const namespace = await this.capabilityProcessRunner({
+        command: prlimit,
+        args: [...this.prlimitArguments(2), bwrap, ...await this.baseBubblewrapArguments(), "--dir", "/opt", "--dir", "/opt/contracthunter-probe", "--ro-bind", readlinkExecutable, "/opt/contracthunter-probe/readlink", "--", "/opt/contracthunter-probe/readlink", "/proc/self/ns/net"],
+        timeoutMs: 3_000,
+        maxOutputBytes: 1_024,
+        env: environment,
+        killProcessTree: true,
+      });
+      const childNetworkNamespace = namespace.stdout.trim();
+      if (namespace.exitCode !== 0 || namespace.timedOut || !childNetworkNamespace || childNetworkNamespace === parentNetworkNamespace) return null;
+      return {
+        providerId: "linux-bubblewrap",
+        isolationVersion: version.stdout.trim().slice(0, 128) || "bubblewrap",
+        networkAccess: "disabled",
+        networkIsolated: true,
+        processIsolated: true,
+        resourceLimitsApplied: { ...this.limits },
+      };
+    } catch { return null; }
+  }
+
+  async confirmNetworkIsolation(): Promise<VerificationIsolationConfirmation | null> {
+    this.capability ??= this.probe();
+    return this.capability;
+  }
+
+  async execute(request: ProcessRequest, processRunner: ObservedProcessRunner): Promise<IsolatedExecutionResult> {
+    const capability = await this.confirmNetworkIsolation();
+    if (!capability || request.command !== "forge" || !request.cwd || !path.isAbsolute(request.cwd)) throw new Error("Required Linux verification isolation is unavailable.");
+    const validArguments = request.args.length === 2
+      ? request.args[0] === "test" && request.args[1] === "--no-color"
+      : request.args.length === 4 && request.args[0] === "test" && request.args[1] === "--no-color" && request.args[2] === "--match-test" && SAFE_TEST_FILTER.test(request.args[3]);
+    if (!validArguments || !Number.isInteger(request.timeoutMs) || request.timeoutMs < 100 || request.timeoutMs > MAX_TIMEOUT_MS || !Number.isInteger(request.maxOutputBytes) || request.maxOutputBytes < 1_024 || request.maxOutputBytes > MAX_OUTPUT_BYTES) throw new Error("The verification executable request is invalid.");
+    const [verificationRoot, workspace, forge, toolHome] = await Promise.all([
+      realpath(this.options.verificationRoot), realpath(request.cwd), this.resolveExecutable("forge"), realpath(this.options.toolHomeDir),
+    ]);
+    if (!isInside(workspace, verificationRoot) || !forge) throw new Error("The verification workspace or executable is unavailable.");
+    const [bwrap, prlimit] = await Promise.all([this.resolveExecutable("bwrap"), this.resolveExecutable("prlimit")]);
+    if (!bwrap || !prlimit) throw new Error("Required Linux verification isolation is unavailable.");
+
+    const sandboxHome = "/home/contracthunter";
+    const sandboxForge = "/opt/contracthunter/bin/forge";
+    const bwrapArguments = [...await this.baseBubblewrapArguments(), "--dir", "/home", "--dir", sandboxHome, "--dir", "/opt", "--dir", "/opt/contracthunter", "--dir", "/opt/contracthunter/bin"];
+    const compilerCache = path.join(toolHome, ".svm");
+    try { if ((await stat(compilerCache)).isDirectory()) bwrapArguments.push("--ro-bind", compilerCache, `${sandboxHome}/.svm`); }
+    catch { /* Missing trusted compiler cache makes Forge fail cleanly in offline mode. */ }
+    bwrapArguments.push("--ro-bind", forge, sandboxForge, "--bind", workspace, workspace, "--chdir", workspace);
+
+    const sandboxEnvironment: Record<string, string> = { NODE_ENV: "production", PATH: "/opt/contracthunter/bin", HOME: sandboxHome, TMPDIR: "/tmp" };
+    for (const key of SAFE_ENVIRONMENT_KEYS) if (request.env?.[key] !== undefined) sandboxEnvironment[key] = request.env[key];
+    for (const [key, value] of Object.entries(sandboxEnvironment)) {
+      if (value !== undefined && !FORBIDDEN_ENVIRONMENT_KEYS.has(key)) bwrapArguments.push("--setenv", key, value);
+    }
+    bwrapArguments.push("--", sandboxForge, ...request.args);
+    const cpuSeconds = Math.max(1, Math.min(this.limits.maxCpuTimeSeconds, Math.ceil(request.timeoutMs / 1_000) + 1));
+    const observed = await processRunner({
+      command: prlimit,
+      args: [...this.prlimitArguments(cpuSeconds), bwrap, ...bwrapArguments],
+      cwd: workspace,
+      timeoutMs: request.timeoutMs,
+      maxOutputBytes: request.maxOutputBytes,
+      env: { NODE_ENV: "production", PATH: "/usr/bin:/bin", LANG: "C", LC_ALL: "C" },
+      killProcessTree: true,
+    });
+    return {
+      ...observed,
+      isolation: { ...capability, resourceLimitsApplied: { ...this.limits, maxCpuTimeSeconds: cpuSeconds }, wallClockTimeoutMs: request.timeoutMs, maxOutputBytes: request.maxOutputBytes, writableProjectPath: workspace },
+    };
+  }
 }
 
 export type FoundryVerificationErrorCode =
@@ -70,6 +253,7 @@ export type FoundryVerificationResult = {
   outputTruncated: boolean;
   errorCode: FoundryVerificationErrorCode | null;
   errorMessage: string | null;
+  isolation: VerificationIsolationMetadata | null;
 };
 
 export type FoundryVerificationRunnerOptions = {
@@ -80,6 +264,7 @@ export type FoundryVerificationRunnerOptions = {
   executablePath: string;
   isolationProvider?: VerificationIsolationProvider;
   processRunner?: ObservedProcessRunner;
+  isolationResourceLimits?: Partial<VerificationResourceLimits>;
 };
 
 class FoundryVerificationSafetyError extends Error {
@@ -110,7 +295,7 @@ function parseTestCounts(output: string): { testCount: number; passedCount: numb
 }
 
 function emptyResult(startedAt: number, code: FoundryVerificationErrorCode, message: string): FoundryVerificationResult {
-  return { status: "refused", exitCode: null, durationMs: Date.now() - startedAt, timedOut: false, testCount: null, passedCount: null, failedCount: null, stdoutSummary: "", stderrSummary: "", stdoutTruncated: false, stderrTruncated: false, outputTruncated: false, errorCode: code, errorMessage: message };
+  return { status: "refused", exitCode: null, durationMs: Date.now() - startedAt, timedOut: false, testCount: null, passedCount: null, failedCount: null, stdoutSummary: "", stderrSummary: "", stdoutTruncated: false, stderrTruncated: false, outputTruncated: false, errorCode: code, errorMessage: message, isolation: null };
 }
 
 export class FoundryVerificationRunner {
@@ -118,7 +303,7 @@ export class FoundryVerificationRunner {
   private readonly processRunner: ObservedProcessRunner;
 
   constructor(private readonly options: FoundryVerificationRunnerOptions) {
-    this.isolationProvider = options.isolationProvider ?? new UnavailableVerificationIsolationProvider();
+    this.isolationProvider = options.isolationProvider ?? new LinuxBubblewrapIsolationProvider({ verificationRoot: options.verificationRoot, toolHomeDir: options.toolHomeDir, executableSearchPath: options.executablePath, resourceLimits: options.isolationResourceLimits });
     this.processRunner = options.processRunner ?? runObservedProcess;
   }
 
@@ -171,12 +356,13 @@ export class FoundryVerificationRunner {
       const workspace = await this.checkedWorkspace(input.workspacePath);
       await this.validateManifest(workspace, input);
       const isolation = await this.isolationProvider.confirmNetworkIsolation();
-      if (!isolation || isolation.networkAccess !== "disabled") throw new FoundryVerificationSafetyError("network_isolation_unavailable", "Reliable network isolation is unavailable; verification was not executed.");
+      if (!isolation || isolation.networkAccess !== "disabled" || !isolation.networkIsolated || !isolation.processIsolated || !validLimits(isolation.resourceLimitsApplied)) throw new FoundryVerificationSafetyError("network_isolation_unavailable", "Reliable network and process isolation is unavailable; verification was not executed.");
       await this.installControlledConfig(workspace);
       const args = ["test", "--no-color", ...(input.matchTest ? ["--match-test", input.matchTest] : [])];
-      let observed: ObservedProcessResult;
+      let observed: IsolatedExecutionResult;
       try { observed = await this.isolationProvider.execute({ command: "forge", args, cwd: workspace, timeoutMs: input.timeoutMs, maxOutputBytes: input.maxOutputBytes, env: this.environment() }, this.processRunner); }
       catch { return { ...emptyResult(startedAt, "execution_error", "Foundry verification could not be executed."), status: "failed" }; }
+      if (!observed.isolation.networkIsolated || !observed.isolation.processIsolated || observed.isolation.networkAccess !== "disabled" || !validLimits(observed.isolation.resourceLimitsApplied)) return { ...emptyResult(startedAt, "execution_error", "Foundry verification isolation metadata was invalid."), status: "failed" };
       const counts = parseTestCounts(`${observed.stdout}\n${observed.stderr}`);
       const outputTruncated = observed.stdoutTruncated || observed.stderrTruncated;
       const failed = observed.timedOut || observed.exitCode !== 0;
@@ -186,6 +372,7 @@ export class FoundryVerificationRunner {
         stdoutSummary: observed.stdout, stderrSummary: observed.stderr, stdoutTruncated: observed.stdoutTruncated, stderrTruncated: observed.stderrTruncated, outputTruncated,
         errorCode: observed.timedOut ? "execution_timeout" : observed.exitCode !== 0 ? "forge_failed" : null,
         errorMessage: observed.timedOut ? "Foundry verification timed out." : observed.exitCode !== 0 ? "Foundry verification exited unsuccessfully." : null,
+        isolation: observed.isolation,
       };
     } catch (error) {
       if (error instanceof FoundryVerificationSafetyError) return emptyResult(startedAt, error.code, error.message);

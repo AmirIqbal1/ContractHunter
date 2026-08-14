@@ -7,6 +7,7 @@ export type ProcessRequest = {
   timeoutMs: number;
   maxOutputBytes: number;
   env?: NodeJS.ProcessEnv;
+  killProcessTree?: boolean;
 };
 
 export type ProcessResult = { stdout: string; stderr: string; exitCode: number };
@@ -30,9 +31,11 @@ export type ObservedProcessRunner = (request: ProcessRequest) => Promise<Observe
 
 export const runObservedProcess: ObservedProcessRunner = (request) => new Promise((resolve, reject) => {
   const startedAt = Date.now();
+  const detached = request.killProcessTree === true && process.platform !== "win32";
   const child = spawn(request.command, request.args, {
     cwd: request.cwd,
     shell: false,
+    detached,
     windowsHide: true,
     stdio: ["ignore", "pipe", "pipe"],
     env: request.env,
@@ -44,6 +47,13 @@ export const runObservedProcess: ObservedProcessRunner = (request) => new Promis
   let stderrTruncated = false;
   let timedOut = false;
   let settled = false;
+
+  const kill = () => {
+    if (detached && child.pid !== undefined) {
+      try { process.kill(-child.pid, "SIGKILL"); return; }
+      catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") child.kill("SIGKILL"); }
+    } else child.kill("SIGKILL");
+  };
 
   const capture = (target: Buffer[], chunk: Buffer, stream: "stdout" | "stderr") => {
     const remaining = Math.max(0, request.maxOutputBytes - capturedBytes);
@@ -57,7 +67,7 @@ export const runObservedProcess: ObservedProcessRunner = (request) => new Promis
       else stderrTruncated = true;
     }
   };
-  const timer = setTimeout(() => { timedOut = true; child.kill("SIGKILL"); }, request.timeoutMs);
+  const timer = setTimeout(() => { timedOut = true; kill(); }, request.timeoutMs);
   child.stdout.on("data", (chunk: Buffer) => capture(stdout, chunk, "stdout"));
   child.stderr.on("data", (chunk: Buffer) => capture(stderr, chunk, "stderr"));
   child.on("error", (error) => {
