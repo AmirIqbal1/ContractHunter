@@ -12,10 +12,12 @@ export type DynamicEvidenceDirection = (typeof dynamicEvidenceDirections)[number
 const verificationText = z.string().trim().min(1).max(5000);
 const verificationName = z.string().trim().min(1).max(300);
 const solidityIdentifier = z.string().regex(/^[A-Za-z_][A-Za-z0-9_]{0,127}$/);
-const stableCompilerVersion = z.string().regex(/^\d+\.\d+\.\d+$/);
-const repositorySolidityPath = z.string().min(5).max(500).refine((value) => {
+export const stableCompilerVersionSchema = z.string().regex(/^\d+\.\d+\.\d+$/);
+const safeRepositoryPathComponent = /^[A-Za-z0-9_@+.-]+$/;
+export const repositorySolidityPathSchema = z.string().min(5).max(500).refine((value) => {
   const components = value.split("/");
-  return value.endsWith(".sol") && !value.includes("\\") && !value.includes("\0") && !value.startsWith("/") && !/^[A-Za-z]:/.test(value) && components.every((component) => component && component !== "." && component !== "..");
+  return value.endsWith(".sol") && !value.startsWith("/") && !/^[A-Za-z]:/.test(value)
+    && components.every((component) => component !== "." && component !== ".." && safeRepositoryPathComponent.test(component));
 }, "must be a safe repository-relative Solidity path");
 const sha256 = z.string().regex(/^[a-f0-9]{64}$/);
 
@@ -24,6 +26,7 @@ export const verificationOutcomeSchema = z.enum(verificationOutcomes);
 export const dynamicEvidenceDirectionSchema = z.enum(dynamicEvidenceDirections);
 
 export const dynamicEvidenceSchema = z.object({
+  assertionId: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/),
   assertionName: verificationName,
   expectedBehavior: verificationText,
   observedBehavior: verificationText,
@@ -40,9 +43,11 @@ export const verificationHarnessOperationSchema = z.discriminatedUnion("kind", [
 ]);
 
 export const verificationHarnessAssertionSchema = z.object({
+  id: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/),
   kind: z.enum(["uint-eq", "uint-not-eq"]),
   actual: solidityIdentifier,
   expected: z.string().regex(/^\d{1,78}$/),
+  expectedOutcome: z.enum(["hypothesis-supported", "hypothesis-contradicted"]),
   description: z.string().trim().min(1).max(300),
 }).strict();
 
@@ -50,11 +55,11 @@ export const verificationHarnessPlanSchema = z.object({
   scanId: z.string().uuid(),
   hypothesisId: z.string().uuid(),
   resolvedCommit: z.string().regex(/^[a-f0-9]{40}$/),
-  compilerVersion: stableCompilerVersion,
+  compilerVersion: stableCompilerVersionSchema,
   primaryContract: solidityIdentifier,
-  primarySourcePath: repositorySolidityPath,
+  primarySourcePath: repositorySolidityPathSchema,
   relevantFunctions: z.array(solidityIdentifier).min(1).max(20),
-  sourceFiles: z.array(repositorySolidityPath).min(1).max(50),
+  sourceFiles: z.array(repositorySolidityPathSchema).min(1).max(50),
   verificationGoal: verificationText,
   expectedProperty: verificationText,
   verificationSteps: z.array(z.string().trim().min(1).max(1000)).min(1).max(30),
@@ -64,14 +69,18 @@ export const verificationHarnessPlanSchema = z.object({
   if (!plan.sourceFiles.includes(plan.primarySourcePath)) context.addIssue({ code: z.ZodIssueCode.custom, message: "Primary source must be included in sourceFiles.", path: ["sourceFiles"] });
   if (new Set(plan.sourceFiles).size !== plan.sourceFiles.length) context.addIssue({ code: z.ZodIssueCode.custom, message: "Source files must be unique.", path: ["sourceFiles"] });
   if (new Set(plan.relevantFunctions).size !== plan.relevantFunctions.length) context.addIssue({ code: z.ZodIssueCode.custom, message: "Relevant functions must be unique.", path: ["relevantFunctions"] });
+  if (new Set(plan.assertions.map((assertion) => assertion.id)).size !== plan.assertions.length) context.addIssue({ code: z.ZodIssueCode.custom, message: "Assertion identifiers must be unique.", path: ["assertions"] });
 });
 
 export const verificationSourceManifestEntrySchema = z.object({
-  originalPath: repositorySolidityPath,
-  workspacePath: z.string().regex(/^src\/[A-Za-z0-9_./-]+\.sol$/).max(504).refine((value) => value.split("/").every((component) => component && component !== "." && component !== ".."), "must remain inside the workspace source directory"),
+  originalPath: repositorySolidityPathSchema,
+  workspacePath: z.string().regex(/^src\/[A-Za-z0-9_@+./-]+\.sol$/).max(504).refine((value) => value.split("/").every((component) => component && component !== "." && component !== ".."), "must remain inside the workspace source directory"),
   byteLength: z.number().int().nonnegative().max(10_485_760),
   sha256,
-}).strict();
+}).strict().refine((entry) => entry.workspacePath === `src/${entry.originalPath}`, {
+  message: "workspace path must preserve the repository-relative source layout",
+  path: ["workspacePath"],
+});
 
 export const verificationHarnessManifestSchema = z.object({
   formatVersion: z.literal(1),
@@ -79,7 +88,7 @@ export const verificationHarnessManifestSchema = z.object({
   scanId: z.string().uuid(),
   hypothesisId: z.string().uuid(),
   resolvedCommit: z.string().regex(/^[a-f0-9]{40}$/),
-  compilerVersion: stableCompilerVersion,
+  compilerVersion: stableCompilerVersionSchema,
   generatorVersion: z.string().regex(/^\d+\.\d+\.\d+$/),
   generatedBy: z.literal("contracthunter"),
   createdAt: z.string().datetime({ offset: true }),
@@ -101,6 +110,8 @@ export const createHypothesisVerificationRunSchema = z.object({
   hypothesisId: z.string().uuid(),
   scanId: z.string().uuid(),
   resolvedCommit: z.string().regex(/^[a-f0-9]{40}$/),
+  compilerVersion: stableCompilerVersionSchema,
+  verificationPlan: verificationHarnessPlanSchema,
   verifierId: verificationName,
   toolName: verificationName,
   toolVersion: z.string().trim().min(1).max(200).nullable(),
@@ -117,6 +128,10 @@ export const completeHypothesisVerificationRunSchema = z.object({
   stdoutSummary: z.string().max(20_000),
   stderrSummary: z.string().max(20_000),
   dynamicEvidence: z.array(dynamicEvidenceSchema).max(100),
+  contentFingerprint: sha256,
+  isolationBackend: verificationName,
+  executionExitCode: z.number().int(),
+  timedOut: z.boolean(),
 }).strict().refine((result) => result.passedTestCount + result.failedTestCount <= result.testCount, {
   message: "passed and failed test counts cannot exceed total test count",
   path: ["testCount"],
@@ -127,6 +142,10 @@ export const failHypothesisVerificationRunSchema = z.object({
   durationMs: z.number().int().nonnegative(),
   stdoutSummary: z.string().max(20_000),
   stderrSummary: z.string().max(20_000),
+  contentFingerprint: sha256.nullable(),
+  isolationBackend: verificationName.nullable(),
+  executionExitCode: z.number().int().nullable(),
+  timedOut: z.boolean(),
 }).strict();
 
 export const hypothesisVerificationRunSchema = z.object({
@@ -134,6 +153,8 @@ export const hypothesisVerificationRunSchema = z.object({
   hypothesisId: z.string().uuid(),
   scanId: z.string().uuid(),
   resolvedCommit: z.string().regex(/^[a-f0-9]{40}$/),
+  compilerVersion: stableCompilerVersionSchema,
+  verificationPlan: verificationHarnessPlanSchema,
   status: verificationRunStatusSchema,
   outcome: verificationOutcomeSchema.nullable(),
   verifierId: verificationName,
@@ -147,6 +168,10 @@ export const hypothesisVerificationRunSchema = z.object({
   stdoutSummary: z.string().max(20_000),
   stderrSummary: z.string().max(20_000),
   dynamicEvidence: z.array(dynamicEvidenceSchema).max(100),
+  contentFingerprint: sha256.nullable(),
+  isolationBackend: verificationName.nullable(),
+  executionExitCode: z.number().int().nullable(),
+  timedOut: z.boolean(),
   error: verificationText.nullable(),
   createdAt: z.date(),
   startedAt: z.date().nullable(),

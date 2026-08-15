@@ -10,11 +10,13 @@ export class VerificationWorkspaceIntegrityError extends Error {
 
 export function sha256Bytes(value: string | Buffer): string { return createHash("sha256").update(value).digest("hex"); }
 
+function comparePaths(left: string, right: string): number { return left < right ? -1 : left > right ? 1 : 0; }
+
 export function verificationContentFingerprint(input: Pick<VerificationHarnessManifest, "compilerVersion" | "generatorVersion" | "sourceManifest" | "generatedHarnessSha256" | "foundryConfigSha256">): string {
   return sha256Bytes(JSON.stringify({
     compilerVersion: input.compilerVersion,
     generatorVersion: input.generatorVersion,
-    sourceManifest: [...input.sourceManifest].sort((a, b) => a.originalPath.localeCompare(b.originalPath)),
+    sourceManifest: [...input.sourceManifest].sort((a, b) => comparePaths(a.originalPath, b.originalPath)),
     generatedHarnessSha256: input.generatedHarnessSha256,
     foundryConfigSha256: input.foundryConfigSha256,
   }));
@@ -57,7 +59,7 @@ export async function validateVerificationWorkspaceIntegrity(workspacePath: stri
   if (!parsed.success) throw new VerificationWorkspaceIntegrityError("Verification manifest is invalid.");
   const manifest = parsed.data;
   if (!options.allowTemporaryBuildPath && path.basename(root) !== manifest.verificationRunId) throw new VerificationWorkspaceIntegrityError("Verification workspace does not match its run identifier.");
-  const sources = [...manifest.sourceManifest].sort((a, b) => a.originalPath.localeCompare(b.originalPath));
+  const sources = [...manifest.sourceManifest].sort((a, b) => comparePaths(a.originalPath, b.originalPath));
   if (new Set(sources.map((entry) => entry.originalPath)).size !== sources.length || new Set(sources.map((entry) => entry.workspacePath)).size !== sources.length) throw new VerificationWorkspaceIntegrityError("Verification source manifest contains duplicate paths.");
   for (const source of sources) {
     const bytes = await regularFile(root, source.workspacePath);

@@ -3,7 +3,7 @@ import { lstat, mkdir, readFile, realpath, readdir, rename, rm, writeFile } from
 import path from "node:path";
 import semver from "semver";
 import {
-  VERIFICATION_HARNESS_MANIFEST, verificationHarnessManifestSchema, verificationHarnessPlanSchema,
+  VERIFICATION_HARNESS_MANIFEST, repositorySolidityPathSchema, verificationHarnessManifestSchema, verificationHarnessPlanSchema,
   type VerificationHarnessManifest, type VerificationHarnessPlan, type VerificationSourceManifestEntry,
 } from "@contracthunter/core";
 import { createContractHunterFoundryConfig } from "./verification-foundry-config";
@@ -30,9 +30,13 @@ export type VerificationWorkspaceBuilderOptions = {
 export type BuildVerificationWorkspaceInput = { verificationRunId: string; repositoryPath: string; plan: VerificationHarnessPlan; createdAt?: Date };
 export type BuiltVerificationWorkspace = { workspacePath: string; manifest: VerificationHarnessManifest; harnessSource: string };
 
-function safeSourcePath(value: string): boolean {
-  const components = value.split("/");
-  return value.endsWith(".sol") && !value.includes("\\") && !value.includes("\0") && !value.startsWith("/") && !/^[A-Za-z]:/.test(value) && components.every((component) => component && component !== "." && component !== "..");
+function comparePaths(left: string, right: string): number { return left < right ? -1 : left > right ? 1 : 0; }
+
+function safeSourcePath(value: string): boolean { return repositorySolidityPathSchema.safeParse(value).success; }
+
+function safeSourceRoot(value: string): boolean {
+  return value.length <= 500 && !value.startsWith("/") && !/^[A-Za-z]:/.test(value)
+    && value.split("/").every((component) => component !== "." && component !== ".." && /^[A-Za-z0-9_@+.-]+$/.test(component));
 }
 
 function removeComments(source: string): string { return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\r\n]*/g, ""); }
@@ -52,11 +56,13 @@ export class VerificationWorkspaceBuilder {
     this.maxSourceFiles = options.maxSourceFiles ?? 100; this.maxSourceBytes = options.maxSourceBytes ?? 5_242_880;
     this.approvedRoots = new Set(options.approvedSourceRoots);
     if (!Number.isInteger(this.maxSourceFiles) || this.maxSourceFiles < 1 || this.maxSourceFiles > 200 || !Number.isInteger(this.maxSourceBytes) || this.maxSourceBytes < 1_024 || this.maxSourceBytes > 52_428_800) throw new VerificationWorkspaceBuildError("Source closure limits are invalid.");
-    if (!options.approvedSourceRoots.length || options.approvedSourceRoots.some((root) => root === "." || root === ".." || !/^[A-Za-z0-9_.-]+$/.test(root))) throw new VerificationWorkspaceBuildError("Approved source roots are invalid.");
+    if (!options.approvedSourceRoots.length || new Set(options.approvedSourceRoots).size !== options.approvedSourceRoots.length || options.approvedSourceRoots.some((root) => !safeSourceRoot(root))) throw new VerificationWorkspaceBuildError("Approved source roots are invalid.");
     if (!/^\d+\.\d+\.\d+$/.test(options.generatorVersion)) throw new VerificationWorkspaceBuildError("Generator version is invalid.");
   }
 
-  private approved(relativePath: string): boolean { return this.approvedRoots.has(relativePath.split("/")[0]); }
+  private approved(relativePath: string): boolean {
+    return [...this.approvedRoots].some((root) => relativePath === root || relativePath.startsWith(`${root}/`));
+  }
 
   private resolveImport(importer: string, imported: string): string {
     if (!imported || imported.includes("\\") || imported.includes("\0") || imported.startsWith("/") || /^[A-Za-z][A-Za-z0-9+.-]*:/.test(imported) || imported.includes("://") || imported.startsWith("git@") || imported.startsWith("ssh")) throw new VerificationWorkspaceBuildError(`Unsupported Solidity import in ${importer}.`);
@@ -68,7 +74,7 @@ export class VerificationWorkspaceBuilder {
   }
 
   private async sourceClosure(repository: string, entries: string[]): Promise<Array<{ relativePath: string; bytes: Buffer }>> {
-    const pending = [...entries].sort(); const visited = new Map<string, Buffer>(); let totalBytes = 0;
+    const pending = [...entries].sort(comparePaths); const visited = new Map<string, Buffer>(); let totalBytes = 0;
     while (pending.length) {
       const relativePath = pending.shift()!;
       if (visited.has(relativePath)) continue;
@@ -85,9 +91,9 @@ export class VerificationWorkspaceBuilder {
       if (totalBytes > this.maxSourceBytes) throw new VerificationWorkspaceBuildError("Solidity source closure exceeds the byte limit.");
       visited.set(relativePath, bytes);
       const imports = importPaths(bytes.toString("utf8")).map((item) => this.resolveImport(relativePath, item));
-      pending.push(...imports.filter((item) => !visited.has(item))); pending.sort();
+      pending.push(...imports.filter((item) => !visited.has(item))); pending.sort(comparePaths);
     }
-    return [...visited.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([relativePath, bytes]) => ({ relativePath, bytes }));
+    return [...visited.entries()].sort(([a], [b]) => comparePaths(a, b)).map(([relativePath, bytes]) => ({ relativePath, bytes }));
   }
 
   async build(input: BuildVerificationWorkspaceInput): Promise<BuiltVerificationWorkspace> {
