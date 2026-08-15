@@ -108,6 +108,7 @@ describe("verification workspace and manifest", () => {
     expect(verificationHarnessManifestSchema.safeParse({ ...result.manifest, command: "forge test" }).success).toBe(false);
     expect(result.manifest.sourceManifest).toHaveLength(3); expect(result.manifest.generatedHarnessSha256).toHaveLength(64); expect(result.manifest.foundryConfigSha256).toHaveLength(64); expect(result.manifest.contentFingerprint).toHaveLength(64);
     expect(manifestJson).not.toMatch(/command|OPENAI_API_KEY|PRIVATE_KEY|RPC_URL|https?:\/\//i);
+    expect(verificationHarnessManifestSchema.safeParse({ ...result.manifest, sourceManifest: result.manifest.sourceManifest.map((entry, index) => index === 0 ? { ...entry, workspacePath: "src/alias/Counter.sol" } : entry) }).success).toBe(false);
   });
 
   it("is compatible with shared runner integrity validation and detects tampering", async () => {

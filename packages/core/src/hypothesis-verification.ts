@@ -12,10 +12,12 @@ export type DynamicEvidenceDirection = (typeof dynamicEvidenceDirections)[number
 const verificationText = z.string().trim().min(1).max(5000);
 const verificationName = z.string().trim().min(1).max(300);
 const solidityIdentifier = z.string().regex(/^[A-Za-z_][A-Za-z0-9_]{0,127}$/);
-const stableCompilerVersion = z.string().regex(/^\d+\.\d+\.\d+$/);
-const repositorySolidityPath = z.string().min(5).max(500).refine((value) => {
+export const stableCompilerVersionSchema = z.string().regex(/^\d+\.\d+\.\d+$/);
+const safeRepositoryPathComponent = /^[A-Za-z0-9_@+.-]+$/;
+export const repositorySolidityPathSchema = z.string().min(5).max(500).refine((value) => {
   const components = value.split("/");
-  return value.endsWith(".sol") && !value.includes("\\") && !value.includes("\0") && !value.startsWith("/") && !/^[A-Za-z]:/.test(value) && components.every((component) => component && component !== "." && component !== "..");
+  return value.endsWith(".sol") && !value.startsWith("/") && !/^[A-Za-z]:/.test(value)
+    && components.every((component) => component !== "." && component !== ".." && safeRepositoryPathComponent.test(component));
 }, "must be a safe repository-relative Solidity path");
 const sha256 = z.string().regex(/^[a-f0-9]{64}$/);
 
@@ -50,11 +52,11 @@ export const verificationHarnessPlanSchema = z.object({
   scanId: z.string().uuid(),
   hypothesisId: z.string().uuid(),
   resolvedCommit: z.string().regex(/^[a-f0-9]{40}$/),
-  compilerVersion: stableCompilerVersion,
+  compilerVersion: stableCompilerVersionSchema,
   primaryContract: solidityIdentifier,
-  primarySourcePath: repositorySolidityPath,
+  primarySourcePath: repositorySolidityPathSchema,
   relevantFunctions: z.array(solidityIdentifier).min(1).max(20),
-  sourceFiles: z.array(repositorySolidityPath).min(1).max(50),
+  sourceFiles: z.array(repositorySolidityPathSchema).min(1).max(50),
   verificationGoal: verificationText,
   expectedProperty: verificationText,
   verificationSteps: z.array(z.string().trim().min(1).max(1000)).min(1).max(30),
@@ -67,11 +69,14 @@ export const verificationHarnessPlanSchema = z.object({
 });
 
 export const verificationSourceManifestEntrySchema = z.object({
-  originalPath: repositorySolidityPath,
-  workspacePath: z.string().regex(/^src\/[A-Za-z0-9_./-]+\.sol$/).max(504).refine((value) => value.split("/").every((component) => component && component !== "." && component !== ".."), "must remain inside the workspace source directory"),
+  originalPath: repositorySolidityPathSchema,
+  workspacePath: z.string().regex(/^src\/[A-Za-z0-9_@+./-]+\.sol$/).max(504).refine((value) => value.split("/").every((component) => component && component !== "." && component !== ".."), "must remain inside the workspace source directory"),
   byteLength: z.number().int().nonnegative().max(10_485_760),
   sha256,
-}).strict();
+}).strict().refine((entry) => entry.workspacePath === `src/${entry.originalPath}`, {
+  message: "workspace path must preserve the repository-relative source layout",
+  path: ["workspacePath"],
+});
 
 export const verificationHarnessManifestSchema = z.object({
   formatVersion: z.literal(1),
@@ -79,7 +84,7 @@ export const verificationHarnessManifestSchema = z.object({
   scanId: z.string().uuid(),
   hypothesisId: z.string().uuid(),
   resolvedCommit: z.string().regex(/^[a-f0-9]{40}$/),
-  compilerVersion: stableCompilerVersion,
+  compilerVersion: stableCompilerVersionSchema,
   generatorVersion: z.string().regex(/^\d+\.\d+\.\d+$/),
   generatedBy: z.literal("contracthunter"),
   createdAt: z.string().datetime({ offset: true }),
