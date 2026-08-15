@@ -1,11 +1,11 @@
-import { access, lstat, readFile, readlink, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
+import { access, lstat, readFile, readlink, realpath, stat } from "node:fs/promises";
 import { constants as fsConstants } from "node:fs";
 import path from "node:path";
-import { randomUUID } from "node:crypto";
 import { VERIFICATION_HARNESS_MANIFEST, verificationHarnessManifestSchema } from "@contracthunter/core";
 import { runObservedProcess, type ObservedProcessResult, type ObservedProcessRunner, type ProcessRequest } from "./process-runner";
+import { validateVerificationWorkspaceIntegrity } from "./verification-workspace-integrity";
 
-const MAX_MANIFEST_BYTES = 16_384;
+const MAX_MANIFEST_BYTES = 262_144;
 const MAX_TIMEOUT_MS = 1_800_000;
 const MAX_OUTPUT_BYTES = 20_971_520;
 const SAFE_TEST_FILTER = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/;
@@ -20,18 +20,6 @@ const DEFAULT_RESOURCE_LIMITS: VerificationResourceLimits = {
   maxOpenFiles: 256,
   maxFileSizeBytes: 67_108_864,
 };
-
-export const CONTRACTHUNTER_FOUNDRY_CONFIG = `[profile.default]
-src = "src"
-test = "test"
-script = ".contracthunter-disabled-scripts"
-out = "out"
-libs = ["lib"]
-ffi = false
-fs_permissions = []
-offline = true
-auto_detect_solc = false
-`;
 
 export type FoundryVerificationInput = {
   workspacePath: string;
@@ -332,17 +320,8 @@ export class FoundryVerificationRunner {
     const parsed = verificationHarnessManifestSchema.safeParse(raw);
     if (!parsed.success) throw new FoundryVerificationSafetyError("invalid_manifest", "ContractHunter verification manifest is invalid.");
     if (parsed.data.scanId !== input.scanId || parsed.data.hypothesisId !== input.hypothesisId || parsed.data.resolvedCommit !== input.resolvedCommit) throw new FoundryVerificationSafetyError("manifest_mismatch", "Verification manifest does not match the requested hypothesis, scan, and commit.");
-  }
-
-  private async installControlledConfig(workspace: string): Promise<void> {
-    const target = path.join(workspace, "foundry.toml");
-    const temporary = path.join(workspace, `.contracthunter-foundry-${randomUUID()}.tmp`);
-    try {
-      await writeFile(temporary, CONTRACTHUNTER_FOUNDRY_CONFIG, { encoding: "utf8", flag: "wx", mode: 0o600 });
-      await rename(temporary, target);
-    } catch {
-      throw new FoundryVerificationSafetyError("unsafe_configuration", "ContractHunter-controlled Foundry configuration could not be installed.");
-    } finally { await rm(temporary, { force: true }); }
+    try { await validateVerificationWorkspaceIntegrity(workspace, parsed.data); }
+    catch { throw new FoundryVerificationSafetyError("invalid_manifest", "Verification workspace integrity validation failed."); }
   }
 
   private environment(): NodeJS.ProcessEnv {
@@ -357,7 +336,6 @@ export class FoundryVerificationRunner {
       await this.validateManifest(workspace, input);
       const isolation = await this.isolationProvider.confirmNetworkIsolation();
       if (!isolation || isolation.networkAccess !== "disabled" || !isolation.networkIsolated || !isolation.processIsolated || !validLimits(isolation.resourceLimitsApplied)) throw new FoundryVerificationSafetyError("network_isolation_unavailable", "Reliable network and process isolation is unavailable; verification was not executed.");
-      await this.installControlledConfig(workspace);
       const args = ["test", "--no-color", ...(input.matchTest ? ["--match-test", input.matchTest] : [])];
       let observed: IsolatedExecutionResult;
       try { observed = await this.isolationProvider.execute({ command: "forge", args, cwd: workspace, timeoutMs: input.timeoutMs, maxOutputBytes: input.maxOutputBytes, env: this.environment() }, this.processRunner); }

@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { VERIFICATION_HARNESS_MANIFEST } from "@contracthunter/core";
 import {
-  CONTRACTHUNTER_FOUNDRY_CONFIG, FoundryVerificationRunner, LinuxBubblewrapIsolationProvider, runObservedProcess,
+  FoundryVerificationRunner, LinuxBubblewrapIsolationProvider, createContractHunterFoundryConfig, runObservedProcess, sha256Bytes, verificationContentFingerprint,
   type FoundryVerificationInput, type ObservedProcessResult, type ObservedProcessRunner, type ProcessRequest, type VerificationIsolationConfirmation, type VerificationIsolationProvider,
 } from "./index";
 
@@ -35,7 +35,7 @@ let temporaryDirectory: string;
 beforeEach(async () => {
   base = await mkdtemp(path.join(tmpdir(), "contracthunter-foundry-runner-"));
   verificationRoot = path.join(base, "verifications"); repositoryRoot = path.join(base, "repositories");
-  workspace = path.join(verificationRoot, "run-1"); toolHome = path.join(base, "tool-home"); temporaryDirectory = path.join(base, "tmp");
+  workspace = path.join(verificationRoot, "33333333-3333-4333-8333-333333333333"); toolHome = path.join(base, "tool-home"); temporaryDirectory = path.join(base, "tmp");
   await Promise.all([mkdir(workspace, { recursive: true }), mkdir(repositoryRoot, { recursive: true }), mkdir(toolHome), mkdir(temporaryDirectory)]);
   await writeManifest();
 });
@@ -43,7 +43,11 @@ beforeEach(async () => {
 afterEach(async () => { vi.unstubAllEnvs(); await rm(base, { recursive: true, force: true }); });
 
 async function writeManifest(overrides: Record<string, unknown> = {}, contents?: string) {
-  const manifest = { formatVersion: 1, scanId, hypothesisId, resolvedCommit, generatedBy: "contracthunter", createdAt: new Date().toISOString(), ...overrides };
+  const source = Buffer.from("pragma solidity 0.8.24; contract Counter {}\n"); const harness = Buffer.from("pragma solidity 0.8.24; contract ContractHunterVerification {}\n"); const config = Buffer.from(createContractHunterFoundryConfig("0.8.24"));
+  await Promise.all([mkdir(path.join(workspace, "src/contracts"), { recursive: true }), mkdir(path.join(workspace, "test"), { recursive: true }), mkdir(path.join(workspace, "cache"), { recursive: true }), mkdir(path.join(workspace, "out"), { recursive: true })]);
+  await Promise.all([writeFile(path.join(workspace, "src/contracts/Counter.sol"), source), writeFile(path.join(workspace, "test/ContractHunterVerification.t.sol"), harness), writeFile(path.join(workspace, "foundry.toml"), config)]);
+  const baseManifest = { formatVersion: 1 as const, verificationRunId: "33333333-3333-4333-8333-333333333333", scanId, hypothesisId, resolvedCommit, compilerVersion: "0.8.24", generatorVersion: "0.1.0", generatedBy: "contracthunter" as const, createdAt: new Date().toISOString(), sourceManifest: [{ originalPath: "contracts/Counter.sol", workspacePath: "src/contracts/Counter.sol", byteLength: source.length, sha256: sha256Bytes(source) }], generatedHarnessPath: "test/ContractHunterVerification.t.sol" as const, generatedHarnessSha256: sha256Bytes(harness), foundryConfigSha256: sha256Bytes(config) };
+  const manifest = { ...baseManifest, contentFingerprint: verificationContentFingerprint(baseManifest), ...overrides };
   await writeFile(path.join(workspace, VERIFICATION_HARNESS_MANIFEST), contents ?? JSON.stringify(manifest));
 }
 
@@ -90,16 +94,11 @@ describe("FoundryVerificationRunner workspace and harness policy", () => {
     }
   });
 
-  it("does not trust a repository-supplied Foundry configuration", async () => {
+  it("refuses a modified or repository-supplied Foundry configuration", async () => {
     await writeFile(path.join(workspace, "foundry.toml"), "[rpc_endpoints]\nmainnet = '${SECRET_RPC}'\n[profile.evil]\nffi = true\n");
-    const inspect: ObservedProcessRunner = async () => {
-      expect(await readFile(path.join(workspace, "foundry.toml"), "utf8")).toBe(CONTRACTHUNTER_FOUNDRY_CONFIG);
-      return success;
-    };
-    expect(await runner(inspect).run(input())).toMatchObject({ status: "completed" });
-    const controlled = await readFile(path.join(workspace, "foundry.toml"), "utf8");
-    expect(controlled).toContain("ffi = false"); expect(controlled).toContain("fs_permissions = []"); expect(controlled).toContain("offline = true");
-    expect(controlled).not.toMatch(/rpc_endpoints|etherscan|ffi = true|profile\.evil/);
+    const inspect = vi.fn<ObservedProcessRunner>(async () => success);
+    expect(await runner(inspect).run(input())).toMatchObject({ status: "refused", errorCode: "invalid_manifest" });
+    expect(inspect).not.toHaveBeenCalled();
   });
 });
 
