@@ -83,9 +83,9 @@ export function createDatabase(databasePath: string) {
     );
     CREATE TABLE IF NOT EXISTS hypothesis_verification_runs (
       id TEXT PRIMARY KEY, hypothesis_id TEXT NOT NULL REFERENCES vulnerability_hypotheses(id) ON DELETE CASCADE, scan_id TEXT NOT NULL REFERENCES scans(id) ON DELETE CASCADE,
-      resolved_commit TEXT NOT NULL, status TEXT NOT NULL, outcome TEXT, verifier_id TEXT NOT NULL, tool_name TEXT NOT NULL, tool_version TEXT, verification_strategy TEXT NOT NULL,
+      resolved_commit TEXT NOT NULL, compiler_version TEXT NOT NULL, verification_plan TEXT NOT NULL, status TEXT NOT NULL, outcome TEXT, verifier_id TEXT NOT NULL, tool_name TEXT NOT NULL, tool_version TEXT, verification_strategy TEXT NOT NULL,
       result_summary TEXT, test_count INTEGER NOT NULL DEFAULT 0, passed_test_count INTEGER NOT NULL DEFAULT 0, failed_test_count INTEGER NOT NULL DEFAULT 0,
-      stdout_summary TEXT NOT NULL DEFAULT '', stderr_summary TEXT NOT NULL DEFAULT '', dynamic_evidence TEXT NOT NULL DEFAULT '[]', error TEXT,
+      stdout_summary TEXT NOT NULL DEFAULT '', stderr_summary TEXT NOT NULL DEFAULT '', dynamic_evidence TEXT NOT NULL DEFAULT '[]', content_fingerprint TEXT, isolation_backend TEXT, execution_exit_code INTEGER, timed_out INTEGER NOT NULL DEFAULT 0, error TEXT,
       created_at INTEGER NOT NULL, started_at INTEGER, completed_at INTEGER, duration_ms INTEGER
     );
     CREATE TABLE IF NOT EXISTS hypothesis_groups (
@@ -114,6 +114,20 @@ export function createDatabase(databasePath: string) {
   const findingColumns = new Set((sqlite.prepare("PRAGMA table_info(findings)").all() as Array<{ name: string }>).map((column) => column.name));
   if (!findingColumns.has("detector_id")) sqlite.exec("ALTER TABLE findings ADD COLUMN detector_id TEXT");
   if (!findingColumns.has("fingerprint")) sqlite.exec("ALTER TABLE findings ADD COLUMN fingerprint TEXT");
+  const verificationColumns = new Set((sqlite.prepare("PRAGMA table_info(hypothesis_verification_runs)").all() as Array<{ name: string }>).map((column) => column.name));
+  if (!verificationColumns.has("compiler_version")) sqlite.exec("ALTER TABLE hypothesis_verification_runs ADD COLUMN compiler_version TEXT NOT NULL DEFAULT '0.0.0'");
+  if (!verificationColumns.has("verification_plan")) sqlite.exec("ALTER TABLE hypothesis_verification_runs ADD COLUMN verification_plan TEXT NOT NULL DEFAULT '{}'");
+  if (!verificationColumns.has("content_fingerprint")) sqlite.exec("ALTER TABLE hypothesis_verification_runs ADD COLUMN content_fingerprint TEXT");
+  if (!verificationColumns.has("isolation_backend")) sqlite.exec("ALTER TABLE hypothesis_verification_runs ADD COLUMN isolation_backend TEXT");
+  if (!verificationColumns.has("execution_exit_code")) sqlite.exec("ALTER TABLE hypothesis_verification_runs ADD COLUMN execution_exit_code INTEGER");
+  if (!verificationColumns.has("timed_out")) sqlite.exec("ALTER TABLE hypothesis_verification_runs ADD COLUMN timed_out INTEGER NOT NULL DEFAULT 0");
+  sqlite.exec(`
+    UPDATE hypothesis_verification_runs
+    SET status = 'failed', error = 'Duplicate active verification reconciled during migration.', completed_at = unixepoch() * 1000
+    WHERE status IN ('queued', 'running') AND rowid NOT IN (
+      SELECT MIN(rowid) FROM hypothesis_verification_runs WHERE status IN ('queued', 'running') GROUP BY hypothesis_id
+    );
+  `);
   sqlite.exec(`
     CREATE INDEX IF NOT EXISTS findings_scan_id_idx ON findings(scan_id);
     CREATE INDEX IF NOT EXISTS findings_filters_idx ON findings(severity, status, source);
@@ -129,6 +143,7 @@ export function createDatabase(databasePath: string) {
     CREATE INDEX IF NOT EXISTS security_reviewer_runs_plan_idx ON security_reviewer_runs(plan_id, status);
     CREATE INDEX IF NOT EXISTS vulnerability_hypotheses_scan_idx ON vulnerability_hypotheses(scan_id, severity, status, confidence);
     CREATE INDEX IF NOT EXISTS hypothesis_verification_runs_hypothesis_idx ON hypothesis_verification_runs(hypothesis_id, created_at);
+    CREATE UNIQUE INDEX IF NOT EXISTS hypothesis_verification_runs_active_idx ON hypothesis_verification_runs(hypothesis_id) WHERE status IN ('queued', 'running');
     CREATE INDEX IF NOT EXISTS hypothesis_groups_plan_idx ON hypothesis_groups(plan_id, priority_score);
     CREATE INDEX IF NOT EXISTS hypothesis_group_members_hypothesis_idx ON hypothesis_group_members(hypothesis_id);
   `);
@@ -274,6 +289,7 @@ export function markActiveScansInterrupted(database: DatabaseClient): number {
   database.sqlite.prepare("UPDATE scans SET review_status = 'failed', review_error = 'Security review interrupted by application restart.' WHERE review_status IN ('pending', 'running')").run();
   database.sqlite.prepare("UPDATE security_review_plans SET status = 'failed', error = 'Security review interrupted by application restart.', completed_at = unixepoch() * 1000 WHERE status IN ('pending', 'running')").run();
   database.sqlite.prepare("UPDATE security_reviewer_runs SET status = 'failed', error = 'Reviewer interrupted by application restart.', completed_at = unixepoch() * 1000 WHERE status IN ('queued', 'running')").run();
+  database.sqlite.prepare("UPDATE hypothesis_verification_runs SET status = 'failed', error = 'Verification interrupted by application restart.', completed_at = unixepoch() * 1000 WHERE status IN ('queued', 'running')").run();
   return result;
 }
 
@@ -463,13 +479,18 @@ export function createHypothesisVerificationRun(database: DatabaseClient, input:
   if (hypothesis.scanId !== parsed.scanId) throw new Error("Verification scan does not match the hypothesis scan.");
   const scan = getScan(database, parsed.scanId);
   if (!scan || scan.resolvedCommit !== parsed.resolvedCommit) throw new Error("Verification commit does not match the resolved scan commit.");
+  if (parsed.verificationPlan.hypothesisId !== parsed.hypothesisId || parsed.verificationPlan.scanId !== parsed.scanId || parsed.verificationPlan.resolvedCommit !== parsed.resolvedCommit || parsed.verificationPlan.compilerVersion !== parsed.compilerVersion) throw new Error("Verification plan does not match the persisted run identity.");
   const row: HypothesisVerificationRunRow = {
     id: randomUUID(), hypothesisId: parsed.hypothesisId, scanId: parsed.scanId, resolvedCommit: parsed.resolvedCommit,
+    compilerVersion: parsed.compilerVersion, verificationPlan: JSON.stringify(parsed.verificationPlan),
     status: "queued", outcome: null, verifierId: parsed.verifierId, toolName: parsed.toolName, toolVersion: parsed.toolVersion,
     verificationStrategy: JSON.stringify(parsed.verificationStrategy), resultSummary: null, testCount: 0, passedTestCount: 0, failedTestCount: 0,
-    stdoutSummary: "", stderrSummary: "", dynamicEvidence: "[]", error: null, createdAt: new Date(), startedAt: null, completedAt: null, durationMs: null,
+    stdoutSummary: "", stderrSummary: "", dynamicEvidence: "[]", contentFingerprint: null, isolationBackend: null, executionExitCode: null, timedOut: false, error: null, createdAt: new Date(), startedAt: null, completedAt: null, durationMs: null,
   };
-  database.orm.insert(hypothesisVerificationRuns).values(row).run();
+  database.sqlite.transaction(() => {
+    if (getActiveHypothesisVerificationRun(database, parsed.hypothesisId)) throw new Error("An active verification run already exists for this hypothesis.");
+    database.orm.insert(hypothesisVerificationRuns).values(row).run();
+  })();
   return row;
 }
 
@@ -483,7 +504,7 @@ export function completeHypothesisVerificationRun(database: DatabaseClient, id: 
   const run = requireHypothesisVerificationRun(database, id); assertVerificationRunTransition(run.status, "completed");
   const parsed = completeHypothesisVerificationRunSchema.parse(input); const completedAt = new Date();
   database.sqlite.transaction(() => {
-    database.orm.update(hypothesisVerificationRuns).set({ status: "completed", outcome: parsed.outcome, resultSummary: parsed.resultSummary, durationMs: parsed.durationMs, testCount: parsed.testCount, passedTestCount: parsed.passedTestCount, failedTestCount: parsed.failedTestCount, stdoutSummary: parsed.stdoutSummary, stderrSummary: parsed.stderrSummary, dynamicEvidence: JSON.stringify(parsed.dynamicEvidence), error: null, completedAt }).where(eq(hypothesisVerificationRuns.id, id)).run();
+    database.orm.update(hypothesisVerificationRuns).set({ status: "completed", outcome: parsed.outcome, resultSummary: parsed.resultSummary, durationMs: parsed.durationMs, testCount: parsed.testCount, passedTestCount: parsed.passedTestCount, failedTestCount: parsed.failedTestCount, stdoutSummary: parsed.stdoutSummary, stderrSummary: parsed.stderrSummary, dynamicEvidence: JSON.stringify(parsed.dynamicEvidence), contentFingerprint: parsed.contentFingerprint, isolationBackend: parsed.isolationBackend, executionExitCode: parsed.executionExitCode, timedOut: parsed.timedOut, error: null, completedAt }).where(eq(hypothesisVerificationRuns.id, id)).run();
     if (parsed.outcome === "confirmed" && parsed.dynamicEvidence.some((item) => item.direction === "supports")) verifyHypothesisFromDynamicEvidence(database, id);
   })();
   return requireHypothesisVerificationRun(database, id);
@@ -492,11 +513,12 @@ export function completeHypothesisVerificationRun(database: DatabaseClient, id: 
 export function failHypothesisVerificationRun(database: DatabaseClient, id: string, input: FailHypothesisVerificationRunInput): HypothesisVerificationRunRow {
   const run = requireHypothesisVerificationRun(database, id); assertVerificationRunTransition(run.status, "failed");
   const parsed = failHypothesisVerificationRunSchema.parse(input);
-  database.orm.update(hypothesisVerificationRuns).set({ status: "failed", outcome: null, durationMs: parsed.durationMs, stdoutSummary: parsed.stdoutSummary, stderrSummary: parsed.stderrSummary, error: parsed.error, completedAt: new Date() }).where(eq(hypothesisVerificationRuns.id, id)).run();
+  database.orm.update(hypothesisVerificationRuns).set({ status: "failed", outcome: null, durationMs: parsed.durationMs, stdoutSummary: parsed.stdoutSummary, stderrSummary: parsed.stderrSummary, contentFingerprint: parsed.contentFingerprint, isolationBackend: parsed.isolationBackend, executionExitCode: parsed.executionExitCode, timedOut: parsed.timedOut, error: parsed.error, completedAt: new Date() }).where(eq(hypothesisVerificationRuns.id, id)).run();
   return requireHypothesisVerificationRun(database, id);
 }
 
 export function getHypothesisVerificationRun(database: DatabaseClient, id: string): HypothesisVerificationRunRow | undefined { return database.orm.select().from(hypothesisVerificationRuns).where(eq(hypothesisVerificationRuns.id, id)).get(); }
+export function getActiveHypothesisVerificationRun(database: DatabaseClient, hypothesisId: string): HypothesisVerificationRunRow | undefined { return database.orm.select().from(hypothesisVerificationRuns).where(and(eq(hypothesisVerificationRuns.hypothesisId, hypothesisId), inArray(hypothesisVerificationRuns.status, ["queued", "running"]))).get(); }
 export function listHypothesisVerificationRuns(database: DatabaseClient, hypothesisId: string): HypothesisVerificationRunRow[] { return database.orm.select().from(hypothesisVerificationRuns).where(eq(hypothesisVerificationRuns.hypothesisId, hypothesisId)).orderBy(desc(hypothesisVerificationRuns.createdAt), desc(sql`rowid`)).all(); }
 export function getLatestHypothesisVerificationRun(database: DatabaseClient, hypothesisId: string): HypothesisVerificationRunRow | undefined { return listHypothesisVerificationRuns(database, hypothesisId)[0]; }
 

@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { validAIOutput, type DynamicEvidence, type ProtocolAnalysisResult, type VerificationOutcome } from "@contracthunter/core";
+import { validAIOutput, verificationHarnessPlanSchema, type DynamicEvidence, type ProtocolAnalysisResult, type VerificationOutcome } from "@contracthunter/core";
 import {
   closeDatabase, completeHypothesisVerificationRun, createDatabase, createHypothesisVerificationRun, createProtocolAnalysis, createScan,
   createSecurityReviewerRun, createSecurityReviewPlan, failHypothesisVerificationRun, getHypothesisVerificationRun, getLatestHypothesisVerificationRun,
@@ -30,16 +30,29 @@ beforeEach(() => {
 
 afterEach(() => { closeDatabase(database); rmSync(directory, { recursive: true, force: true }); });
 
-const supportingEvidence: DynamicEvidence = { assertionName: "share conversion", expectedBehavior: "Shares use the pre-deposit exchange rate.", observedBehavior: "Shares used the post-deposit exchange rate.", direction: "supports", contract: "Vault", functionName: "deposit", details: "The bounded assertion observed fewer shares than expected." };
+const supportingEvidence: DynamicEvidence = { assertionId: "share-conversion", assertionName: "share conversion", expectedBehavior: "Shares use the pre-deposit exchange rate.", observedBehavior: "Shares used the post-deposit exchange rate.", direction: "supports", contract: "Vault", functionName: "deposit", details: "The bounded assertion observed fewer shares than expected." };
 const neutralEvidence: DynamicEvidence = { ...supportingEvidence, direction: "neutral", observedBehavior: "The harness could not represent the required initial state." };
+const contentFingerprint = "b".repeat(64);
+
+function verificationPlan() {
+  return verificationHarnessPlanSchema.parse({
+    scanId, hypothesisId, resolvedCommit: commit, compilerVersion: "0.8.24", primaryContract: "Counter", primarySourcePath: "contracts/Counter.sol",
+    relevantFunctions: ["increment", "count"], sourceFiles: ["contracts/Counter.sol"], verificationGoal: "Check a deterministic counter transition.", expectedProperty: "The count becomes one.", verificationSteps: ["Deploy, increment, and read."],
+    operations: [{ kind: "deploy", contractName: "Counter", instanceName: "target" }, { kind: "call", instanceName: "target", functionName: "increment" }, { kind: "read-uint", instanceName: "target", functionName: "count", resultName: "observed" }],
+    assertions: [{ id: "count-is-one", kind: "uint-eq", actual: "observed", expected: "1", expectedOutcome: "hypothesis-supported", description: "Count is one." }],
+  });
+}
+
+const completionAudit = { contentFingerprint, isolationBackend: "test-isolation", executionExitCode: 0, timedOut: false } as const;
+const failureAudit = { contentFingerprint: null, isolationBackend: null, executionExitCode: null, timedOut: false } as const;
 
 function createRun(): HypothesisVerificationRunRow {
-  return createHypothesisVerificationRun(database, { hypothesisId, scanId, resolvedCommit: commit, verifierId: "local-test-harness", toolName: "foundation-fixture", toolVersion: "1", verificationStrategy: ["Compare bounded local deposit assertions."] });
+  return createHypothesisVerificationRun(database, { hypothesisId, scanId, resolvedCommit: commit, compilerVersion: "0.8.24", verificationPlan: verificationPlan(), verifierId: "local-test-harness", toolName: "foundation-fixture", toolVersion: "1", verificationStrategy: ["Compare bounded local deposit assertions."] });
 }
 
 function complete(run: HypothesisVerificationRunRow, outcome: VerificationOutcome, dynamicEvidence: DynamicEvidence[] = []): HypothesisVerificationRunRow {
   markHypothesisVerificationRunRunning(database, run.id);
-  return completeHypothesisVerificationRun(database, run.id, { outcome, resultSummary: `Verification was ${outcome}.`, durationMs: 12, testCount: 1, passedTestCount: outcome === "refuted" ? 1 : 0, failedTestCount: outcome === "confirmed" ? 1 : 0, stdoutSummary: "bounded stdout", stderrSummary: "", dynamicEvidence });
+  return completeHypothesisVerificationRun(database, run.id, { outcome, resultSummary: `Verification was ${outcome}.`, durationMs: 12, testCount: 1, passedTestCount: outcome === "refuted" ? 1 : 0, failedTestCount: outcome === "confirmed" ? 1 : 0, stdoutSummary: "bounded stdout", stderrSummary: "", dynamicEvidence, ...completionAudit });
 }
 
 describe("hypothesis verification persistence", () => {
@@ -48,6 +61,15 @@ describe("hypothesis verification persistence", () => {
     expect(run).toMatchObject({ hypothesisId, scanId, resolvedCommit: commit, status: "queued", outcome: null, dynamicEvidence: "[]" });
     expect(markHypothesisVerificationRunRunning(database, run.id)).toMatchObject({ status: "running", startedAt: expect.any(Date) });
     expect(() => markHypothesisVerificationRunRunning(database, run.id)).toThrow("Invalid verification run transition");
+  });
+
+  it("enforces at most one queued or running run per hypothesis", () => {
+    const active = createRun();
+    expect(() => createRun()).toThrow("active verification run");
+    markHypothesisVerificationRunRunning(database, active.id);
+    expect(() => createRun()).toThrow("active verification run");
+    failHypothesisVerificationRun(database, active.id, { error: "Finished fixture.", durationMs: 1, stdoutSummary: "", stderrSummary: "", ...failureAudit });
+    expect(createRun().status).toBe("queued");
   });
 
   it.each(["confirmed", "refuted", "inconclusive"] as const)("records a completed %s outcome", (outcome) => {
@@ -60,7 +82,7 @@ describe("hypothesis verification persistence", () => {
 
   it("records running -> failed without verifying the hypothesis", () => {
     const run = createRun(); markHypothesisVerificationRunRunning(database, run.id);
-    const failed = failHypothesisVerificationRun(database, run.id, { error: "Harness setup failed.", durationMs: 4, stdoutSummary: "", stderrSummary: "bounded error" });
+    const failed = failHypothesisVerificationRun(database, run.id, { error: "Harness setup failed.", durationMs: 4, stdoutSummary: "", stderrSummary: "bounded error", ...failureAudit });
     expect(failed).toMatchObject({ status: "failed", outcome: null, error: "Harness setup failed.", completedAt: expect.any(Date) });
     expect(() => verifyHypothesisFromDynamicEvidence(database, run.id)).toThrow("completed, confirmed");
     expect(getVulnerabilityHypothesis(database, hypothesisId)?.status).toBe("candidate");
@@ -68,9 +90,9 @@ describe("hypothesis verification persistence", () => {
 
   it("rejects queued -> completed and terminal-state rewrites", () => {
     const queued = createRun();
-    expect(() => completeHypothesisVerificationRun(database, queued.id, { outcome: "inconclusive", resultSummary: "No result.", durationMs: 0, testCount: 0, passedTestCount: 0, failedTestCount: 0, stdoutSummary: "", stderrSummary: "", dynamicEvidence: [] })).toThrow("Invalid verification run transition");
-    markHypothesisVerificationRunRunning(database, queued.id); failHypothesisVerificationRun(database, queued.id, { error: "Failed safely.", durationMs: 1, stdoutSummary: "", stderrSummary: "" });
-    expect(() => completeHypothesisVerificationRun(database, queued.id, { outcome: "confirmed", resultSummary: "Late result.", durationMs: 1, testCount: 1, passedTestCount: 0, failedTestCount: 1, stdoutSummary: "", stderrSummary: "", dynamicEvidence: [supportingEvidence] })).toThrow("Invalid verification run transition");
+    expect(() => completeHypothesisVerificationRun(database, queued.id, { outcome: "inconclusive", resultSummary: "No result.", durationMs: 0, testCount: 0, passedTestCount: 0, failedTestCount: 0, stdoutSummary: "", stderrSummary: "", dynamicEvidence: [], ...completionAudit })).toThrow("Invalid verification run transition");
+    markHypothesisVerificationRunRunning(database, queued.id); failHypothesisVerificationRun(database, queued.id, { error: "Failed safely.", durationMs: 1, stdoutSummary: "", stderrSummary: "", ...failureAudit });
+    expect(() => completeHypothesisVerificationRun(database, queued.id, { outcome: "confirmed", resultSummary: "Late result.", durationMs: 1, testCount: 1, passedTestCount: 0, failedTestCount: 1, stdoutSummary: "", stderrSummary: "", dynamicEvidence: [supportingEvidence], ...completionAudit })).toThrow("Invalid verification run transition");
   });
 
   it("preserves history and returns the newest rerun without overwriting the old run", () => {

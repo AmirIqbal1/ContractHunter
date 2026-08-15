@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { dynamicEvidenceSchema, verificationHarnessPlanSchema, verificationOutcomeSchema, verificationRunStatusSchema } from "./hypothesis-verification";
 
 const evidence = {
+  assertionId: "share-conversion",
   assertionName: "second depositor receives proportional shares",
   expectedBehavior: "The second depositor receives shares at the pre-deposit exchange rate.",
   observedBehavior: "The second depositor received fewer shares than the pre-deposit exchange rate requires.",
@@ -35,7 +36,7 @@ const plan = {
   primaryContract: "Counter", primarySourcePath: "contracts/Counter.sol", relevantFunctions: ["increment", "count"], sourceFiles: ["contracts/Counter.sol"],
   verificationGoal: "Confirm deterministic counter state changes.", expectedProperty: "Increment changes count from zero to one.", verificationSteps: ["Deploy Counter.", "Call increment.", "Read count."],
   operations: [{ kind: "deploy", contractName: "Counter", instanceName: "target" }, { kind: "call", instanceName: "target", functionName: "increment" }, { kind: "read-uint", instanceName: "target", functionName: "count", resultName: "observed" }],
-  assertions: [{ kind: "uint-eq", actual: "observed", expected: "1", description: "Count becomes one." }],
+  assertions: [{ id: "count-is-one", kind: "uint-eq", actual: "observed", expected: "1", expectedOutcome: "hypothesis-supported", description: "Count becomes one." }],
 } as const;
 
 describe("verification harness plan", () => {

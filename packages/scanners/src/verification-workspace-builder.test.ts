@@ -26,7 +26,7 @@ function plan(overrides: Partial<VerificationHarnessPlan> = {}): VerificationHar
     relevantFunctions: ["increment", "count"], sourceFiles: ["contracts/Counter.sol"], verificationGoal: "Confirm a benign deterministic counter transition.",
     expectedProperty: "Calling increment changes count from zero to one.", verificationSteps: ["Deploy Counter.", "Call increment.", "Read count."],
     operations: [{ kind: "deploy", contractName: "Counter", instanceName: "target" }, { kind: "call", instanceName: "target", functionName: "increment" }, { kind: "read-uint", instanceName: "target", functionName: "count", resultName: "observed" }],
-    assertions: [{ kind: "uint-eq", actual: "observed", expected: "1", description: "The count changed to one." }], ...overrides,
+    assertions: [{ id: "count-is-one", kind: "uint-eq", actual: "observed", expected: "1", expectedOutcome: "hypothesis-supported", description: "The count changed to one." }], ...overrides,
   });
 }
 
@@ -55,7 +55,7 @@ describe("verification source closure", () => {
     ] as const;
     for (const [name, source] of cases) {
       const sourcePath = `contracts/${name}`; await writeFile(path.join(repository, sourcePath), `pragma solidity 0.8.24; ${source}`);
-      await expect(builder().build({ verificationRunId: crypto.randomUUID(), repositoryPath: repository, plan: plan({ primaryContract: name.replace(".sol", ""), primarySourcePath: sourcePath, sourceFiles: [sourcePath], relevantFunctions: ["noop"], operations: [{ kind: "deploy", contractName: name.replace(".sol", ""), instanceName: "target" }], assertions: [{ kind: "uint-eq", actual: "missing", expected: "0", description: "fixture" }] }) })).rejects.toBeInstanceOf(VerificationWorkspaceBuildError);
+      await expect(builder().build({ verificationRunId: crypto.randomUUID(), repositoryPath: repository, plan: plan({ primaryContract: name.replace(".sol", ""), primarySourcePath: sourcePath, sourceFiles: [sourcePath], relevantFunctions: ["noop"], operations: [{ kind: "deploy", contractName: name.replace(".sol", ""), instanceName: "target" }], assertions: [{ id: "fixture", kind: "uint-eq", actual: "missing", expected: "0", expectedOutcome: "hypothesis-supported", description: "fixture" }] }) })).rejects.toBeInstanceOf(VerificationWorkspaceBuildError);
     }
   });
 
