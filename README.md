@@ -1,11 +1,17 @@
 # ContractHunter
 
-ContractHunter is a locally hosted smart-contract security analysis workstation. V0.1.8 combines deterministic static analysis, optional cost-controlled protocol understanding and specialist AI review, and narrowly scoped local verification.
+ContractHunter is a locally hosted smart-contract security analysis workstation. V0.1.8.1 combines deterministic static analysis, optional cost-controlled protocol understanding and specialist AI review, and narrowly scoped local verification.
 
 Static analysis runs locally and completes before any optional AI work. Protocol analysis and the deeper security review are manually triggered so findings can be reviewed before spending API tokens. ContractHunter shows approximate API costs from bounded pre-run context estimates and recorded token usage using configurable input/output prices; these estimates are not an official invoice, and scanner execution itself has no OpenAI cost.
 
 > [!WARNING]
 > **ContractHunter must only be used against smart contracts and repositories the user is authorised to analyse. Repository content is treated as untrusted.**
+
+## v0.1.8.1 — Runtime and workflow release
+
+V0.1.8.1 keeps scanning static-first: Slither and Aderyn complete, correlate multi-scanner evidence, and finish before any optional AI work. Protocol analysis and the deeper AI security review remain explicit manual actions, with bounded cost estimates, recorded usage, and duplicate-request safeguards.
+
+The hunt page includes clearer elapsed/progress state, background polling through AI completion, and recovery for stale or interrupted scans. Slither now supports Foundry projects through pinned Forge/Foundry compilation and reports concise, sanitized diagnostics when execution fails. The default AI model is `gpt-5.6-luna`; per-stage model routing is not implemented.
 
 ## v0.1.8 — Safe local hypothesis verification
 
@@ -45,7 +51,7 @@ Configuration:
 ```bash
 AI_ENABLED=true
 OPENAI_API_KEY=your-server-side-key
-OPENAI_MODEL=gpt-5-mini
+OPENAI_MODEL=gpt-5.6-luna
 AI_INPUT_COST_PER_MILLION_USD=0.25
 AI_OUTPUT_COST_PER_MILLION_USD=2.00
 AI_TIMEOUT_MS=180000
@@ -129,7 +135,7 @@ Not yet supported:
 - Validated JSON endpoints and a container health endpoint
 - Docker-first operation with a persistent `/data` volume and non-root runtime
 
-The production pipeline clones the repository, detects its framework, prepares approved pinned submodules and lockfile-based npm dependencies, resolves compiler requirements, invokes Slither followed by Aderyn, correlates static output, and stops with a completed static hunt. Protocol analysis and specialist review run only through explicit user actions; AI failures never invalidate successful static results. Eligible hypotheses can subsequently enter the separate, explicit plan-generation and local-verification flow. Scan depth is stored but does not change behaviour in V0.1.8.
+The production pipeline clones the repository, detects its framework, prepares approved pinned submodules and lockfile-based npm dependencies, resolves compiler requirements, invokes Slither followed by Aderyn, correlates static output, and stops with a completed static hunt. Protocol analysis and specialist review run only through explicit user actions; AI failures never invalidate successful static results. Eligible hypotheses can subsequently enter the separate, explicit plan-generation and local-verification flow. Scan depth is stored but does not change behaviour in V0.1.8.1.
 
 ## Architecture
 
@@ -224,4 +230,4 @@ Only approved HTTPS Git submodules and npm lockfile installs are prepared. Yarn,
 
 ## Roadmap
 
-Broader verification operations, argument-bearing calls, non-uint observations, fuzzing, Echidna, autonomous exploit/PoC generation, live-chain interaction, wallets, bounty submissions, and broader dependency mechanisms remain future work. V0.1.8 intentionally supports only reviewed, deterministic local harnesses within its narrow operation schema.
+Broader verification operations, argument-bearing calls, non-uint observations, fuzzing, Echidna, autonomous exploit/PoC generation, live-chain interaction, wallets, bounty submissions, and broader dependency mechanisms remain future work. V0.1.8.1 intentionally supports only reviewed, deterministic local harnesses within its narrow operation schema.
