@@ -82,6 +82,30 @@ function validLimits(limits: VerificationResourceLimits): boolean {
     && Number.isInteger(limits.maxFileSizeBytes) && limits.maxFileSizeBytes >= 1_048_576 && limits.maxFileSizeBytes <= 268_435_456;
 }
 
+function validObservedIsolation(
+  observed: VerificationIsolationMetadata,
+  confirmed: VerificationIsolationConfirmation,
+  workspace: string,
+  input: FoundryVerificationInput,
+): boolean {
+  const observedLimits = observed.resourceLimitsApplied;
+  const confirmedLimits = confirmed.resourceLimitsApplied;
+  return observed.providerId === confirmed.providerId
+    && observed.isolationVersion === confirmed.isolationVersion
+    && observed.networkAccess === "disabled"
+    && observed.networkIsolated
+    && observed.processIsolated
+    && validLimits(observedLimits)
+    && observedLimits.maxCpuTimeSeconds <= confirmedLimits.maxCpuTimeSeconds
+    && observedLimits.maxVirtualMemoryBytes <= confirmedLimits.maxVirtualMemoryBytes
+    && observedLimits.maxProcesses <= confirmedLimits.maxProcesses
+    && observedLimits.maxOpenFiles <= confirmedLimits.maxOpenFiles
+    && observedLimits.maxFileSizeBytes <= confirmedLimits.maxFileSizeBytes
+    && observed.wallClockTimeoutMs === input.timeoutMs
+    && observed.maxOutputBytes === input.maxOutputBytes
+    && observed.writableProjectPath === workspace;
+}
+
 async function defaultExecutableResolver(searchPath: string, name: string): Promise<string | null> {
   if (!/^[A-Za-z0-9._+-]+$/.test(name)) return null;
   for (const directory of searchPath.split(path.delimiter)) {
@@ -340,7 +364,7 @@ export class FoundryVerificationRunner {
       let observed: IsolatedExecutionResult;
       try { observed = await this.isolationProvider.execute({ command: "forge", args, cwd: workspace, timeoutMs: input.timeoutMs, maxOutputBytes: input.maxOutputBytes, env: this.environment() }, this.processRunner); }
       catch { return { ...emptyResult(startedAt, "execution_error", "Foundry verification could not be executed."), status: "failed" }; }
-      if (!observed.isolation.networkIsolated || !observed.isolation.processIsolated || observed.isolation.networkAccess !== "disabled" || !validLimits(observed.isolation.resourceLimitsApplied)) return { ...emptyResult(startedAt, "execution_error", "Foundry verification isolation metadata was invalid."), status: "failed" };
+      if (!validObservedIsolation(observed.isolation, isolation, workspace, input)) return { ...emptyResult(startedAt, "execution_error", "Foundry verification isolation metadata was invalid."), status: "failed" };
       const counts = parseTestCounts(`${observed.stdout}\n${observed.stderr}`);
       const outputTruncated = observed.stdoutTruncated || observed.stderrTruncated;
       const failed = observed.timedOut || observed.exitCode !== 0;

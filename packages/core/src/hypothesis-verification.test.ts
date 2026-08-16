@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { dynamicEvidenceSchema, verificationHarnessPlanSchema, verificationOutcomeSchema, verificationRunStatusSchema } from "./hypothesis-verification";
+import { verificationPlanProposalSchema } from "./verification-plan-generation";
 
 const evidence = {
   assertionId: "share-conversion",
@@ -50,5 +51,13 @@ describe("verification harness plan", () => {
   it("rejects oversized structured plans and unstable compilers", () => {
     expect(verificationHarnessPlanSchema.safeParse({ ...plan, verificationSteps: Array.from({ length: 31 }, () => "step") }).success).toBe(false);
     expect(verificationHarnessPlanSchema.safeParse({ ...plan, compilerVersion: "0.8.24-nightly" }).success).toBe(false);
+  });
+});
+
+describe("verification plan proposal", () => {
+  it("keeps generated and not-plannable structured results distinct", () => {
+    expect(verificationPlanProposalSchema.parse({ status: "generated", plan, rationale: "The transition maps to bounded operations.", limitations: [], notPlannableReasons: [] }).status).toBe("generated");
+    expect(verificationPlanProposalSchema.parse({ status: "not_plannable", plan: null, rationale: "Arguments are required.", limitations: [], notPlannableReasons: ["function_arguments_unsupported"] }).status).toBe("not_plannable");
+    expect(verificationPlanProposalSchema.safeParse({ status: "generated", plan: null, rationale: "Forced", limitations: [], notPlannableReasons: [], command: "forge test" }).success).toBe(false);
   });
 });

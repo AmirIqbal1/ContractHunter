@@ -43,6 +43,9 @@ export const configSchema = z.object({
   AI_REVIEW_CONCURRENCY: z.coerce.number().int().min(1).max(8).default(2),
   AI_REVIEW_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(600_000).default(180_000),
   AI_REVIEW_MAX_TOTAL_REQUESTS: z.coerce.number().int().min(1).max(50).default(12),
+  AI_VERIFICATION_PLAN_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(300_000).default(120_000),
+  AI_VERIFICATION_PLAN_MAX_SOURCE_BYTES: z.coerce.number().int().min(1_024).max(1_000_000).default(120_000),
+  AI_VERIFICATION_PLAN_MAX_FILES: z.coerce.number().int().min(1).max(50).default(12),
 }).superRefine((config, context) => {
   const data = path.resolve(config.DATA_DIR);
   const repo = path.resolve(config.REPOSITORY_DIR);
@@ -92,5 +95,8 @@ export function loadConfig(environment: NodeJS.ProcessEnv = process.env): AppCon
     AI_REVIEW_CONCURRENCY: environment.AI_REVIEW_CONCURRENCY,
     AI_REVIEW_TIMEOUT_MS: environment.AI_REVIEW_TIMEOUT_MS,
     AI_REVIEW_MAX_TOTAL_REQUESTS: environment.AI_REVIEW_MAX_TOTAL_REQUESTS,
+    AI_VERIFICATION_PLAN_TIMEOUT_MS: environment.AI_VERIFICATION_PLAN_TIMEOUT_MS,
+    AI_VERIFICATION_PLAN_MAX_SOURCE_BYTES: environment.AI_VERIFICATION_PLAN_MAX_SOURCE_BYTES,
+    AI_VERIFICATION_PLAN_MAX_FILES: environment.AI_VERIFICATION_PLAN_MAX_FILES,
   });
 }

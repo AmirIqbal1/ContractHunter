@@ -129,6 +129,34 @@ describe("FoundryVerificationRunner execution boundary", () => {
     expect(await new FoundryVerificationRunner({ verificationRoot, repositoryRoot, toolHomeDir: toolHome, temporaryDirectory, executablePath: "/definitely/missing", processRunner }).run(input())).toMatchObject({ status: "refused", errorCode: "network_isolation_unavailable" });
   });
 
+  it("fails closed when execution isolation metadata is not bound to the confirmed request", async () => {
+    const invalidMetadata = [
+      { writableProjectPath: repositoryRoot },
+      { wallClockTimeoutMs: 4_999 },
+      { maxOutputBytes: 8_191 },
+      { providerId: "different-provider" },
+      { resourceLimitsApplied: { ...confirmation.resourceLimitsApplied, maxProcesses: 128 } },
+    ];
+    for (const metadata of invalidMetadata) {
+      const isolationProvider: VerificationIsolationProvider = {
+        async confirmNetworkIsolation() { return confirmation; },
+        async execute(request) {
+          return {
+            ...success,
+            isolation: {
+              ...confirmation,
+              wallClockTimeoutMs: request.timeoutMs,
+              maxOutputBytes: request.maxOutputBytes,
+              writableProjectPath: request.cwd ?? "",
+              ...metadata,
+            },
+          };
+        },
+      };
+      expect(await runner(undefined, isolationProvider).run(input())).toMatchObject({ status: "failed", errorCode: "execution_error", isolation: null });
+    }
+  });
+
   it("captures non-zero exit, timeout, and truncation as structured observations", async () => {
     const failed = { ...success, exitCode: 2, stderr: "assertion failed" };
     expect(await runner(async () => failed).run(input())).toMatchObject({ status: "failed", exitCode: 2, timedOut: false, errorCode: "forge_failed" });

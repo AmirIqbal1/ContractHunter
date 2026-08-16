@@ -1,6 +1,6 @@
 import OpenAI from "openai";
 import { zodTextFormat } from "openai/helpers/zod";
-import { protocolAnalysisResultSchema, securityReviewResultSchema, type AIProvider, type AIProviderResult, type ProtocolAnalysisInput, type SecurityReviewInput, type SecurityReviewProviderResult } from "@contracthunter/core";
+import { protocolAnalysisResultSchema, securityReviewResultSchema, verificationPlanProposalSchema, type AIProvider, type AIProviderResult, type ProtocolAnalysisInput, type SecurityReviewInput, type SecurityReviewProviderResult, type VerificationPlanGenerationInput, type VerificationPlanProviderResult } from "@contracthunter/core";
 
 export class OpenAIProvider implements AIProvider {
   readonly id = "openai";
@@ -39,6 +39,20 @@ export class OpenAIProvider implements AIProvider {
       if (error instanceof OpenAI.AuthenticationError) throw new Error("OpenAI authentication failed.");
       if (error instanceof OpenAI.APIConnectionTimeoutError) throw new Error(`OpenAI security review timed out after ${input.timeoutMs} ms.`);
       if (error instanceof OpenAI.BadRequestError) throw new Error("OpenAI rejected the structured security review request.");
+      throw error;
+    }
+  }
+
+  async generateVerificationPlan(input: VerificationPlanGenerationInput): Promise<VerificationPlanProviderResult> {
+    const started = Date.now();
+    try {
+      const response = await this.client.responses.parse({ model: input.model, store: false, tools: [], input: [{ role: "system", content: input.systemPrompt }, { role: "user", content: input.context.content }], text: { format: zodTextFormat(verificationPlanProposalSchema, "verification_plan_proposal") } }, { timeout: input.timeoutMs });
+      if (!response.output_parsed) throw new Error("OpenAI returned no structured verification plan proposal.");
+      return { proposal: response.output_parsed, actualModel: response.model ?? null, requestId: response._request_id ?? response.id ?? null, inputTokens: response.usage?.input_tokens ?? null, outputTokens: response.usage?.output_tokens ?? null, totalTokens: response.usage?.total_tokens ?? null, durationMs: Date.now() - started };
+    } catch (error) {
+      if (error instanceof OpenAI.AuthenticationError) throw new Error("OpenAI authentication failed.");
+      if (error instanceof OpenAI.APIConnectionTimeoutError) throw new Error(`OpenAI verification planning timed out after ${input.timeoutMs} ms.`);
+      if (error instanceof OpenAI.BadRequestError) throw new Error("OpenAI rejected the structured verification planning request.");
       throw error;
     }
   }
