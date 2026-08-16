@@ -4,7 +4,7 @@ import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import type { ScanContext } from "@contracthunter/core";
 import { ProcessOutputLimitError, ProcessTimeoutError, type ProcessRequest, type ProcessRunner } from "./process-runner";
-import { SlitherScanner } from "./slither-scanner";
+import { SlitherScanner, slitherFailureDiagnostic } from "./slither-scanner";
 
 async function setup(pragmas = ["0.8.24"]) {
   const root = await mkdtemp(path.join(tmpdir(), "contracthunter-slither-"));
@@ -46,6 +46,14 @@ function scanner(root: string, processRunner: ProcessRunner) {
 }
 
 describe("SlitherScanner compiler integration", () => {
+  it("classifies bounded Foundry and compiler failures without exposing repository paths", () => {
+    const repositoryPath = "/data/repositories/private-contract";
+    expect(slitherFailureDiagnostic(`Traceback in ${repositoryPath}\nCannot execute forge, is it installed and in PATH?`, repositoryPath)).toBe("Foundry compiler executable `forge` is unavailable.");
+    expect(slitherFailureDiagnostic("forge build failed with a compilation error", repositoryPath)).toBe("Foundry compilation failed.");
+    expect(slitherFailureDiagnostic("No such file or directory: solc", repositoryPath)).toBe("The resolved Solidity compiler is unavailable.");
+    expect(slitherFailureDiagnostic(`unexpected failure in ${repositoryPath}`, repositoryPath)).not.toContain(repositoryPath);
+  });
+
   it("reports Slither available and unavailable", async () => {
     const { root } = await setup();
     expect(await scanner(root, processMock().runner).isAvailable()).toBe(true);
@@ -61,8 +69,9 @@ describe("SlitherScanner compiler integration", () => {
     expect(process.env.SOLC_VERSION).toBe(previous);
   });
 
-  it("accepts validated successful JSON even when Slither uses a findings exit code", async () => {
+  it("accepts validated successful JSON for a Foundry-style project even when Slither uses a findings exit code", async () => {
     const { root, context } = await setup(); const base = processMock();
+    await writeFile(path.join(context.repositoryPath, "foundry.toml"), "[profile.default]\nsrc = \".\"\n");
     const runner: ProcessRunner = async (request) => request.command === "slither" && request.args[0] === "."
       ? { stdout: JSON.stringify({ success: true, results: { detectors: [] } }), stderr: "", exitCode: 255 }
       : base.runner(request);
@@ -95,7 +104,7 @@ describe("SlitherScanner compiler integration", () => {
     };
     await expect(scanner(root, override("timeout")).scan(context)).rejects.toThrow("timed out");
     await expect(scanner(root, override("malformed")).scan(context)).rejects.toThrow("parsing error");
-    await expect(scanner(root, override("exit")).scan(context)).rejects.toThrow("solc missing");
+    await expect(scanner(root, override("exit")).scan(context)).rejects.toThrow("resolved Solidity compiler is unavailable");
     await expect(scanner(root, override("oversized")).scan(context)).rejects.toThrow("output exceeded");
   });
 });

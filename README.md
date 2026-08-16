@@ -7,11 +7,11 @@ Static analysis runs locally and completes before any optional AI work. Protocol
 > [!WARNING]
 > **ContractHunter must only be used against smart contracts and repositories the user is authorised to analyse. Repository content is treated as untrusted.**
 
-## v0.1.8.1 — Cost-controlled manual AI workflow
+## v0.1.8.1 — Runtime and workflow release
 
-V0.1.8.1 completes local Slither/Aderyn scanning and investigation reconciliation before any AI spending. The hunt page now shows elapsed time, clearer progress and stalled-state guidance; stale interrupted jobs are recovered without restarting work. Static Slither/Aderyn scanning does not consume OpenAI API tokens.
+V0.1.8.1 keeps scanning static-first: Slither and Aderyn complete, correlate multi-scanner evidence, and finish before any optional AI work. Protocol analysis and the deeper AI security review remain explicit manual actions, with bounded cost estimates, recorded usage, and duplicate-request safeguards.
 
-AI Protocol Analysis and the subsequent AI Security Review are optional manual actions. Before either stage, ContractHunter shows an approximate cost based on bounded context and configured token prices; afterward it shows estimates from recorded input/output token usage plus a hunt-level AI usage summary. Duplicate active manual requests are rejected server-side. These values are estimates, not invoices, and the pricing defaults must be reviewed whenever `OPENAI_MODEL` changes.
+The hunt page includes clearer elapsed/progress state, background polling through AI completion, and recovery for stale or interrupted scans. Slither now supports Foundry projects through pinned Forge/Foundry compilation and reports concise, sanitized diagnostics when execution fails. The default AI model is `gpt-5.6-luna`; per-stage model routing is not implemented.
 
 ## v0.1.8 — Safe local hypothesis verification
 
@@ -51,7 +51,7 @@ Configuration:
 ```bash
 AI_ENABLED=true
 OPENAI_API_KEY=your-server-side-key
-OPENAI_MODEL=gpt-5-mini
+OPENAI_MODEL=gpt-5.6-luna
 AI_INPUT_COST_PER_MILLION_USD=0.25
 AI_OUTPUT_COST_PER_MILLION_USD=2.00
 AI_TIMEOUT_MS=180000
@@ -230,4 +230,4 @@ Only approved HTTPS Git submodules and npm lockfile installs are prepared. Yarn,
 
 ## Roadmap
 
-Broader verification operations, argument-bearing calls, non-uint observations, fuzzing, Echidna, autonomous exploit/PoC generation, live-chain interaction, wallets, bounty submissions, and broader dependency mechanisms remain future work. V0.1.8 intentionally supports only reviewed, deterministic local harnesses within its narrow operation schema.
+Broader verification operations, argument-bearing calls, non-uint observations, fuzzing, Echidna, autonomous exploit/PoC generation, live-chain interaction, wallets, bounty submissions, and broader dependency mechanisms remain future work. V0.1.8.1 intentionally supports only reviewed, deterministic local harnesses within its narrow operation schema.

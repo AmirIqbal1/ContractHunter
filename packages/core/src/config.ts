@@ -32,7 +32,7 @@ export const configSchema = z.object({
   }),
   AI_ENABLED: z.enum(["true", "false"]).default("false").transform((value) => value === "true"),
   OPENAI_API_KEY: z.string().max(1000).default(""),
-  OPENAI_MODEL: z.string().trim().max(200).default(""),
+  OPENAI_MODEL: z.string().trim().max(200).default("gpt-5.6-luna"),
   AI_INPUT_COST_PER_MILLION_USD: z.coerce.number().finite().min(0).max(10_000).default(0.25),
   AI_OUTPUT_COST_PER_MILLION_USD: z.coerce.number().finite().min(0).max(10_000).default(2),
   AI_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(600_000).default(180_000),
