@@ -2,6 +2,8 @@
 
 ContractHunter is a locally hosted smart-contract security analysis workstation. V0.1.8 combines deterministic static analysis, protocol understanding, security invariants, specialist AI vulnerability-hypothesis reviews, and narrowly scoped local verification.
 
+Static analysis runs locally and completes before any optional AI work. Protocol analysis and the deeper security review are manually triggered so findings can be reviewed before spending API tokens. ContractHunter shows approximate API costs from bounded pre-run context estimates and recorded token usage using configurable input/output prices; these estimates are not an official invoice, and scanner execution itself has no OpenAI cost.
+
 > [!WARNING]
 > **ContractHunter must only be used against smart contracts and repositories the user is authorised to analyse. Repository content is treated as untrusted.**
 
@@ -44,6 +46,8 @@ Configuration:
 AI_ENABLED=true
 OPENAI_API_KEY=your-server-side-key
 OPENAI_MODEL=gpt-5-mini
+AI_INPUT_COST_PER_MILLION_USD=0.25
+AI_OUTPUT_COST_PER_MILLION_USD=2.00
 AI_TIMEOUT_MS=180000
 AI_MAX_SOURCE_BYTES=500000
 AI_MAX_FILES=120
@@ -58,6 +62,8 @@ AI_VERIFICATION_PLAN_TIMEOUT_MS=120000
 AI_VERIFICATION_PLAN_MAX_SOURCE_BYTES=120000
 AI_VERIFICATION_PLAN_MAX_FILES=12
 ```
+
+The price defaults match the currently configured model assumption and should be checked whenever `OPENAI_MODEL` changes.
 
 The API key remains server-side and is never stored, logged, returned by health/API routes, or included in browser code. AI failures and disabled/unconfigured AI do not invalidate successful static-analysis results. Manual reruns preserve previous analysis versions.
 

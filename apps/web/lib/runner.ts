@@ -1,19 +1,36 @@
 import { cloneRepository, detectFramework, loadConfig, sanitiseError, type Scanner } from "@contracthunter/core";
-import { getDatabase, getScan, insertFindings, markActiveScansInterrupted, reconcileInvestigations, transitionScan, updateCompilerState, updateDependencyState, updateScannerState, upsertScanScanner } from "@contracthunter/db";
-import { AderynScanner, DependencyManager, executeScanners, SlitherScanner } from "@contracthunter/scanners";
-import { runProtocolAnalysis } from "@/lib/ai/analysis-service";
-import { runSecurityReview } from "@/lib/ai/security-review-service";
+import { getDatabase, getScan, insertFindings, markActiveScansInterrupted, markDetachedJobsInterrupted, reconcileInvestigations, transitionScan, updateCompilerState, updateDependencyState, updateScannerState, upsertScanScanner, type DatabaseClient } from "@contracthunter/db";
+import { AderynScanner, DependencyManager, executeScanners, SlitherScanner, type ScannerExecution } from "@contracthunter/scanners";
+import { activeProtocolAnalysisScanIds } from "@/lib/ai/job-runner";
+import { activeSecurityReviewScanIds } from "@/lib/ai/security-review-job-runner";
 
 export interface JobRunner {
   enqueue(scanId: string): void;
   isRunning(scanId: string): boolean;
+  recoverInterrupted(): number;
+}
+
+export function completeStaticScan(database: DatabaseClient, scanId: string, executions: ScannerExecution[]): boolean {
+  const successful = executions.filter((execution) => execution.status === "completed");
+  const totalDuration = executions.reduce((total, execution) => total + execution.durationMs, 0);
+  updateScannerState(database, scanId, "Slither + Aderyn", successful.length ? "completed" : "failed", totalDuration);
+  if (!successful.length) {
+    transitionScan(database, scanId, "failed", { error: sanitiseError(new Error(`All security scanners failed. ${executions.map((execution) => execution.error).filter(Boolean).join(" ")}`)) });
+    return false;
+  }
+  const current = getScan(database, scanId);
+  if (current?.status === "preparing_compiler") transitionScan(database, scanId, "scanning");
+  reconcileInvestigations(database, scanId);
+  transitionScan(database, scanId, "completed");
+  return true;
 }
 
 class InProcessJobRunner implements JobRunner {
   private readonly active = new Set<string>();
 
   constructor(private readonly scanners: Scanner[]) {
-    markActiveScansInterrupted(getDatabase());
+    this.recoverInterrupted();
+    markDetachedJobsInterrupted(getDatabase(), activeProtocolAnalysisScanIds(), activeSecurityReviewScanIds());
   }
 
   enqueue(scanId: string): void {
@@ -24,6 +41,10 @@ class InProcessJobRunner implements JobRunner {
 
   isRunning(scanId: string): boolean {
     return this.active.has(scanId);
+  }
+
+  recoverInterrupted(): number {
+    return markActiveScansInterrupted(getDatabase(), [...this.active]);
   }
 
   private async run(scanId: string): Promise<void> {
@@ -66,16 +87,7 @@ class InProcessJobRunner implements JobRunner {
           upsertScanScanner(database, scanId, event);
         },
       });
-      const successful = executions.filter((execution) => execution.status === "completed");
-      const totalDuration = executions.reduce((total, execution) => total + execution.durationMs, 0);
-      updateScannerState(database, scanId, "Slither + Aderyn", successful.length ? "completed" : "failed", totalDuration);
-      if (!successful.length) throw new Error(`All security scanners failed. ${executions.map((execution) => execution.error).filter(Boolean).join(" ")}`);
-      const current = getScan(database, scanId);
-      if (current?.status === "preparing_compiler") transitionScan(database, scanId, "scanning");
-      reconcileInvestigations(database, scanId);
-      const analysis = await runProtocolAnalysis({ scanId, database, repositoryPath: cloned.path });
-      if (analysis) await runSecurityReview({ scanId, database, repositoryPath: cloned.path });
-      transitionScan(database, scanId, "completed");
+      completeStaticScan(database, scanId, executions);
     } catch (error) {
       const scan = getScan(database, scanId);
       if (scan && scan.status !== "failed" && scan.status !== "completed") {

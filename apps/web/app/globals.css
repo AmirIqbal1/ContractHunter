@@ -57,6 +57,7 @@ input:focus, select:focus { border-color: #4eae8b; box-shadow: 0 0 0 3px #57e6ad
 .mock-note { border-left: 3px solid #d29b47; background: #21190e; color: #d9b875; padding: 12px 14px; font-size: 12px; margin-bottom: 22px; }
 .details { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }.detail { min-width: 0; }.detail dt { color: var(--muted); font: 700 10px monospace; text-transform: uppercase; letter-spacing: .08em; }.detail dd { margin: 8px 0 0; overflow-wrap: anywhere; font-size: 13px; }
 .progress-track { height: 5px; background: #1a222b; border-radius: 4px; overflow: hidden; margin-top: 18px; }.progress-bar { height: 100%; background: var(--accent); box-shadow: 0 0 12px #57e6ad66; transition: width .4s; }
+.progress-details { display: flex; gap: 36px; margin: 18px 0 0; }.progress-details .detail { min-width: 150px; }.stall-warning { border: 1px solid #674d27; background: #271d0f; color: #f3bf61; padding: 11px 13px; border-radius: 6px; font-size: 12px; margin-top: 16px; }
 .filter-row { display: grid; grid-template-columns: repeat(4, 1fr) auto; gap: 10px; margin-bottom: 16px; }.filter-row select, .filter-row input { padding: 9px 10px; font-size: 12px; }
 .investigation-filters { grid-template-columns: repeat(5, minmax(110px, 1fr)) auto; }
 .hypothesis-filters { grid-template-columns: repeat(4, minmax(100px, 1fr)); }

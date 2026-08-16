@@ -281,16 +281,55 @@ export function updateSecurityReviewState(database: DatabaseClient, id: string, 
   database.orm.update(scans).set({ reviewStatus: status, reviewError: error }).where(eq(scans.id, id)).run();
 }
 
-export function markActiveScansInterrupted(database: DatabaseClient): number {
+export function markActiveScansInterrupted(database: DatabaseClient, currentRunnerScanIds: readonly string[] = []): number {
   const active: ScanStatus[] = ["queued", "cloning", "detecting", "preparing_dependencies", "preparing_compiler", "scanning"];
-  const result = database.orm.update(scans).set({ status: "failed", scannerStatus: "failed", compilerStatus: "failed", dependencyStatus: "failed", completedAt: new Date(), error: "Scan interrupted by application restart." }).where(inArray(scans.status, active)).run().changes;
-  database.sqlite.prepare("UPDATE scan_scanners SET status = 'failed', error = 'Scan interrupted by application restart.' WHERE status IN ('pending', 'available', 'running')").run();
-  database.sqlite.prepare("UPDATE scans SET ai_status = 'failed', ai_error = 'AI analysis interrupted by application restart.' WHERE ai_status IN ('pending', 'running')").run();
-  database.sqlite.prepare("UPDATE scans SET review_status = 'failed', review_error = 'Security review interrupted by application restart.' WHERE review_status IN ('pending', 'running')").run();
-  database.sqlite.prepare("UPDATE security_review_plans SET status = 'failed', error = 'Security review interrupted by application restart.', completed_at = unixepoch() * 1000 WHERE status IN ('pending', 'running')").run();
-  database.sqlite.prepare("UPDATE security_reviewer_runs SET status = 'failed', error = 'Reviewer interrupted by application restart.', completed_at = unixepoch() * 1000 WHERE status IN ('queued', 'running')").run();
-  database.sqlite.prepare("UPDATE hypothesis_verification_runs SET status = 'failed', error = 'Verification interrupted by application restart.', completed_at = unixepoch() * 1000 WHERE status IN ('queued', 'running')").run();
-  return result;
+  const current = new Set(currentRunnerScanIds);
+  const staleIds = database.orm.select({ id: scans.id }).from(scans).where(inArray(scans.status, active)).all().map(({ id }) => id).filter((id) => !current.has(id));
+  if (!staleIds.length) return 0;
+
+  const interrupt = database.sqlite.transaction((scanIds: string[]) => {
+    const interruptedAt = Date.now();
+    const updateScan = database.sqlite.prepare(`UPDATE scans SET
+      status = 'failed', completed_at = ?, error = 'Scan interrupted by application restart.',
+      scanner_status = CASE WHEN scanner_status IN ('pending', 'available', 'running') THEN 'failed' ELSE scanner_status END,
+      compiler_status = CASE WHEN compiler_status IN ('pending', 'detecting', 'downloading') THEN 'failed' ELSE compiler_status END,
+      dependency_status = CASE WHEN dependency_status IN ('pending', 'inspecting', 'preparing') THEN 'failed' ELSE dependency_status END,
+      ai_status = CASE WHEN ai_status IN ('pending', 'running') THEN 'failed' ELSE ai_status END,
+      ai_error = CASE WHEN ai_status IN ('pending', 'running') THEN 'AI analysis interrupted by application restart.' ELSE ai_error END,
+      review_status = CASE WHEN review_status IN ('pending', 'running') THEN 'failed' ELSE review_status END,
+      review_error = CASE WHEN review_status IN ('pending', 'running') THEN 'Security review interrupted by application restart.' ELSE review_error END
+      WHERE id = ?`);
+    const updateScanners = database.sqlite.prepare("UPDATE scan_scanners SET status = 'failed', error = 'Scan interrupted by application restart.' WHERE scan_id = ? AND status IN ('pending', 'available', 'running')");
+    const updatePlans = database.sqlite.prepare("UPDATE security_review_plans SET status = 'failed', error = 'Security review interrupted by application restart.', completed_at = ? WHERE scan_id = ? AND status IN ('pending', 'running')");
+    const updateReviewers = database.sqlite.prepare("UPDATE security_reviewer_runs SET status = 'failed', error = 'Reviewer interrupted by application restart.', completed_at = ? WHERE scan_id = ? AND status IN ('queued', 'running')");
+    const updateVerifications = database.sqlite.prepare("UPDATE hypothesis_verification_runs SET status = 'failed', error = 'Verification interrupted by application restart.', completed_at = ? WHERE scan_id = ? AND status IN ('queued', 'running')");
+    for (const scanId of scanIds) {
+      updateScan.run(interruptedAt, scanId);
+      updateScanners.run(scanId);
+      updatePlans.run(interruptedAt, scanId);
+      updateReviewers.run(interruptedAt, scanId);
+      updateVerifications.run(interruptedAt, scanId);
+    }
+  });
+  interrupt(staleIds);
+  return staleIds.length;
+}
+
+export function markDetachedJobsInterrupted(database: DatabaseClient, currentProtocolAnalysisScanIds: readonly string[] = [], currentSecurityReviewScanIds: readonly string[] = []): void {
+  const interruptedAt = Date.now();
+  const activeProtocol = new Set(currentProtocolAnalysisScanIds);
+  const activeReview = new Set(currentSecurityReviewScanIds);
+  const staleProtocolIds = (database.sqlite.prepare("SELECT id FROM scans WHERE ai_status IN ('pending', 'running')").all() as Array<{ id: string }>).map(({ id }) => id).filter((id) => !activeProtocol.has(id));
+  const staleReviewIds = (database.sqlite.prepare("SELECT id FROM scans WHERE review_status IN ('pending', 'running')").all() as Array<{ id: string }>).map(({ id }) => id).filter((id) => !activeReview.has(id));
+  database.sqlite.transaction(() => {
+    const updateProtocol = database.sqlite.prepare("UPDATE scans SET ai_status = 'failed', ai_error = 'AI analysis interrupted by application restart.' WHERE id = ? AND ai_status IN ('pending', 'running')");
+    const updateReview = database.sqlite.prepare("UPDATE scans SET review_status = 'failed', review_error = 'Security review interrupted by application restart.' WHERE id = ? AND review_status IN ('pending', 'running')");
+    const updatePlans = database.sqlite.prepare("UPDATE security_review_plans SET status = 'failed', error = 'Security review interrupted by application restart.', completed_at = ? WHERE scan_id = ? AND status IN ('pending', 'running')");
+    const updateReviewers = database.sqlite.prepare("UPDATE security_reviewer_runs SET status = 'failed', error = 'Reviewer interrupted by application restart.', completed_at = ? WHERE scan_id = ? AND status IN ('queued', 'running')");
+    for (const scanId of staleProtocolIds) updateProtocol.run(scanId);
+    for (const scanId of staleReviewIds) { updateReview.run(scanId); updatePlans.run(interruptedAt, scanId); updateReviewers.run(interruptedAt, scanId); }
+    database.sqlite.prepare("UPDATE hypothesis_verification_runs SET status = 'failed', error = 'Verification interrupted by application restart.', completed_at = ? WHERE status IN ('queued', 'running')").run(interruptedAt);
+  })();
 }
 
 export function insertFindings(database: DatabaseClient, scanId: string, input: NewFinding[]): FindingRow[] {
