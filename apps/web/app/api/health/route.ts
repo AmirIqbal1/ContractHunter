@@ -18,7 +18,7 @@ export async function GET() {
     getDatabase().sqlite.prepare("SELECT 1").get();
     const config = loadConfig();
     const [git, npm, slither, aderyn, solcSelect] = await Promise.all([tool("git", ["--version"]), tool("npm", ["--version"]), tool("slither", ["--version"]), tool("aderyn", ["--version"]), tool("solc-select", ["--version"])]);
-    return NextResponse.json({ status: "ok", service: "contracthunter", version: "0.1.7", database: "connected", ai: { enabled: config.AI_ENABLED, openAIConfigured: Boolean(config.OPENAI_API_KEY) }, tools: { git, npm, slither, aderyn, solcSelect } });
+    return NextResponse.json({ status: "ok", service: "contracthunter", version: "0.1.8", database: "connected", ai: { enabled: config.AI_ENABLED, openAIConfigured: Boolean(config.OPENAI_API_KEY) }, tools: { git, npm, slither, aderyn, solcSelect } });
   } catch {
     return NextResponse.json({ status: "unhealthy", service: "contracthunter", database: "unavailable" }, { status: 503 });
   }
