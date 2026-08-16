@@ -2,7 +2,7 @@ import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { canTransition, configSchema, detectFramework, findingSchema, validateGitHubUrl } from "./index";
+import { canTransition, configSchema, detectFramework, findingSchema, loadConfig, validateGitHubUrl } from "./index";
 
 describe("GitHub URL validation", () => {
   it("normalises an HTTPS repository URL", () => {
@@ -69,5 +69,13 @@ describe("configuration validation", () => {
     expect(configSchema.safeParse({ ...valid, AI_VERIFICATION_PLAN_MAX_FILES: 0 }).success).toBe(false);
     expect(configSchema.safeParse({ ...valid, AI_VERIFICATION_PLAN_MAX_SOURCE_BYTES: 100 }).success).toBe(false);
     expect(configSchema.safeParse({ ...valid, AI_VERIFICATION_PLAN_TIMEOUT_MS: 500 }).success).toBe(false);
+    expect(configSchema.safeParse({ ...valid, AI_INPUT_COST_PER_MILLION_USD: -1 }).success).toBe(false);
+    expect(configSchema.safeParse({ ...valid, AI_OUTPUT_COST_PER_MILLION_USD: "Infinity" }).success).toBe(false);
+    expect(configSchema.safeParse({ ...valid, AI_INPUT_COST_PER_MILLION_USD: 10_001 }).success).toBe(false);
+  });
+
+  it("parses configured token prices and supplies current-model defaults", () => {
+    expect(loadConfig({ NODE_ENV: "test", DATA_DIR: "/tmp/contracthunter-cost-config", REPOSITORY_DIR: "/tmp/contracthunter-cost-config/repos", DATABASE_PATH: "/tmp/contracthunter-cost-config/db.sqlite", TOOL_HOME_DIR: "/tmp/contracthunter-cost-config/tools", AI_INPUT_COST_PER_MILLION_USD: "1.5", AI_OUTPUT_COST_PER_MILLION_USD: "4.25" })).toMatchObject({ AI_INPUT_COST_PER_MILLION_USD: 1.5, AI_OUTPUT_COST_PER_MILLION_USD: 4.25 });
+    expect(loadConfig({ NODE_ENV: "test", DATA_DIR: "/tmp/contracthunter-cost-defaults", REPOSITORY_DIR: "/tmp/contracthunter-cost-defaults/repos", DATABASE_PATH: "/tmp/contracthunter-cost-defaults/db.sqlite", TOOL_HOME_DIR: "/tmp/contracthunter-cost-defaults/tools" })).toMatchObject({ AI_INPUT_COST_PER_MILLION_USD: 0.25, AI_OUTPUT_COST_PER_MILLION_USD: 2 });
   });
 });
