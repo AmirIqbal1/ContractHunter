@@ -10,5 +10,7 @@ export * from "./mock-ai-provider";
 export * from "./prompts/protocol-analysis-v1";
 export * from "./security-review";
 export * from "./hypothesis-verification";
+export * from "./verification-plan-generation";
+export * from "./verification-plan-context";
 export * from "./reviewer-context";
 export * from "./ai-test-fixture";

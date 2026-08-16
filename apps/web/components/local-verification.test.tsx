@@ -1,7 +1,9 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { PublicHypothesisVerificationRun } from "@/lib/verification/public-verification";
-import { LocalVerification } from "./local-verification";
+import { LocalVerification, PlanGenerationView } from "./local-verification";
+import type { VerificationPlanGenerationResult } from "../../../packages/core/src/verification-plan-generation";
+import { verificationHarnessPlanSchema } from "../../../packages/core/src/hypothesis-verification";
 
 const base: PublicHypothesisVerificationRun = {
   id: crypto.randomUUID(), hypothesisId: crypto.randomUUID(), status: "completed", outcome: "confirmed", verifier: "contracthunter-local-verification", compiler: "0.8.24", contentFingerprint: "a".repeat(64), createdAt: "2026-08-16T10:00:00.000Z", startedAt: "2026-08-16T10:00:00.001Z", completedAt: "2026-08-16T10:00:00.013Z", durationMs: 12, isolationBackend: "linux-bubblewrap", exitCode: 0, timedOut: false, testCounts: { total: 1, passed: 1, failed: 0 }, failureCode: null,
@@ -11,7 +13,7 @@ const render = (runs: PublicHypothesisVerificationRun[], status: "candidate" | "
 
 describe("local verification UI", () => {
   it("keeps workflow status separate and shows no-run state with explicit plan controls", () => {
-    const html = render([]); expect(html).toContain("Hypothesis status"); expect(html).toContain("Local verification"); expect(html).toContain("Not run"); expect(html).toContain("Open developer verification-plan input"); expect(html).toContain("Validate plan"); expect(html).toContain("Verify locally"); expect(html).not.toContain("Mark verified");
+    const html = render([]); expect(html).toContain("Hypothesis status"); expect(html).toContain("Local verification"); expect(html).toContain("Not run"); expect(html).toContain("Generate verification plan"); expect(html).toContain("Open developer verification-plan input"); expect(html).toContain("Validate plan"); expect(html).toContain("Verify locally"); expect(html).not.toContain("Mark verified");
   });
 
   it.each([
@@ -31,5 +33,17 @@ describe("local verification UI", () => {
   it("explains fail-closed isolation without suggesting unsafe workarounds", () => {
     const html = render([{ ...base, status: "failed", outcome: null, isolationBackend: null, failureCode: "network_isolation_unavailable" }]);
     expect(html).toContain("required isolation environment is unavailable"); expect(html).toContain("did not fall back to unsafe execution"); expect(html).not.toMatch(/sudo|host networking|privileged container/i);
+  });
+
+  it("renders generation loading, preview, not-plannable, failure, provenance, and limitations without an execution action", () => {
+    const provenance = { provider: "openai", requestedModel: "configured", actualModel: "actual", promptVersion: "verification-plan-v1", generatedAt: "2026-08-16T10:00:00.000Z", inputTokens: 10, outputTokens: 5, totalTokens: 15, durationMs: 7, sourceFileCount: 2, totalSourceBytes: 500, sourceContextTruncated: false };
+    const plan = verificationHarnessPlanSchema.parse({ scanId: crypto.randomUUID(), hypothesisId: base.hypothesisId, resolvedCommit: "a".repeat(40), compilerVersion: "0.8.24", primaryContract: "Counter", primarySourcePath: "contracts/Counter.sol", relevantFunctions: ["increment", "count"], sourceFiles: ["contracts/Counter.sol"], verificationGoal: "Check a bounded counter transition.", expectedProperty: "Count becomes one.", verificationSteps: ["Deploy and increment."], operations: [{ kind: "deploy", contractName: "Counter", instanceName: "target" }, { kind: "call", instanceName: "target", functionName: "increment" }, { kind: "read-uint", instanceName: "target", functionName: "count", resultName: "observed" }], assertions: [{ id: "count", kind: "uint-eq", actual: "observed", expected: "1", expectedOutcome: "hypothesis-supported", description: "The observed count becomes one." }] });
+    const generated: VerificationPlanGenerationResult = { status: "generated", plan, rationale: "Supported.", limitations: ["Bounded initial state only."], notPlannableReasons: [], failureCode: null, provenance };
+    const notPlannable: VerificationPlanGenerationResult = { status: "not_plannable", plan: null, rationale: "Arguments required.", limitations: [], notPlannableReasons: ["function_arguments_unsupported"], failureCode: null, provenance };
+    const failed: VerificationPlanGenerationResult = { status: "failed", plan: null, rationale: null, limitations: [], notPlannableReasons: [], failureCode: "plan_generation_failed", provenance };
+    expect(renderToStaticMarkup(<PlanGenerationView generating result={null} />)).toContain("Generating");
+    const preview = renderToStaticMarkup(<PlanGenerationView generating={false} result={generated} />); expect(preview).toContain("Generated preview"); expect(preview).toContain("Bounded initial state only"); expect(preview).toContain("verification-plan-v1"); expect(preview).toContain("This proposal has not been executed"); expect(preview).not.toContain("<button");
+    expect(renderToStaticMarkup(<PlanGenerationView generating={false} result={notPlannable} />)).toContain("could not safely express this hypothesis");
+    expect(renderToStaticMarkup(<PlanGenerationView generating={false} result={failed} />)).toContain("failed safely");
   });
 });

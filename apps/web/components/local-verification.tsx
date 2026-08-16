@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { HypothesisStatus } from "@contracthunter/core";
 import type { PublicHypothesisVerificationRun } from "@/lib/verification/public-verification";
 import { verificationHarnessPlanSchema } from "../../../packages/core/src/hypothesis-verification";
+import type { VerificationPlanGenerationResult } from "../../../packages/core/src/verification-plan-generation";
 
 type Props = { hypothesisId: string; hypothesisStatus: HypothesisStatus; initialRuns: PublicHypothesisVerificationRun[] };
 
@@ -19,6 +20,8 @@ export function LocalVerification({ hypothesisId, hypothesisStatus, initialRuns 
   const [plan, setPlan] = useState<unknown>(null);
   const [message, setMessage] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [generation, setGeneration] = useState<VerificationPlanGenerationResult | null>(null);
   const latest = runs[0];
   const active = runs.some((run) => run.status === "queued" || run.status === "running");
 
@@ -56,6 +59,18 @@ export function LocalVerification({ hypothesisId, hypothesisStatus, initialRuns 
     setSubmitting(false); await refresh();
   }
 
+  async function generatePlan() {
+    setGenerating(true); setGeneration(null); setMessage(""); setPlan(null);
+    const response = await fetch(`/api/hypotheses/${hypothesisId}/verification-plan`, { method: "POST" }).catch(() => null);
+    const body = response ? await response.json().catch(() => ({})) as VerificationPlanGenerationResult & { error?: string } : null;
+    if (!response?.ok || !body) setMessage(body?.error ?? "Verification plan generation failed safely.");
+    else {
+      setGeneration(body);
+      if (body.status === "generated" && body.plan) { setPlanText(JSON.stringify(body.plan, null, 2)); setMessage("Generated proposal loaded. Review it, then validate the plan before verification."); }
+    }
+    setGenerating(false);
+  }
+
   const currentExplanation = useMemo(() => {
     if (!latest) return "No local verification has been run.";
     if (latest.status === "failed") return latest.failureCode === "network_isolation_unavailable"
@@ -75,9 +90,11 @@ export function LocalVerification({ hypothesisId, hypothesisStatus, initialRuns 
     {currentExplanation && <p className={latest?.status === "failed" ? "verification-failure" : "muted"}>{currentExplanation}</p>}
     {latest && <VerificationDetails run={latest} />}
     <p className="verification-safety">Runs entirely locally with no live chain or wallet. Execution requires the local isolation backend; if isolation is unavailable, ContractHunter refuses to execute.</p>
+    <div className="plan-generation"><button className="button" type="button" disabled={generating || hypothesisStatus === "rejected"} onClick={() => void generatePlan()}>{generating ? "GENERATING…" : "Generate verification plan"}</button><span className="hint">Creates a reviewable structured proposal only. It never starts verification.</span></div>
+    <PlanGenerationView generating={generating} result={generation} />
     <details className="plan-panel">
       <summary>Open developer verification-plan input</summary>
-      <p className="muted">No plan is generated automatically. Paste a canonical VerificationHarnessPlan as JSON; unknown fields and executable inputs are rejected.</p>
+      <p className="muted">Review or edit the generated proposal, or paste a canonical VerificationHarnessPlan as JSON. Unknown fields and executable inputs are rejected.</p>
       <label htmlFor="verification-plan">Verification plan JSON</label>
       <textarea id="verification-plan" value={planText} onChange={(event) => { setPlanText(event.target.value); setPlan(null); setMessage(""); }} spellCheck={false} placeholder="Paste a canonical VerificationHarnessPlan JSON object" />
       <div className="verification-actions"><button className="button secondary-button" type="button" onClick={validate}>Validate plan</button><button className="button" type="button" disabled={!plan || active || submitting || hypothesisStatus === "rejected"} onClick={() => void verify()}>{submitting || active ? "VERIFYING…" : "Verify locally"}</button></div>
@@ -86,6 +103,18 @@ export function LocalVerification({ hypothesisId, hypothesisStatus, initialRuns 
     </details>
     <div className="verification-history"><h3>Verification history</h3>{runs.length ? runs.map((run) => <details key={run.id}><summary><span>{date(run.createdAt)}</span><span className={`badge ${badge(run)}`}>{displayState(run)}</span><span>{duration(run.durationMs)}</span><span className="mono">solc {run.compiler}</span><span className="mono">{run.contentFingerprint?.slice(0, 12) ?? "fingerprint pending"}</span></summary><VerificationDetails run={run} /></details>) : <p className="muted">No previous verification runs.</p>}</div>
   </section>;
+}
+
+export function PlanGenerationView({ generating, result }: { generating: boolean; result: VerificationPlanGenerationResult | null }) {
+  if (generating) return <div className="plan-proposal"><span className="badge blue">Generating</span><p>Building one bounded, tool-free structured proposal from persisted evidence.</p></div>;
+  if (!result) return null;
+  if (result.status === "not_plannable") return <div className="plan-proposal"><span className="badge amber">Not plannable</span><p>ContractHunter could not safely express this hypothesis using the current local verification capabilities.</p><p>{result.rationale}</p>{result.notPlannableReasons.length > 0 && <ul className="reason-list">{result.notPlannableReasons.map((reason) => <li key={reason}>{title(reason)}</li>)}</ul>}<ProposalMetadata result={result} /></div>;
+  if (result.status === "failed") return <div className="plan-proposal"><span className="badge red">Failed</span><p>Verification plan generation failed safely. The hypothesis and verification history were not changed.</p>{result.failureCode && <p className="mono">{result.failureCode}</p>}<ProposalMetadata result={result} /></div>;
+  return <div className="plan-proposal"><span className="badge green">Generated preview</span><p>{result.rationale}</p><p className="muted">This proposal has not been executed. Review the JSON and select Validate plan before Verify locally becomes available.</p>{result.limitations.length > 0 && <><h3>Limitations</h3><ul className="reason-list">{result.limitations.map((limitation, index) => <li key={`${index}-${limitation}`}>{limitation}</li>)}</ul></>}<pre>{JSON.stringify(result.plan, null, 2)}</pre><ProposalMetadata result={result} /></div>;
+}
+
+function ProposalMetadata({ result }: { result: VerificationPlanGenerationResult }) {
+  return <dl className="proposal-metadata"><dt>Provider</dt><dd>{result.provenance.provider}</dd><dt>Model</dt><dd>{result.provenance.actualModel ?? result.provenance.requestedModel}</dd><dt>Prompt</dt><dd className="mono">{result.provenance.promptVersion}</dd><dt>Context</dt><dd>{result.provenance.sourceFileCount} files · {result.provenance.totalSourceBytes} bytes{result.provenance.sourceContextTruncated ? " · truncated" : ""}</dd><dt>Tokens</dt><dd>{result.provenance.totalTokens ?? "not supplied"}</dd><dt>Duration</dt><dd>{duration(result.provenance.durationMs)}</dd></dl>;
 }
 
 function VerificationDetails({ run }: { run: PublicHypothesisVerificationRun }) {

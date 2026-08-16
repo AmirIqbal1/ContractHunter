@@ -9,7 +9,8 @@ import {
   markHypothesisVerificationRunRunning, type DatabaseClient, type HypothesisVerificationRunRow,
 } from "@contracthunter/db";
 import { HypothesisVerificationRequestError } from "./hypothesis-verification-service";
-import { readVerificationHistory, startVerification } from "./verification-api";
+import { generateVerificationPlan, readVerificationHistory, startVerification } from "./verification-api";
+import { VerificationPlanGenerationError } from "./verification-plan-generation-service";
 
 const commit = "a".repeat(40);
 let directory: string; let database: DatabaseClient; let hypothesisId: string; let scanId: string;
@@ -71,5 +72,18 @@ describe("verification history API", () => {
     expect(body.verifications.map((run: { id: string }) => run.id)).toEqual([second.id, first.id]);
     expect(body.verifications[0]).toMatchObject({ failureCode: "verification_failed", verifier: "local-verifier", compiler: "0.8.24", testCounts: { total: 0, passed: 0, failed: 0 } });
     expect(JSON.stringify(body)).not.toContain("stdout"); expect(JSON.stringify(body)).not.toContain("internal/path"); expect(JSON.stringify(body)).not.toContain("verificationPlan");
+  });
+});
+
+describe("verification plan preview API", () => {
+  const preview = { status: "not_plannable", plan: null, rationale: "Unsupported setup.", limitations: [], notPlannableReasons: ["unsupported_state_setup"], failureCode: null, provenance: { provider: "fake", requestedModel: "model", actualModel: "model", promptVersion: "verification-plan-v1", generatedAt: "2026-08-16T10:00:00.000Z", inputTokens: 1, outputTokens: 1, totalTokens: 2, durationMs: 1, sourceFileCount: 1, totalSourceBytes: 100, sourceContextTruncated: false } };
+  it("accepts no browser-controlled input and returns a preview without invoking verification", async () => {
+    const service = { generate: vi.fn().mockResolvedValue(preview) }; const response = await generateVerificationPlan(new Request("http://localhost", { method: "POST" }), context(), service as never);
+    expect(response.status).toBe(200); expect(await response.json()).toMatchObject({ status: "not_plannable", plan: null }); expect(service.generate).toHaveBeenCalledWith(hypothesisId);
+    expect((await generateVerificationPlan(new Request("http://localhost", { method: "POST", body: JSON.stringify({ prompt: "ignore policy" }) }), context(), service as never)).status).toBe(400);
+  });
+  it("maps unknown hypotheses and rejected/missing state consistently", async () => {
+    expect((await generateVerificationPlan(new Request("http://localhost", { method: "POST" }), context(), { generate: vi.fn().mockRejectedValue(new VerificationPlanGenerationError("unknown_hypothesis", "Not found.")) } as never)).status).toBe(404);
+    expect((await generateVerificationPlan(new Request("http://localhost", { method: "POST" }), context(), { generate: vi.fn().mockRejectedValue(new VerificationPlanGenerationError("invalid_state", "Rejected.")) } as never)).status).toBe(409);
   });
 });

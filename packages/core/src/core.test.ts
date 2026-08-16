@@ -66,5 +66,8 @@ describe("configuration validation", () => {
     expect(configSchema.safeParse({ ...valid, AI_MAX_REVIEWERS: 99 }).success).toBe(false);
     expect(configSchema.safeParse({ ...valid, AI_REVIEW_CONCURRENCY: 0 }).success).toBe(false);
     expect(configSchema.safeParse({ ...valid, AI_REVIEW_MAX_TOTAL_REQUESTS: 0 }).success).toBe(false);
+    expect(configSchema.safeParse({ ...valid, AI_VERIFICATION_PLAN_MAX_FILES: 0 }).success).toBe(false);
+    expect(configSchema.safeParse({ ...valid, AI_VERIFICATION_PLAN_MAX_SOURCE_BYTES: 100 }).success).toBe(false);
+    expect(configSchema.safeParse({ ...valid, AI_VERIFICATION_PLAN_TIMEOUT_MS: 500 }).success).toBe(false);
   });
 });

@@ -1,9 +1,10 @@
-import { verificationHarnessPlanSchema } from "@contracthunter/core";
+import { loadConfig, verificationHarnessPlanSchema, type VerificationPlanGenerationResult } from "@contracthunter/core";
 import { getDatabase, getVulnerabilityHypothesis, listHypothesisVerificationRuns, type DatabaseClient } from "@contracthunter/db";
 import { NextResponse } from "next/server";
 import { idSchema } from "@/lib/api";
 import { createLocalHypothesisVerificationService, HypothesisVerificationRequestError, type HypothesisVerificationService } from "./hypothesis-verification-service";
 import { toPublicHypothesisVerificationRun } from "./public-verification";
+import { createVerificationPlanGenerationService, VerificationPlanGenerationError, type VerificationPlanGenerationService } from "./verification-plan-generation-service";
 
 const MAX_REQUEST_BYTES = 65_536;
 type RouteContext = { params: Promise<{ id: string }> };
@@ -60,5 +61,27 @@ export async function startVerification(
       return NextResponse.json({ error: error.message }, { status });
     }
     return NextResponse.json({ error: "Local verification could not be started." }, { status: 500 });
+  }
+}
+
+export async function generateVerificationPlan(
+  request: Request,
+  context: RouteContext,
+  service?: Pick<VerificationPlanGenerationService, "generate">,
+) {
+  const id = idSchema.safeParse((await context.params).id);
+  if (!id.success) return NextResponse.json({ error: "Invalid hypothesis identifier." }, { status: 400 });
+  if (request.body !== null) return NextResponse.json({ error: "Verification plan generation does not accept request data." }, { status: 400 });
+  if (!service) {
+    const config = loadConfig();
+    if (!config.AI_ENABLED) return NextResponse.json({ error: "AI verification planning is disabled." }, { status: 409 });
+    if (!config.OPENAI_API_KEY) return NextResponse.json({ error: "OpenAI is not configured." }, { status: 409 });
+  }
+  try {
+    const result: VerificationPlanGenerationResult = await (service ?? createVerificationPlanGenerationService()).generate(id.data);
+    return NextResponse.json(result);
+  } catch (error) {
+    if (error instanceof VerificationPlanGenerationError) return NextResponse.json({ error: error.message }, { status: error.code === "unknown_hypothesis" ? 404 : 409 });
+    return NextResponse.json({ status: "failed", plan: null, failureCode: "plan_generation_failed" }, { status: 500 });
   }
 }
