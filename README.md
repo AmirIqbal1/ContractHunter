@@ -1,11 +1,17 @@
 # ContractHunter
 
-ContractHunter is a locally hosted smart-contract security analysis workstation. V0.1.8 combines deterministic static analysis, protocol understanding, security invariants, specialist AI vulnerability-hypothesis reviews, and narrowly scoped local verification.
+ContractHunter is a locally hosted smart-contract security analysis workstation. V0.1.8.1 combines deterministic static analysis, optional cost-controlled protocol understanding and specialist AI review, and narrowly scoped local verification.
 
 Static analysis runs locally and completes before any optional AI work. Protocol analysis and the deeper security review are manually triggered so findings can be reviewed before spending API tokens. ContractHunter shows approximate API costs from bounded pre-run context estimates and recorded token usage using configurable input/output prices; these estimates are not an official invoice, and scanner execution itself has no OpenAI cost.
 
 > [!WARNING]
 > **ContractHunter must only be used against smart contracts and repositories the user is authorised to analyse. Repository content is treated as untrusted.**
+
+## v0.1.8.1 — Cost-controlled manual AI workflow
+
+V0.1.8.1 completes local Slither/Aderyn scanning and investigation reconciliation before any AI spending. The hunt page now shows elapsed time, clearer progress and stalled-state guidance; stale interrupted jobs are recovered without restarting work. Static Slither/Aderyn scanning does not consume OpenAI API tokens.
+
+AI Protocol Analysis and the subsequent AI Security Review are optional manual actions. Before either stage, ContractHunter shows an approximate cost based on bounded context and configured token prices; afterward it shows estimates from recorded input/output token usage plus a hunt-level AI usage summary. Duplicate active manual requests are rejected server-side. These values are estimates, not invoices, and the pricing defaults must be reviewed whenever `OPENAI_MODEL` changes.
 
 ## v0.1.8 — Safe local hypothesis verification
 
@@ -129,7 +135,7 @@ Not yet supported:
 - Validated JSON endpoints and a container health endpoint
 - Docker-first operation with a persistent `/data` volume and non-root runtime
 
-The production pipeline clones the repository, detects its framework, prepares approved pinned submodules and lockfile-based npm dependencies, resolves compiler requirements, invokes Slither followed by Aderyn, correlates static output, builds a protocol model and invariants, and then runs the selected specialist reviewers. AI stage failures never remove successful static results. Eligible hypotheses can subsequently enter the separate, explicit local-verification flow. Scan depth is stored but does not change behaviour in V0.1.8.
+The production pipeline clones the repository, detects its framework, prepares approved pinned submodules and lockfile-based npm dependencies, resolves compiler requirements, invokes Slither followed by Aderyn, correlates static output, and stops with a completed static hunt. Protocol analysis and specialist review run only through explicit user actions; AI failures never invalidate successful static results. Eligible hypotheses can subsequently enter the separate, explicit plan-generation and local-verification flow. Scan depth is stored but does not change behaviour in V0.1.8.1.
 
 ## Architecture
 
