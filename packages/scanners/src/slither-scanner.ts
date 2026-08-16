@@ -17,6 +17,16 @@ export type SlitherScannerOptions = {
   onCompilerStatus?: (scanId: string, status: CompilerStatus, metadata?: Partial<CompilerPreparation>, error?: string) => void;
 };
 
+export function slitherFailureDiagnostic(stderr: string, repositoryPath: string): string {
+  const clean = stderr.split(path.resolve(repositoryPath)).join(".");
+  if (/(?:Cannot execute[^\n]*\bforge\b|FileNotFoundError:[^\n]*['"]forge['"]|\bforge\b[^\n]*(?:not found|not installed|No such file))/i.test(clean)) return "Foundry compiler executable `forge` is unavailable.";
+  if (/(?:Cannot execute|No such file)[^\n]*\bsolc\b|\bsolc\b[^\n]*(?:not found|unavailable|missing)/i.test(clean)) return "The resolved Solidity compiler is unavailable.";
+  if (/forge build[^\n]*(?:failed|non-zero)|compilation (?:failed|error)|failed to compile/i.test(clean)) return "Foundry compilation failed.";
+  if (/unsupported (?:framework|platform|project)|not supported by (?:Slither|crytic-compile)/i.test(clean)) return "The project framework is not supported by this Slither runtime.";
+  if (/(?:Traceback|slither)[^\n]*(?:error|exception)|SlitherException/i.test(clean)) return "Slither execution failed.";
+  return "Slither could not compile or analyse this repository.";
+}
+
 export class SlitherScanner implements Scanner {
   readonly id = "slither";
   readonly name = "Slither";
@@ -83,8 +93,7 @@ export class SlitherScanner implements Scanner {
         output = parseSlitherJson(result.stdout);
       } catch (parseError) {
         if (result.exitCode !== 0) {
-          const diagnostic = sanitiseError((result.stderr || "Slither could not compile or analyse this repository.").split(cwd).join("."));
-          throw new Error(`Slither analysis failed. ${diagnostic}`);
+          throw new Error(`Slither analysis failed: ${slitherFailureDiagnostic(result.stderr, cwd)}`);
         }
         throw parseError;
       }

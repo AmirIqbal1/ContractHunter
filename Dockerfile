@@ -29,6 +29,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends xz-utils \
   && install -m 0755 "/tmp/${directory}/aderyn" /usr/local/bin/aderyn \
   && test "$(aderyn --version)" = "aderyn ${ADERYN_VERSION}"
 
+FROM node:22-bookworm-slim AS foundry
+ARG FOUNDRY_VERSION=1.7.1
+ARG TARGETARCH
+ADD --checksum=sha256:cf7e688ed0c4c48adffca788b496076e31060b67ac5afe1e43dbb5499c20c88b https://github.com/foundry-rs/foundry/releases/download/v1.7.1/foundry_v1.7.1_linux_amd64.tar.gz /tmp/foundry-amd64.tar.gz
+ADD --checksum=sha256:c8fe8fa09ae3aba2c81b510c6f9da3a9d468029b9580e690b245b3f0aea687ae https://github.com/foundry-rs/foundry/releases/download/v1.7.1/foundry_v1.7.1_linux_arm64.tar.gz /tmp/foundry-arm64.tar.gz
+RUN case "${TARGETARCH}" in amd64) archive=/tmp/foundry-amd64.tar.gz ;; arm64) archive=/tmp/foundry-arm64.tar.gz ;; *) exit 1 ;; esac \
+  && tar -xzf "${archive}" -C /tmp forge \
+  && install -m 0755 /tmp/forge /usr/local/bin/forge \
+  && forge --version
+
 FROM node:22-bookworm-slim AS runner
 WORKDIR /app
 ARG SLITHER_VERSION=0.11.3
@@ -67,6 +77,7 @@ ENV TOOL_HOME_DIR=/data/tool-home
 ENV PATH="/usr/local/bin:/opt/slither/bin:${PATH}"
 COPY docker/solc-select-wrapper.py /usr/local/bin/solc-select
 COPY --from=aderyn /usr/local/bin/aderyn /usr/local/bin/aderyn
+COPY --from=foundry /usr/local/bin/forge /usr/local/bin/forge
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates python3 python3-venv && rm -rf /var/lib/apt/lists/* \
   && python3 -m venv /opt/slither \
   && /opt/slither/bin/pip install --no-cache-dir "slither-analyzer==${SLITHER_VERSION}" \
@@ -75,6 +86,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends git ca-certific
   && npm --version \
   && slither --version \
   && aderyn --version \
+  && forge --version \
   && solc-select --version \
   && mkdir -p /data/repositories /data/tool-home /home/node \
   && chown -R node:node /data /home/node

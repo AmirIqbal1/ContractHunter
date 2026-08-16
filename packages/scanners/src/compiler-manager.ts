@@ -1,4 +1,5 @@
-import { mkdir } from "node:fs/promises";
+import { access, mkdir } from "node:fs/promises";
+import { constants } from "node:fs";
 import path from "node:path";
 import { sanitiseError, type CompilerStatus } from "@contracthunter/core";
 import { CompilerResolutionError, detectCompilerRequirements, resolveCompilerVersions, type CompilerDetection } from "./compiler-detection";
@@ -6,6 +7,15 @@ import { ProcessOutputLimitError, ProcessTimeoutError, runBoundedProcess, type P
 
 const VERSION = /^\d+\.\d+\.\d+$/;
 const installLocks = new Map<string, Promise<void>>();
+
+export async function findExecutableOnPath(command: string, environmentPath: string | undefined): Promise<string | null> {
+  for (const directory of (environmentPath ?? "").split(path.delimiter).filter(Boolean)) {
+    const candidate = path.join(directory, command);
+    try { await access(candidate, constants.X_OK); return candidate; }
+    catch { /* Continue through the bounded configured PATH. */ }
+  }
+  return null;
+}
 
 export type CompilerPreparation = CompilerDetection & {
   versions: string[];
@@ -21,6 +31,7 @@ export type CompilerManagerOptions = {
   maxOutputBytes: number;
   maxVersions: number;
   allowDownloads: boolean;
+  environmentPath?: string;
   processRunner?: ProcessRunner;
   onStatus?: (status: CompilerStatus, metadata?: Partial<CompilerPreparation>, error?: string) => void;
 };
@@ -33,7 +44,7 @@ export class CompilerManager {
     return {
       ...extra,
       NODE_ENV: process.env.NODE_ENV ?? "production",
-      PATH: process.env.PATH ?? "/opt/slither/bin:/usr/local/bin:/usr/bin:/bin",
+      PATH: this.options.environmentPath ?? process.env.PATH ?? "/usr/local/bin:/opt/slither/bin:/usr/bin:/bin",
       HOME: this.options.toolHomeDir,
       TMPDIR: "/tmp",
       LANG: "C.UTF-8",
@@ -106,6 +117,14 @@ export class CompilerManager {
       const initiallyCached = versions.every((version) => installed.includes(version));
       await Promise.all(versions.map((version) => this.install(version)));
       const environment = this.environment(versions.length === 1 ? { SOLC_VERSION: versions[0] } : {});
+      if (versions.length === 1) {
+        const solcExecutable = await findExecutableOnPath("solc", environment.PATH);
+        if (solcExecutable) {
+          environment.FOUNDRY_SOLC = solcExecutable;
+          environment.FOUNDRY_OFFLINE = "true";
+          environment.FOUNDRY_AUTO_DETECT_SOLC = "false";
+        }
+      }
       const slitherArgs = versions.length > 1 ? ["--solc-solcs-select", versions.join(",")] : [];
       if (versions.length === 1) await this.verify(versions[0], environment);
       const preparation = { ...detection, versions, cached: initiallyCached, environment, slitherArgs };
