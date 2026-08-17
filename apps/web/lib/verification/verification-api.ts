@@ -71,7 +71,11 @@ export async function generateVerificationPlan(
 ) {
   const id = idSchema.safeParse((await context.params).id);
   if (!id.success) return NextResponse.json({ error: "Invalid hypothesis identifier." }, { status: 400 });
-  if (request.body !== null) return NextResponse.json({ error: "Verification plan generation does not accept request data." }, { status: 400 });
+  const declaredLength = Number(request.headers.get("content-length"));
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_REQUEST_BYTES) return NextResponse.json({ error: "Verification plan request is too large." }, { status: 413 });
+  const raw = await boundedBody(request).catch(() => null);
+  if (raw === null) return NextResponse.json({ error: "Verification plan request is too large." }, { status: 413 });
+  if (raw.length > 0) return NextResponse.json({ error: "Verification plan generation does not accept request data." }, { status: 400 });
   if (!service) {
     const config = loadConfig();
     if (!config.AI_ENABLED) return NextResponse.json({ error: "AI verification planning is disabled." }, { status: 409 });

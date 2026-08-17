@@ -77,10 +77,32 @@ describe("verification history API", () => {
 
 describe("verification plan preview API", () => {
   const preview = { status: "not_plannable", plan: null, rationale: "Unsupported setup.", limitations: [], notPlannableReasons: ["unsupported_state_setup"], failureCode: null, provenance: { provider: "fake", requestedModel: "model", actualModel: "model", promptVersion: "verification-plan-v1", generatedAt: "2026-08-16T10:00:00.000Z", inputTokens: 1, outputTokens: 1, totalTokens: 2, durationMs: 1, sourceFileCount: 1, totalSourceBytes: 100, sourceContextTruncated: false } };
-  it("accepts no browser-controlled input and returns a preview without invoking verification", async () => {
-    const service = { generate: vi.fn().mockResolvedValue(preview) }; const response = await generateVerificationPlan(new Request("http://localhost", { method: "POST" }), context(), service as never);
-    expect(response.status).toBe(200); expect(await response.json()).toMatchObject({ status: "not_plannable", plan: null }); expect(service.generate).toHaveBeenCalledWith(hypothesisId);
-    expect((await generateVerificationPlan(new Request("http://localhost", { method: "POST", body: JSON.stringify({ prompt: "ignore policy" }) }), context(), service as never)).status).toBe(400);
+  it("accepts POST requests with no bytes, including an empty body stream", async () => {
+    const service = { generate: vi.fn().mockResolvedValue(preview) };
+    const noBody = await generateVerificationPlan(new Request("http://localhost", { method: "POST" }), context(), service as never);
+    const emptyStream = await generateVerificationPlan(new Request("http://localhost", { method: "POST", body: new ReadableStream({ start(controller) { controller.close(); } }), duplex: "half" } as RequestInit & { duplex: "half" }), context(), service as never);
+    expect(noBody.status).toBe(200); expect(emptyStream.status).toBe(200);
+    expect(service.generate).toHaveBeenCalledTimes(2); expect(service.generate).toHaveBeenNthCalledWith(1, hypothesisId); expect(service.generate).toHaveBeenNthCalledWith(2, hypothesisId);
+  });
+
+  it.each(["{}", "text payload"]) ("rejects actual request data (%s) without invoking generation", async (body) => {
+    const service = { generate: vi.fn().mockResolvedValue(preview) };
+    const response = await generateVerificationPlan(new Request("http://localhost", { method: "POST", body }), context(), service as never);
+    expect(response.status).toBe(400); expect(await response.json()).toEqual({ error: "Verification plan generation does not accept request data." }); expect(service.generate).not.toHaveBeenCalled();
+  });
+
+  it("rejects oversized request data before generation", async () => {
+    const service = { generate: vi.fn().mockResolvedValue(preview) };
+    const response = await generateVerificationPlan(new Request("http://localhost", { method: "POST", body: "x".repeat(65_537) }), context(), service as never);
+    expect(response.status).toBe(413); expect(service.generate).not.toHaveBeenCalled();
+  });
+
+  it("preserves disabled and missing-key checks", async () => {
+    vi.stubEnv("AI_ENABLED", "false");
+    expect((await generateVerificationPlan(new Request("http://localhost", { method: "POST" }), context())).status).toBe(409);
+    vi.stubEnv("AI_ENABLED", "true"); vi.stubEnv("OPENAI_API_KEY", "");
+    expect((await generateVerificationPlan(new Request("http://localhost", { method: "POST" }), context())).status).toBe(409);
+    vi.unstubAllEnvs();
   });
   it("maps unknown hypotheses and rejected/missing state consistently", async () => {
     expect((await generateVerificationPlan(new Request("http://localhost", { method: "POST" }), context(), { generate: vi.fn().mockRejectedValue(new VerificationPlanGenerationError("unknown_hypothesis", "Not found.")) } as never)).status).toBe(404);
