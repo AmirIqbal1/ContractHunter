@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -31,12 +31,15 @@ let repositoryRoot: string;
 let workspace: string;
 let toolHome: string;
 let temporaryDirectory: string;
+let trustedCompilerPath: string;
 
 beforeEach(async () => {
   base = await mkdtemp(path.join(tmpdir(), "contracthunter-foundry-runner-"));
   verificationRoot = path.join(base, "verifications"); repositoryRoot = path.join(base, "repositories");
   workspace = path.join(verificationRoot, "33333333-3333-4333-8333-333333333333"); toolHome = path.join(base, "tool-home"); temporaryDirectory = path.join(base, "tmp");
   await Promise.all([mkdir(workspace, { recursive: true }), mkdir(repositoryRoot, { recursive: true }), mkdir(toolHome), mkdir(temporaryDirectory)]);
+  trustedCompilerPath = path.join(toolHome, ".solc-select", "artifacts", "solc-0.8.24", "solc-0.8.24");
+  await mkdir(path.dirname(trustedCompilerPath), { recursive: true }); await writeFile(trustedCompilerPath, "trusted compiler fixture"); await chmod(trustedCompilerPath, 0o755);
   await writeManifest();
 });
 
@@ -52,11 +55,11 @@ async function writeManifest(overrides: Record<string, unknown> = {}, contents?:
 }
 
 function input(overrides: Partial<FoundryVerificationInput> = {}): FoundryVerificationInput {
-  return { workspacePath: workspace, scanId, hypothesisId, resolvedCommit, timeoutMs: 5_000, maxOutputBytes: 8_192, ...overrides };
+  return { workspacePath: workspace, scanId, hypothesisId, resolvedCommit, compilerVersion: "0.8.24", timeoutMs: 5_000, maxOutputBytes: 8_192, ...overrides };
 }
 
 function runner(processRunner: ObservedProcessRunner = async () => success, isolationProvider: VerificationIsolationProvider = new FakeIsolationProvider()) {
-  return new FoundryVerificationRunner({ verificationRoot, repositoryRoot, toolHomeDir: toolHome, temporaryDirectory, executablePath: "/contracthunter/bin:/usr/bin:/bin", processRunner, isolationProvider });
+  return new FoundryVerificationRunner({ verificationRoot, repositoryRoot, toolHomeDir: toolHome, temporaryDirectory, executablePath: "/contracthunter/bin:/usr/bin:/bin", processRunner, isolationProvider, trustedCompilerResolver: async (version) => ({ version, executablePath: trustedCompilerPath }) });
 }
 
 describe("FoundryVerificationRunner workspace and harness policy", () => {
@@ -107,7 +110,7 @@ describe("FoundryVerificationRunner execution boundary", () => {
     const requests: ProcessRequest[] = [];
     const capture: ObservedProcessRunner = async (request) => { requests.push(request); return success; };
     expect(await runner(capture).run(input({ matchTest: "testDepositAccounting" }))).toMatchObject({ status: "completed" });
-    expect(requests).toEqual([expect.objectContaining({ command: "forge", args: ["test", "--no-color", "--match-test", "testDepositAccounting"], cwd: workspace })]);
+    expect(requests).toEqual([expect.objectContaining({ command: "forge", args: ["test", "--color", "never", "--match-test", "testDepositAccounting"], cwd: workspace })]);
     expect(requests[0]).not.toHaveProperty("shell");
     expect(await runner(capture).run(input({ matchTest: "testX --ffi" }))).toMatchObject({ status: "refused", errorCode: "invalid_input" });
     expect(requests).toHaveLength(1);
@@ -126,7 +129,14 @@ describe("FoundryVerificationRunner execution boundary", () => {
     const processRunner = vi.fn<ObservedProcessRunner>(async () => success);
     expect(await runner(processRunner, new FakeIsolationProvider(false)).run(input())).toMatchObject({ status: "refused", errorCode: "network_isolation_unavailable", exitCode: null });
     expect(processRunner).not.toHaveBeenCalled();
-    expect(await new FoundryVerificationRunner({ verificationRoot, repositoryRoot, toolHomeDir: toolHome, temporaryDirectory, executablePath: "/definitely/missing", processRunner }).run(input())).toMatchObject({ status: "refused", errorCode: "network_isolation_unavailable" });
+    expect(await new FoundryVerificationRunner({ verificationRoot, repositoryRoot, toolHomeDir: toolHome, temporaryDirectory, executablePath: "/definitely/missing", processRunner, trustedCompilerResolver: async (version) => ({ version, executablePath: trustedCompilerPath }) }).run(input())).toMatchObject({ status: "refused", errorCode: "network_isolation_unavailable" });
+  });
+
+  it("fails closed when the trusted compiler is missing, malformed, or does not match the manifest", async () => {
+    const unavailable = new FoundryVerificationRunner({ verificationRoot, repositoryRoot, toolHomeDir: toolHome, temporaryDirectory, executablePath: "/usr/bin", isolationProvider: new FakeIsolationProvider(), trustedCompilerResolver: async () => { throw new Error("missing"); } });
+    await expect(unavailable.run(input())).resolves.toMatchObject({ status: "refused", errorCode: "trusted_compiler_unavailable" });
+    await expect(runner().run(input({ compilerVersion: "0.8.24;ffi" }))).resolves.toMatchObject({ status: "refused", errorCode: "invalid_input" });
+    await expect(runner().run(input({ compilerVersion: "0.8.23" }))).resolves.toMatchObject({ status: "refused", errorCode: "manifest_mismatch" });
   });
 
   it("fails closed when execution isolation metadata is not bound to the confirmed request", async () => {
@@ -219,14 +229,15 @@ describe("LinuxBubblewrapIsolationProvider", () => {
     const requests: ProcessRequest[] = [];
     const execute: ObservedProcessRunner = async (request) => { requests.push(request); return success; };
     const result = await provider().execute({
-      command: "forge", args: ["test", "--no-color"], cwd: workspace, timeoutMs: 5_000, maxOutputBytes: 8_192,
+      command: "forge", args: ["test", "--color", "never"], cwd: workspace, timeoutMs: 5_000, maxOutputBytes: 8_192,
       env: { NODE_ENV: "production", PATH: "/host/secret", HOME: "/host/home", TMPDIR: "/host/tmp", FOUNDRY_PROFILE: "default", HTTP_PROXY: "http://secret", OPENAI_API_KEY: "secret" },
+      trustedCompiler: { version: "0.8.24", executablePath: trustedCompilerPath },
     }, execute);
     expect(result.isolation).toMatchObject({ providerId: "linux-bubblewrap", wallClockTimeoutMs: 5_000, maxOutputBytes: 8_192, writableProjectPath: workspace });
     expect(requests).toHaveLength(1);
     const wrapped = requests[0];
     expect(wrapped).toMatchObject({ command: "/usr/bin/prlimit", cwd: workspace, timeoutMs: 5_000, maxOutputBytes: 8_192, killProcessTree: true, env: { NODE_ENV: "production", PATH: "/usr/bin:/bin", LANG: "C", LC_ALL: "C" } });
-    expect(wrapped.args).toEqual(expect.arrayContaining(["--cpu=6:6", "--unshare-net", "--unshare-pid", "--clearenv", "--ro-bind", "/usr/bin/forge", "/opt/contracthunter/bin/forge", "--bind", workspace, workspace, "--chdir", workspace, "--", "/opt/contracthunter/bin/forge", "test", "--no-color"]));
+    expect(wrapped.args).toEqual(expect.arrayContaining(["--cpu=6:6", "--unshare-net", "--unshare-pid", "--clearenv", "--ro-bind", trustedCompilerPath, "/opt/contracthunter/bin/solc", "--ro-bind", "/usr/bin/forge", "/opt/contracthunter/bin/forge", "--bind", workspace, workspace, "--chdir", workspace, "--setenv", "FOUNDRY_SOLC", "/opt/contracthunter/bin/solc", "--setenv", "FOUNDRY_OFFLINE", "true", "--setenv", "FOUNDRY_AUTO_DETECT_SOLC", "false", "--", "/opt/contracthunter/bin/forge", "test", "--color", "never"]));
     const writableBinds = wrapped.args.flatMap((argument, index) => argument === "--bind" ? [[wrapped.args[index + 1], wrapped.args[index + 2]]] : []);
     expect(writableBinds).toEqual([[workspace, workspace]]);
     expect(wrapped.args.join(" ")).not.toMatch(/secret|HTTP_PROXY|HTTPS_PROXY|ALL_PROXY|NO_PROXY|OPENAI_API_KEY|GITHUB_TOKEN|PRIVATE_KEY|MNEMONIC|RPC_URL|ETH_RPC_URL|ETHERSCAN_API_KEY|NPM_TOKEN|docker|podman|sudo/);
@@ -241,7 +252,9 @@ describe("LinuxBubblewrapIsolationProvider", () => {
   });
 
   it("rejects arbitrary executable requests", async () => {
-    await expect(provider().execute({ command: "bash", args: ["-c", "forge test"], cwd: workspace, timeoutMs: 5_000, maxOutputBytes: 8_192 }, async () => success)).rejects.toThrow();
+    await expect(provider().execute({ command: "bash", args: ["-c", "forge test"], cwd: workspace, timeoutMs: 5_000, maxOutputBytes: 8_192, trustedCompiler: { version: "0.8.24", executablePath: trustedCompilerPath } }, async () => success)).rejects.toThrow();
+    const outside = path.join(base, "outside-solc"); await writeFile(outside, "fixture"); await chmod(outside, 0o755);
+    await expect(provider().execute({ command: "forge", args: ["test", "--color", "never"], cwd: workspace, timeoutMs: 5_000, maxOutputBytes: 8_192, trustedCompiler: { version: "0.8.24", executablePath: outside } }, async () => success)).rejects.toThrow("Trusted verification compiler");
   });
 });
 

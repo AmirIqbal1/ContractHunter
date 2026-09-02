@@ -110,7 +110,7 @@ export class HypothesisVerificationService {
       built = await this.options.workspaceBuilder(bound.compilers).build({ verificationRunId: run.id, repositoryPath: bound.repositoryPath, plan: bound.plan });
       const validatedManifest = await this.validateIntegrity(built.workspacePath);
       if (JSON.stringify(validatedManifest) !== JSON.stringify(built.manifest)) throw new Error("workspace_manifest_mismatch");
-      result = await this.options.runner.run({ workspacePath: built.workspacePath, scanId: bound.plan.scanId, hypothesisId, resolvedCommit: bound.plan.resolvedCommit, timeoutMs: this.options.timeoutMs, maxOutputBytes: this.options.maxOutputBytes });
+      result = await this.options.runner.run({ workspacePath: built.workspacePath, scanId: bound.plan.scanId, hypothesisId, resolvedCommit: bound.plan.resolvedCommit, compilerVersion: bound.plan.compilerVersion, timeoutMs: this.options.timeoutMs, maxOutputBytes: this.options.maxOutputBytes });
       const interpretation = interpretVerificationResult(bound.plan, result);
       const semanticAssertionFailure = result.status === "failed" && result.errorCode === "forge_failed" && interpretation.dynamicEvidence.some((item) => item.direction !== "neutral");
       if (result.status === "refused" || result.timedOut || (result.status === "failed" && !semanticAssertionFailure)) {

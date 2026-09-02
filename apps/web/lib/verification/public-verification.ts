@@ -3,7 +3,7 @@ import type { HypothesisVerificationRunRow } from "@contracthunter/db";
 
 const publicFailureCodes = new Set([
   "invalid_input", "invalid_workspace", "invalid_manifest", "manifest_mismatch", "unsafe_configuration",
-  "network_isolation_unavailable", "execution_timeout", "forge_failed", "execution_error",
+  "network_isolation_unavailable", "trusted_compiler_unavailable", "execution_timeout", "forge_failed", "execution_error",
   "verification_execution_failed", "invalid_isolation_metadata", "workspace_integrity_or_execution_failed",
   "workspace_generation_failed",
 ]);

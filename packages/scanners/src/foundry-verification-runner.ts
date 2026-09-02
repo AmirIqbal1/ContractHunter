@@ -4,6 +4,7 @@ import path from "node:path";
 import { VERIFICATION_HARNESS_MANIFEST, verificationHarnessManifestSchema } from "@contracthunter/core";
 import { runObservedProcess, type ObservedProcessResult, type ObservedProcessRunner, type ProcessRequest } from "./process-runner";
 import { validateVerificationWorkspaceIntegrity } from "./verification-workspace-integrity";
+import { resolveTrustedVerificationCompiler, type TrustedVerificationCompiler } from "./compiler-manager";
 
 const MAX_MANIFEST_BYTES = 262_144;
 const MAX_TIMEOUT_MS = 1_800_000;
@@ -26,6 +27,7 @@ export type FoundryVerificationInput = {
   scanId: string;
   hypothesisId: string;
   resolvedCommit: string;
+  compilerVersion: string;
   timeoutMs: number;
   maxOutputBytes: number;
   matchTest?: string;
@@ -53,9 +55,10 @@ export type VerificationIsolationMetadata = VerificationIsolationConfirmation & 
   writableProjectPath: string;
 };
 export type IsolatedExecutionResult = ObservedProcessResult & { isolation: VerificationIsolationMetadata };
+export type VerificationProcessRequest = ProcessRequest & { trustedCompiler: TrustedVerificationCompiler };
 export interface VerificationIsolationProvider {
   confirmNetworkIsolation(): Promise<VerificationIsolationConfirmation | null>;
-  execute(request: ProcessRequest, processRunner: ObservedProcessRunner): Promise<IsolatedExecutionResult>;
+  execute(request: VerificationProcessRequest, processRunner: ObservedProcessRunner): Promise<IsolatedExecutionResult>;
 }
 
 export class UnavailableVerificationIsolationProvider implements VerificationIsolationProvider {
@@ -194,12 +197,12 @@ export class LinuxBubblewrapIsolationProvider implements VerificationIsolationPr
     return this.capability;
   }
 
-  async execute(request: ProcessRequest, processRunner: ObservedProcessRunner): Promise<IsolatedExecutionResult> {
+  async execute(request: VerificationProcessRequest, processRunner: ObservedProcessRunner): Promise<IsolatedExecutionResult> {
     const capability = await this.confirmNetworkIsolation();
     if (!capability || request.command !== "forge" || !request.cwd || !path.isAbsolute(request.cwd)) throw new Error("Required Linux verification isolation is unavailable.");
-    const validArguments = request.args.length === 2
-      ? request.args[0] === "test" && request.args[1] === "--no-color"
-      : request.args.length === 4 && request.args[0] === "test" && request.args[1] === "--no-color" && request.args[2] === "--match-test" && SAFE_TEST_FILTER.test(request.args[3]);
+    const validArguments = request.args.length === 3
+      ? request.args[0] === "test" && request.args[1] === "--color" && request.args[2] === "never"
+      : request.args.length === 5 && request.args[0] === "test" && request.args[1] === "--color" && request.args[2] === "never" && request.args[3] === "--match-test" && SAFE_TEST_FILTER.test(request.args[4]);
     if (!validArguments || !Number.isInteger(request.timeoutMs) || request.timeoutMs < 100 || request.timeoutMs > MAX_TIMEOUT_MS || !Number.isInteger(request.maxOutputBytes) || request.maxOutputBytes < 1_024 || request.maxOutputBytes > MAX_OUTPUT_BYTES) throw new Error("The verification executable request is invalid.");
     const [verificationRoot, workspace, forge, toolHome] = await Promise.all([
       realpath(this.options.verificationRoot), realpath(request.cwd), this.resolveExecutable("forge"), realpath(this.options.toolHomeDir),
@@ -210,13 +213,18 @@ export class LinuxBubblewrapIsolationProvider implements VerificationIsolationPr
 
     const sandboxHome = "/home/contracthunter";
     const sandboxForge = "/opt/contracthunter/bin/forge";
+    const sandboxSolc = "/opt/contracthunter/bin/solc";
+    const expectedCompiler = path.join(toolHome, ".solc-select", "artifacts", `solc-${request.trustedCompiler.version}`, `solc-${request.trustedCompiler.version}`);
+    let trustedCompiler: string;
+    try {
+      trustedCompiler = await realpath(request.trustedCompiler.executablePath);
+      const compilerInfo = await lstat(request.trustedCompiler.executablePath);
+      if (!compilerInfo.isFile() || compilerInfo.isSymbolicLink() || trustedCompiler !== expectedCompiler) throw new Error("unsafe trusted compiler");
+    } catch { throw new Error("Trusted verification compiler is unavailable."); }
     const bwrapArguments = [...await this.baseBubblewrapArguments(), "--dir", "/home", "--dir", sandboxHome, "--dir", "/opt", "--dir", "/opt/contracthunter", "--dir", "/opt/contracthunter/bin"];
-    const compilerCache = path.join(toolHome, ".svm");
-    try { if ((await stat(compilerCache)).isDirectory()) bwrapArguments.push("--ro-bind", compilerCache, `${sandboxHome}/.svm`); }
-    catch { /* Missing trusted compiler cache makes Forge fail cleanly in offline mode. */ }
-    bwrapArguments.push("--ro-bind", forge, sandboxForge, "--bind", workspace, workspace, "--chdir", workspace);
+    bwrapArguments.push("--ro-bind", trustedCompiler, sandboxSolc, "--ro-bind", forge, sandboxForge, "--bind", workspace, workspace, "--chdir", workspace);
 
-    const sandboxEnvironment: Record<string, string> = { NODE_ENV: "production", PATH: "/opt/contracthunter/bin", HOME: sandboxHome, TMPDIR: "/tmp" };
+    const sandboxEnvironment: Record<string, string> = { NODE_ENV: "production", PATH: "/opt/contracthunter/bin", HOME: sandboxHome, TMPDIR: "/tmp", FOUNDRY_SOLC: sandboxSolc, FOUNDRY_OFFLINE: "true", FOUNDRY_AUTO_DETECT_SOLC: "false" };
     for (const key of SAFE_ENVIRONMENT_KEYS) if (request.env?.[key] !== undefined) sandboxEnvironment[key] = request.env[key];
     for (const [key, value] of Object.entries(sandboxEnvironment)) {
       if (value !== undefined && !FORBIDDEN_ENVIRONMENT_KEYS.has(key)) bwrapArguments.push("--setenv", key, value);
@@ -246,6 +254,7 @@ export type FoundryVerificationErrorCode =
   | "manifest_mismatch"
   | "unsafe_configuration"
   | "network_isolation_unavailable"
+  | "trusted_compiler_unavailable"
   | "execution_timeout"
   | "forge_failed"
   | "execution_error";
@@ -277,6 +286,7 @@ export type FoundryVerificationRunnerOptions = {
   isolationProvider?: VerificationIsolationProvider;
   processRunner?: ObservedProcessRunner;
   isolationResourceLimits?: Partial<VerificationResourceLimits>;
+  trustedCompilerResolver?: (version: string) => Promise<TrustedVerificationCompiler>;
 };
 
 class FoundryVerificationSafetyError extends Error {
@@ -286,7 +296,7 @@ class FoundryVerificationSafetyError extends Error {
 function isInside(candidate: string, root: string): boolean { return candidate !== root && candidate.startsWith(`${root}${path.sep}`); }
 
 function validateInput(input: FoundryVerificationInput): void {
-  if (!path.isAbsolute(input.workspacePath) || !UUID.test(input.scanId) || !UUID.test(input.hypothesisId) || !COMMIT.test(input.resolvedCommit)) throw new FoundryVerificationSafetyError("invalid_input", "Verification input is invalid.");
+  if (!path.isAbsolute(input.workspacePath) || !UUID.test(input.scanId) || !UUID.test(input.hypothesisId) || !COMMIT.test(input.resolvedCommit) || !/^\d+\.\d+\.\d+$/.test(input.compilerVersion)) throw new FoundryVerificationSafetyError("invalid_input", "Verification input is invalid.");
   if (!Number.isInteger(input.timeoutMs) || input.timeoutMs < 100 || input.timeoutMs > MAX_TIMEOUT_MS) throw new FoundryVerificationSafetyError("invalid_input", "Verification timeout is outside the allowed bounds.");
   if (!Number.isInteger(input.maxOutputBytes) || input.maxOutputBytes < 1_024 || input.maxOutputBytes > MAX_OUTPUT_BYTES) throw new FoundryVerificationSafetyError("invalid_input", "Verification output limit is outside the allowed bounds.");
   if (input.matchTest !== undefined && !SAFE_TEST_FILTER.test(input.matchTest)) throw new FoundryVerificationSafetyError("invalid_input", "Verification test filter is invalid.");
@@ -343,7 +353,7 @@ export class FoundryVerificationRunner {
     catch { throw new FoundryVerificationSafetyError("invalid_manifest", "ContractHunter verification manifest is malformed."); }
     const parsed = verificationHarnessManifestSchema.safeParse(raw);
     if (!parsed.success) throw new FoundryVerificationSafetyError("invalid_manifest", "ContractHunter verification manifest is invalid.");
-    if (parsed.data.scanId !== input.scanId || parsed.data.hypothesisId !== input.hypothesisId || parsed.data.resolvedCommit !== input.resolvedCommit) throw new FoundryVerificationSafetyError("manifest_mismatch", "Verification manifest does not match the requested hypothesis, scan, and commit.");
+    if (parsed.data.scanId !== input.scanId || parsed.data.hypothesisId !== input.hypothesisId || parsed.data.resolvedCommit !== input.resolvedCommit || parsed.data.compilerVersion !== input.compilerVersion) throw new FoundryVerificationSafetyError("manifest_mismatch", "Verification manifest does not match the requested hypothesis, scan, commit, and compiler.");
     try { await validateVerificationWorkspaceIntegrity(workspace, parsed.data); }
     catch { throw new FoundryVerificationSafetyError("invalid_manifest", "Verification workspace integrity validation failed."); }
   }
@@ -358,11 +368,16 @@ export class FoundryVerificationRunner {
       validateInput(input);
       const workspace = await this.checkedWorkspace(input.workspacePath);
       await this.validateManifest(workspace, input);
+      let trustedCompiler: TrustedVerificationCompiler;
+      try {
+        trustedCompiler = await (this.options.trustedCompilerResolver?.(input.compilerVersion) ?? resolveTrustedVerificationCompiler({ toolHomeDir: this.options.toolHomeDir, version: input.compilerVersion, processRunner: this.processRunner }));
+      } catch { throw new FoundryVerificationSafetyError("trusted_compiler_unavailable", "The scan's trusted Solidity compiler is unavailable; verification was not executed."); }
+      if (trustedCompiler.version !== input.compilerVersion) throw new FoundryVerificationSafetyError("trusted_compiler_unavailable", "The scan's trusted Solidity compiler is unavailable; verification was not executed.");
       const isolation = await this.isolationProvider.confirmNetworkIsolation();
       if (!isolation || isolation.networkAccess !== "disabled" || !isolation.networkIsolated || !isolation.processIsolated || !validLimits(isolation.resourceLimitsApplied)) throw new FoundryVerificationSafetyError("network_isolation_unavailable", "Reliable network and process isolation is unavailable; verification was not executed.");
-      const args = ["test", "--no-color", ...(input.matchTest ? ["--match-test", input.matchTest] : [])];
+      const args = ["test", "--color", "never", ...(input.matchTest ? ["--match-test", input.matchTest] : [])];
       let observed: IsolatedExecutionResult;
-      try { observed = await this.isolationProvider.execute({ command: "forge", args, cwd: workspace, timeoutMs: input.timeoutMs, maxOutputBytes: input.maxOutputBytes, env: this.environment() }, this.processRunner); }
+      try { observed = await this.isolationProvider.execute({ command: "forge", args, cwd: workspace, timeoutMs: input.timeoutMs, maxOutputBytes: input.maxOutputBytes, env: this.environment(), trustedCompiler }, this.processRunner); }
       catch { return { ...emptyResult(startedAt, "execution_error", "Foundry verification could not be executed."), status: "failed" }; }
       if (!validObservedIsolation(observed.isolation, isolation, workspace, input)) return { ...emptyResult(startedAt, "execution_error", "Foundry verification isolation metadata was invalid."), status: "failed" };
       const counts = parseTestCounts(`${observed.stdout}\n${observed.stderr}`);

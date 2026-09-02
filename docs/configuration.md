@@ -1,0 +1,58 @@
+# Configuration
+
+`.env.example` contains safe examples only. Never place secrets in tracked files. Docker supplies `/data` paths by default.
+
+## Paths and storage
+
+`DATA_DIR`, `REPOSITORY_DIR`, `DATABASE_PATH`, and `TOOL_HOME_DIR` control persistent data, cloned repositories, SQLite, and compiler/tool caches. Repository, database, and tool paths must remain inside `DATA_DIR`.
+
+## Scanning, dependencies, and compiler
+
+`GIT_CLONE_TIMEOUT_MS`, `SLITHER_TIMEOUT_MS`, `SCANNER_MAX_OUTPUT_BYTES`, `DEPENDENCY_PREP_TIMEOUT_MS`, `MAX_DEPENDENCY_OUTPUT_BYTES`, `MAX_SUBMODULE_DEPTH`, `MAX_SUBMODULES_PER_SCAN`, `ALLOW_NPM_DEPENDENCIES`, `ALLOW_GIT_SUBMODULES`, `ALLOWED_GIT_DEPENDENCY_HOSTS`, `ALLOW_COMPILER_DOWNLOADS`, `SOLC_INSTALL_TIMEOUT_MS`, and `MAX_SOLC_VERSIONS_PER_SCAN` bound preparation, scanning, and compiler resolution.
+
+## AI
+
+`AI_ENABLED`, `OPENAI_API_KEY`, `OPENAI_MODEL`, `AI_TIMEOUT_MS`, `AI_MAX_SOURCE_BYTES`, `AI_MAX_FILES`, and `AI_MAX_FILE_BYTES` control protocol analysis. `AI_REVIEW_MAX_SOURCE_BYTES`, `AI_REVIEW_MAX_FILES`, `AI_MAX_REVIEWERS`, `AI_REVIEW_CONCURRENCY`, `AI_REVIEW_TIMEOUT_MS`, and `AI_REVIEW_MAX_TOTAL_REQUESTS` control specialist review. `AI_VERIFICATION_PLAN_TIMEOUT_MS`, `AI_VERIFICATION_PLAN_MAX_SOURCE_BYTES`, and `AI_VERIFICATION_PLAN_MAX_FILES` control verification-plan generation.
+
+`AI_INPUT_COST_PER_MILLION_USD` and `AI_OUTPUT_COST_PER_MILLION_USD` are manually configurable estimates, not an official invoice. Recheck them when the model changes.
+
+The current default is `OPENAI_MODEL=gpt-5.6-luna`. A single model setting is used today; per-stage model routing is not implemented.
+
+The safe example defaults are:
+
+```dotenv
+GIT_CLONE_TIMEOUT_MS=120000
+SLITHER_TIMEOUT_MS=300000
+ADERYN_TIMEOUT_MS=300000
+SCANNER_MAX_OUTPUT_BYTES=20971520
+SOLC_INSTALL_TIMEOUT_MS=120000
+MAX_SOLC_VERSIONS_PER_SCAN=8
+ALLOW_COMPILER_DOWNLOADS=true
+DEPENDENCY_PREP_TIMEOUT_MS=300000
+MAX_DEPENDENCY_OUTPUT_BYTES=20971520
+MAX_SUBMODULE_DEPTH=5
+MAX_SUBMODULES_PER_SCAN=100
+ALLOW_NPM_DEPENDENCIES=true
+ALLOW_GIT_SUBMODULES=true
+ALLOWED_GIT_DEPENDENCY_HOSTS=github.com
+AI_ENABLED=false
+AI_INPUT_COST_PER_MILLION_USD=0.20
+AI_OUTPUT_COST_PER_MILLION_USD=1.20
+AI_TIMEOUT_MS=180000
+AI_MAX_SOURCE_BYTES=500000
+AI_MAX_FILES=120
+AI_MAX_FILE_BYTES=75000
+AI_REVIEW_MAX_SOURCE_BYTES=300000
+AI_REVIEW_MAX_FILES=80
+AI_MAX_REVIEWERS=10
+AI_REVIEW_CONCURRENCY=2
+AI_REVIEW_TIMEOUT_MS=180000
+AI_REVIEW_MAX_TOTAL_REQUESTS=12
+AI_VERIFICATION_PLAN_TIMEOUT_MS=120000
+AI_VERIFICATION_PLAN_MAX_SOURCE_BYTES=120000
+AI_VERIFICATION_PLAN_MAX_FILES=12
+```
+
+## Local verification
+
+Verification also depends on Forge, the trusted compiler cache, Bubblewrap, `prlimit`, and the configured Linux isolation policy. Missing isolation fails closed.

@@ -1,8 +1,8 @@
-import { chmod, mkdtemp, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { CompilerManager, findExecutableOnPath } from "./compiler-manager";
+import { CompilerManager, findExecutableOnPath, resolveTrustedVerificationCompiler } from "./compiler-manager";
 import { ProcessTimeoutError, type ProcessRequest, type ProcessRunner } from "./process-runner";
 
 async function repository(pragma = "0.8.24") { const root = await mkdtemp(path.join(tmpdir(), "contracthunter-manager-")); await writeFile(path.join(root, "A.sol"), `pragma solidity ${pragma}; contract A {}`); return root; }
@@ -30,6 +30,35 @@ async function manager(repo: string, processRunner: ProcessRunner, allowDownload
 }
 
 describe("CompilerManager and solc-select", () => {
+  async function trustedFixture(version = "0.8.24") {
+    const toolHomeDir = await mkdtemp(path.join(tmpdir(), "contracthunter-trusted-solc-"));
+    const executablePath = path.join(toolHomeDir, ".solc-select", "artifacts", `solc-${version}`, `solc-${version}`);
+    await mkdir(path.dirname(executablePath), { recursive: true }); await writeFile(executablePath, "fixture"); await chmod(executablePath, 0o755);
+    return { toolHomeDir, executablePath };
+  }
+
+  it("resolves and verifies only the exact cached solc-select artifact", async () => {
+    const fixture = await trustedFixture(); const calls: ProcessRequest[] = [];
+    const result = await resolveTrustedVerificationCompiler({ toolHomeDir: fixture.toolHomeDir, version: "0.8.24", processRunner: async (request) => { calls.push(request); return { stdout: "Version: 0.8.24", stderr: "", exitCode: 0 }; } });
+    expect(result).toEqual({ version: "0.8.24", executablePath: fixture.executablePath });
+    expect(calls).toEqual([expect.objectContaining({ command: fixture.executablePath, args: ["--version"], env: expect.objectContaining({ PATH: "/usr/bin:/bin", HOME: fixture.toolHomeDir }) })]);
+  });
+
+  it("rejects missing, malformed, and wrong-version trusted compilers without installation", async () => {
+    const fixture = await trustedFixture(); const runner = vi.fn<ProcessRunner>(async () => ({ stdout: "Version: 0.8.23", stderr: "", exitCode: 0 }));
+    await expect(resolveTrustedVerificationCompiler({ toolHomeDir: fixture.toolHomeDir, version: "0.8.24", processRunner: runner })).rejects.toMatchObject({ code: "trusted_compiler_unavailable" });
+    await expect(resolveTrustedVerificationCompiler({ toolHomeDir: fixture.toolHomeDir, version: "0.8.24;ffi", processRunner: runner })).rejects.toMatchObject({ code: "trusted_compiler_unavailable" });
+    await expect(resolveTrustedVerificationCompiler({ toolHomeDir: fixture.toolHomeDir, version: "0.8.25", processRunner: runner })).rejects.toMatchObject({ code: "trusted_compiler_unavailable" });
+    expect(runner).toHaveBeenCalledTimes(1); expect(runner.mock.calls.flatMap(([request]) => request.args)).not.toContain("install");
+  });
+
+  it("rejects compiler symlinks escaping the trusted artifact directory", async () => {
+    const toolHomeDir = await mkdtemp(path.join(tmpdir(), "contracthunter-trusted-solc-link-")); const outside = path.join(toolHomeDir, "outside-solc");
+    await writeFile(outside, "fixture"); await chmod(outside, 0o755); const versionDirectory = path.join(toolHomeDir, ".solc-select", "artifacts", "solc-0.8.24"); await mkdir(versionDirectory, { recursive: true });
+    await symlink(outside, path.join(versionDirectory, "solc-0.8.24"));
+    await expect(resolveTrustedVerificationCompiler({ toolHomeDir, version: "0.8.24", processRunner: vi.fn() })).rejects.toMatchObject({ code: "trusted_compiler_unavailable" });
+  });
+
   it("resolves an executable from the configured PATH without invoking a shell", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "contracthunter-path-"));
     const executable = path.join(root, "solc");

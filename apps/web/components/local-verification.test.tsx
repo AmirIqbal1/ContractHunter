@@ -35,11 +35,16 @@ describe("local verification UI", () => {
     expect(html).toContain("required isolation environment is unavailable"); expect(html).toContain("did not fall back to unsafe execution"); expect(html).not.toMatch(/sudo|host networking|privileged container/i);
   });
 
+  it("explains trusted compiler failure without suggesting a download fallback", () => {
+    const html = render([{ ...base, status: "failed", outcome: null, isolationBackend: null, failureCode: "trusted_compiler_unavailable" }]);
+    expect(html).toContain("trusted compiler is unavailable or invalid"); expect(html).toContain("did not download a compiler"); expect(html).not.toMatch(/enable network|auto-install|fallback to host/i);
+  });
+
   it("renders generation loading, preview, not-plannable, failure, provenance, and limitations without an execution action", () => {
     const provenance = { provider: "openai", requestedModel: "configured", actualModel: "actual", promptVersion: "verification-plan-v1", generatedAt: "2026-08-16T10:00:00.000Z", inputTokens: 10, outputTokens: 5, totalTokens: 15, durationMs: 7, sourceFileCount: 2, totalSourceBytes: 500, sourceContextTruncated: false };
     const plan = verificationHarnessPlanSchema.parse({ scanId: crypto.randomUUID(), hypothesisId: base.hypothesisId, resolvedCommit: "a".repeat(40), compilerVersion: "0.8.24", primaryContract: "Counter", primarySourcePath: "contracts/Counter.sol", relevantFunctions: ["increment", "count"], sourceFiles: ["contracts/Counter.sol"], verificationGoal: "Check a bounded counter transition.", expectedProperty: "Count becomes one.", verificationSteps: ["Deploy and increment."], operations: [{ kind: "deploy", contractName: "Counter", instanceName: "target" }, { kind: "call", instanceName: "target", functionName: "increment" }, { kind: "read-uint", instanceName: "target", functionName: "count", resultName: "observed" }], assertions: [{ id: "count", kind: "uint-eq", actual: "observed", expected: "1", expectedOutcome: "hypothesis-supported", description: "The observed count becomes one." }] });
     const generated: VerificationPlanGenerationResult = { status: "generated", plan, rationale: "Supported.", limitations: ["Bounded initial state only."], notPlannableReasons: [], failureCode: null, provenance };
-    const notPlannable: VerificationPlanGenerationResult = { status: "not_plannable", plan: null, rationale: "Arguments required.", limitations: [], notPlannableReasons: ["function_arguments_unsupported"], failureCode: null, provenance };
+    const notPlannable: VerificationPlanGenerationResult = { status: "not_plannable", plan: null, rationale: "Bytes arguments required.", limitations: [], notPlannableReasons: ["unsupported_function_argument_type"], failureCode: null, provenance };
     const failed: VerificationPlanGenerationResult = { status: "failed", plan: null, rationale: null, limitations: [], notPlannableReasons: [], failureCode: "plan_generation_failed", provenance };
     expect(renderToStaticMarkup(<PlanGenerationView generating result={null} />)).toContain("Generating");
     const preview = renderToStaticMarkup(<PlanGenerationView generating={false} result={generated} />); expect(preview).toContain("Generated preview"); expect(preview).toContain("Bounded initial state only"); expect(preview).toContain("verification-plan-v1"); expect(preview).toContain("This proposal has not been executed"); expect(preview).not.toContain("<button");

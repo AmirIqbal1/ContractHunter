@@ -1,4 +1,4 @@
-import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -9,8 +9,8 @@ import {
   updateVulnerabilityHypothesisStatus, type DatabaseClient,
 } from "@contracthunter/db";
 import {
-  VerificationWorkspaceBuilder, interpretVerificationResult, validateVerificationWorkspaceIntegrity,
-  type FoundryVerificationResult, type VerificationIsolationMetadata,
+  FoundryVerificationRunner, VerificationWorkspaceBuilder, interpretVerificationResult, validateVerificationWorkspaceIntegrity,
+  type FoundryVerificationResult, type ObservedProcessRunner, type VerificationIsolationMetadata, type VerificationIsolationProvider,
 } from "@contracthunter/scanners";
 import { HypothesisVerificationRequestError, HypothesisVerificationService } from "./hypothesis-verification-service";
 
@@ -53,6 +53,15 @@ function plan(overrides: Partial<VerificationHarnessPlan> = {}): VerificationHar
   });
 }
 
+function accessControlPlan(contractName = "BrokenAccessControl"): VerificationHarnessPlan {
+  return verificationHarnessPlanSchema.parse({
+    scanId, hypothesisId, resolvedCommit: commit, compilerVersion: "0.8.24", primaryContract: contractName, primarySourcePath: `contracts/${contractName}.sol`, sourceFiles: [`contracts/${contractName}.sol`],
+    relevantFunctions: ["setOwner", "owner", "withdraw"], actors: ["deployer", "attacker"], verificationGoal: "Observe unauthorized ownership replacement and withdrawal.", expectedProperty: "Only the owner can replace owner.", verificationSteps: ["Deploy and fund.", "Call as attacker.", "Read owner and balance."],
+    operations: [{ kind: "deploy", contractName, instanceName: "target" }, { kind: "fund", target: { kind: "instance", name: "target" }, amountWei: "1000000000000000000" }, { kind: "call", instanceName: "target", functionName: "setOwner", caller: "attacker", args: [{ kind: "address", source: "actor", name: "attacker" }] }, { kind: "read-address", instanceName: "target", functionName: "owner", resultName: "ownerAfter" }, { kind: "call", instanceName: "target", functionName: "withdraw", caller: "attacker", args: [] }, { kind: "read-balance", target: { kind: "instance", name: "target" }, resultName: "targetBalance" }],
+    assertions: [{ id: "attacker-is-owner", kind: "address-eq", actual: "ownerAfter", expected: { kind: "address", source: "actor", name: "attacker" }, expectedOutcome: "hypothesis-supported", description: "The unauthorized attacker becomes the observed owner." }, { id: "target-drained", kind: "uint-eq", actual: "targetBalance", expected: "0", expectedOutcome: "hypothesis-supported", description: "The target native balance is zero after attacker withdrawal." }],
+  });
+}
+
 function service(result: FoundryVerificationResult | (() => Promise<FoundryVerificationResult>) = runnerResult(), overrides: Partial<ConstructorParameters<typeof HypothesisVerificationService>[0]> = {}) {
   const run = typeof result === "function" ? result : async () => result;
   return new HypothesisVerificationService({
@@ -82,9 +91,37 @@ describe("verification result interpretation", () => {
     expect(interpretVerificationResult(mixedPlan, runnerResult()).outcome).toBe("inconclusive");
     expect(interpretVerificationResult(plan(), { ...failed, stderrSummary: "arbitrary failure prose" }).outcome).toBe("inconclusive");
   });
+
+  it("describes observed actor ownership precisely and does not confirm a remediated revert", () => {
+    const vulnerable = interpretVerificationResult(accessControlPlan(), runnerResult());
+    expect(vulnerable.outcome).toBe("confirmed");
+    expect(vulnerable.dynamicEvidence[0]).toMatchObject({ direction: "supports", functionName: "owner" });
+    expect(vulnerable.dynamicEvidence[0].observedBehavior).toContain("Local non-deployer actor attacker called setOwner");
+    expect(vulnerable.dynamicEvidence[1]).toMatchObject({ direction: "supports", functionName: "withdraw" });
+    expect(vulnerable.dynamicEvidence[1].observedBehavior).toContain("Local actor attacker successfully called withdraw()");
+    const remediatedRevert = runnerResult({ status: "failed", exitCode: 1, passedCount: 0, failedCount: 1, stdoutSummary: "0 passed; 1 failed;", stderrSummary: "[FAIL: Not owner]", errorCode: "forge_failed", errorMessage: "Forge failed." });
+    const remediated = interpretVerificationResult(accessControlPlan("RemediatedAccessControl"), remediatedRevert);
+    expect(remediated.outcome).toBe("inconclusive"); expect(remediated.dynamicEvidence.every((item) => item.direction === "neutral")).toBe(true);
+  });
 });
 
 describe("explicit hypothesis verification orchestration", () => {
+  it("runs the generated BrokenAccessControl workspace through the trusted-compiler runner boundary", async () => {
+    const toolHome = path.join(directory, "tool-home"); const temporaryDirectory = path.join(directory, "verification-tmp");
+    const compiler = path.join(toolHome, ".solc-select", "artifacts", "solc-0.8.24", "solc-0.8.24");
+    await mkdir(path.dirname(compiler), { recursive: true }); await mkdir(temporaryDirectory); await writeFile(compiler, "trusted compiler fixture"); await chmod(compiler, 0o755);
+    const forgeSuccess = { stdout: "Ran 1 test suite: 1 test passed, 0 failed, 0 skipped", stderr: "", exitCode: 0, durationMs: 9, timedOut: false, stdoutTruncated: false, stderrTruncated: false };
+    const processRunner: ObservedProcessRunner = async (request) => request.command === compiler ? { ...forgeSuccess, stdout: "Version: 0.8.24" } : forgeSuccess;
+    const isolationProvider: VerificationIsolationProvider = {
+      async confirmNetworkIsolation() { return isolation; },
+      async execute(request, runner) { return { ...await runner(request), isolation: { ...isolation, wallClockTimeoutMs: request.timeoutMs, maxOutputBytes: request.maxOutputBytes, writableProjectPath: request.cwd ?? "" } }; },
+    };
+    const foundryRunner = new FoundryVerificationRunner({ verificationRoot, repositoryRoot, toolHomeDir: toolHome, temporaryDirectory, executablePath: "/usr/bin:/bin", isolationProvider, processRunner });
+    const result = await service(runnerResult(), { runner: foundryRunner }).run(hypothesisId, accessControlPlan());
+    expect(result).toMatchObject({ status: "completed", run: { outcome: "confirmed", compilerVersion: "0.8.24" } });
+    expect(JSON.parse(result.run.dynamicEvidence)).toEqual([expect.objectContaining({ direction: "supports", functionName: "owner" }), expect.objectContaining({ direction: "supports", functionName: "withdraw" })]);
+  });
+
   it("binds persisted state, runs queued -> running -> completed, audits execution, and verifies only with support", async () => {
     let observedStatus: string | undefined;
     const result = await service(async () => { observedStatus = getActiveHypothesisVerificationRun(database, hypothesisId)?.status; return runnerResult(); }).run(hypothesisId, plan());
@@ -109,6 +146,8 @@ describe("explicit hypothesis verification orchestration", () => {
     expect(getVulnerabilityHypothesis(database, hypothesisId)?.status).toBe("candidate");
     const second = runnerResult({ status: "failed", exitCode: -1, timedOut: true, testCount: null, passedCount: null, failedCount: null, errorCode: "execution_timeout", errorMessage: "Timed out." });
     expect(await service(second).run(hypothesisId, plan())).toMatchObject({ status: "failed", run: { error: "execution_timeout", timedOut: true } });
+    const compilerUnavailable = runnerResult({ status: "refused", exitCode: null, testCount: null, passedCount: null, failedCount: null, errorCode: "trusted_compiler_unavailable", errorMessage: "Unavailable.", isolation: null });
+    expect(await service(compilerUnavailable).run(hypothesisId, plan())).toMatchObject({ status: "failed", run: { error: "trusted_compiler_unavailable" } });
   });
 
   it("revalidates immediately before execution and records tampering as failure", async () => {

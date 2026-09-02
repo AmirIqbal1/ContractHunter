@@ -75,7 +75,9 @@ export function LocalVerification({ hypothesisId, hypothesisStatus, initialRuns 
     if (!latest) return "No local verification has been run.";
     if (latest.status === "failed") return latest.failureCode === "network_isolation_unavailable"
       ? "Local verification could not run because the required isolation environment is unavailable. ContractHunter did not fall back to unsafe execution."
-      : "The verification process could not be completed safely.";
+      : latest.failureCode === "trusted_compiler_unavailable"
+        ? "Local verification could not run because the scan's trusted compiler is unavailable or invalid. ContractHunter did not download a compiler or use an untrusted fallback."
+        : "The verification process could not be completed safely.";
     if (latest.outcome === "inconclusive") return "Local execution did not produce sufficient evidence either way.";
     if (latest.outcome === "refuted") return "Local evidence contradicted the plan's expected vulnerability property; the original hypothesis and evidence remain available.";
     return null;
