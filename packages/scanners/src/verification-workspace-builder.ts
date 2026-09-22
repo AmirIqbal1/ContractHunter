@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { lstat, mkdir, readFile, realpath, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, readFile, realpath, readdir, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import semver from "semver";
 import {
@@ -31,6 +31,7 @@ export type BuildVerificationWorkspaceInput = { verificationRunId: string; repos
 export type BuiltVerificationWorkspace = { workspacePath: string; manifest: VerificationHarnessManifest; harnessSource: string };
 
 function comparePaths(left: string, right: string): number { return left < right ? -1 : left > right ? 1 : 0; }
+async function sharedDirectory(directory: string, recursive = false): Promise<void> { await mkdir(directory, { recursive, mode: 0o2770 }); await chmod(directory, 0o2770); }
 
 function safeSourcePath(value: string): boolean { return repositorySolidityPathSchema.safeParse(value).success; }
 
@@ -114,24 +115,24 @@ export class VerificationWorkspaceBuilder {
       await writeFile(lockPath, input.verificationRunId, { flag: "wx", mode: 0o600 });
       const closure = await this.sourceClosure(repository, plan.sourceFiles);
       const harnessSource = this.generator.generate(plan); const foundryConfig = createContractHunterFoundryConfig(plan.compilerVersion);
-      await mkdir(temporaryPath, { recursive: false });
-      await Promise.all(["src", "test", "cache", "out"].map((directory) => mkdir(path.join(temporaryPath, directory))));
+      await sharedDirectory(temporaryPath);
+      await Promise.all(["src", "test", "cache", "out"].map((directory) => sharedDirectory(path.join(temporaryPath, directory))));
       const sourceManifest: VerificationSourceManifestEntry[] = [];
       for (const source of closure) {
         const workspacePath = `src/${source.relativePath}`; const destination = path.join(temporaryPath, ...workspacePath.split("/"));
-        await mkdir(path.dirname(destination), { recursive: true }); await writeFile(destination, source.bytes, { flag: "wx", mode: 0o600 });
+        await sharedDirectory(path.dirname(destination), true); await writeFile(destination, source.bytes, { flag: "wx", mode: 0o640 });
         sourceManifest.push({ originalPath: source.relativePath, workspacePath, byteLength: source.bytes.length, sha256: sha256Bytes(source.bytes) });
       }
       const harnessPath = "test/ContractHunterVerification.t.sol" as const; const harnessBytes = Buffer.from(harnessSource, "utf8"); const configBytes = Buffer.from(foundryConfig, "utf8");
-      await writeFile(path.join(temporaryPath, ...harnessPath.split("/")), harnessBytes, { flag: "wx", mode: 0o600 });
-      await writeFile(path.join(temporaryPath, "foundry.toml"), configBytes, { flag: "wx", mode: 0o600 });
+      await writeFile(path.join(temporaryPath, ...harnessPath.split("/")), harnessBytes, { flag: "wx", mode: 0o640 });
+      await writeFile(path.join(temporaryPath, "foundry.toml"), configBytes, { flag: "wx", mode: 0o640 });
       const manifestBase = {
         formatVersion: 1 as const, verificationRunId: input.verificationRunId, scanId: plan.scanId, hypothesisId: plan.hypothesisId, resolvedCommit: plan.resolvedCommit,
         compilerVersion: plan.compilerVersion, generatorVersion: this.options.generatorVersion, generatedBy: "contracthunter" as const, createdAt: (input.createdAt ?? new Date()).toISOString(),
         sourceManifest, generatedHarnessPath: harnessPath, generatedHarnessSha256: sha256Bytes(harnessBytes), foundryConfigSha256: sha256Bytes(configBytes),
       };
       const manifest = verificationHarnessManifestSchema.parse({ ...manifestBase, contentFingerprint: verificationContentFingerprint(manifestBase) });
-      await writeFile(path.join(temporaryPath, VERIFICATION_HARNESS_MANIFEST), `${JSON.stringify(manifest, null, 2)}\n`, { flag: "wx", mode: 0o600 });
+      await writeFile(path.join(temporaryPath, VERIFICATION_HARNESS_MANIFEST), `${JSON.stringify(manifest, null, 2)}\n`, { flag: "wx", mode: 0o640 });
       await validateVerificationWorkspaceIntegrity(temporaryPath, manifest, { allowTemporaryBuildPath: true });
       try { await lstat(finalPath); throw new VerificationWorkspaceBuildError("Verification run workspace already exists."); }
       catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }

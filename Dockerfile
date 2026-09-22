@@ -39,6 +39,27 @@ RUN case "${TARGETARCH}" in amd64) archive=/tmp/foundry-amd64.tar.gz ;; arm64) a
   && install -m 0755 /tmp/forge /usr/local/bin/forge \
   && forge --version
 
+FROM node:22-bookworm-slim AS verification-worker
+WORKDIR /worker
+ENV NODE_ENV=production
+COPY --from=dependencies /app/node_modules ./node_modules
+COPY packages ./packages
+COPY docker/verification-worker.ts ./docker/verification-worker.ts
+RUN /worker/node_modules/.bin/esbuild docker/verification-worker.ts --bundle --platform=node --format=cjs --target=node22 --outfile=/worker/verification-worker.cjs
+FROM node:22-bookworm-slim AS verification-worker-runtime
+ENV NODE_ENV=production
+COPY --from=verification-worker /worker/verification-worker.cjs /worker/verification-worker.cjs
+COPY --from=foundry /usr/local/bin/forge /usr/local/bin/forge
+RUN apt-get update && apt-get install -y --no-install-recommends util-linux && rm -rf /var/lib/apt/lists/* \
+  && groupadd --gid 10001 contracthunter \
+  && useradd --uid 10002 --gid contracthunter --home-dir /home/contracthunter --no-create-home --shell /usr/sbin/nologin contracthunter-verifier \
+  && mkdir -p /verification /run/contracthunter-verification /home/contracthunter /data/tool-home \
+  && chown 10001:10001 /verification \
+  && chown 10002:10001 /run/contracthunter-verification /home/contracthunter \
+  && chmod 2770 /verification /run/contracthunter-verification
+USER 10002:10001
+CMD ["node", "/worker/verification-worker.cjs"]
+
 FROM node:22-bookworm-slim AS runner
 WORKDIR /app
 ARG SLITHER_VERSION=0.11.3
@@ -88,11 +109,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends git ca-certific
   && aderyn --version \
   && forge --version \
   && solc-select --version \
-  && mkdir -p /data/repositories /data/tool-home /home/node \
-  && chown -R node:node /data /home/node
-COPY --from=builder --chown=node:node /app/apps/web/.next/standalone ./
-COPY --from=builder --chown=node:node /app/apps/web/.next/static ./apps/web/.next/static
-USER node
+  && groupadd --gid 10001 contracthunter \
+  && useradd --uid 10001 --gid contracthunter --home-dir /home/contracthunter --create-home --shell /usr/sbin/nologin contracthunter \
+  && mkdir -p /data/repositories /data/tool-home /verification /run/contracthunter-verification \
+  && chown -R contracthunter:contracthunter /data /home/contracthunter /verification /run/contracthunter-verification \
+  && chmod 2770 /verification /run/contracthunter-verification
+COPY --from=builder --chown=contracthunter:contracthunter /app/apps/web/.next/standalone ./
+COPY --from=builder --chown=contracthunter:contracthunter /app/apps/web/.next/static ./apps/web/.next/static
+USER contracthunter
 EXPOSE 3000
 VOLUME ["/data"]
 HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=3 CMD node -e "fetch('http://127.0.0.1:3000/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"

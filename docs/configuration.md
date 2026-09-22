@@ -55,4 +55,4 @@ AI_VERIFICATION_PLAN_MAX_FILES=12
 
 ## Local verification
 
-Verification also depends on Forge, the trusted compiler cache, Bubblewrap, `prlimit`, and the configured Linux isolation policy. Missing isolation fails closed.
+Verification requires the networkless Compose worker, its Unix socket, `prlimit`, Forge, and an already prepared trusted compiler in the read-only `tool-home` volume subpath. Missing worker or isolation fails closed; the web service never executes Forge as a fallback.

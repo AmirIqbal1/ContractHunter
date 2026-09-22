@@ -5,6 +5,8 @@ export * from "./compiler-detection";
 export * from "./compiler-manager";
 export * from "./dependency-manager";
 export * from "./foundry-verification-runner";
+export * from "./verification-worker-client";
+export * from "./verification-worker-protocol";
 export * from "./verification-foundry-config";
 export * from "./verification-harness-generator";
 export * from "./verification-result-interpreter";

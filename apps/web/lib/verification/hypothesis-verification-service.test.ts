@@ -1,4 +1,4 @@
-import { chmod, cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -9,8 +9,8 @@ import {
   updateVulnerabilityHypothesisStatus, type DatabaseClient,
 } from "@contracthunter/db";
 import {
-  FoundryVerificationRunner, VerificationWorkspaceBuilder, interpretVerificationResult, validateVerificationWorkspaceIntegrity,
-  type FoundryVerificationResult, type ObservedProcessRunner, type VerificationIsolationMetadata, type VerificationIsolationProvider,
+  VerificationWorkspaceBuilder, interpretVerificationResult, validateVerificationWorkspaceIntegrity,
+  type FoundryVerificationResult, type VerificationIsolationMetadata,
 } from "@contracthunter/scanners";
 import { HypothesisVerificationRequestError, HypothesisVerificationService } from "./hypothesis-verification-service";
 
@@ -106,18 +106,8 @@ describe("verification result interpretation", () => {
 });
 
 describe("explicit hypothesis verification orchestration", () => {
-  it("runs the generated BrokenAccessControl workspace through the trusted-compiler runner boundary", async () => {
-    const toolHome = path.join(directory, "tool-home"); const temporaryDirectory = path.join(directory, "verification-tmp");
-    const compiler = path.join(toolHome, ".solc-select", "artifacts", "solc-0.8.24", "solc-0.8.24");
-    await mkdir(path.dirname(compiler), { recursive: true }); await mkdir(temporaryDirectory); await writeFile(compiler, "trusted compiler fixture"); await chmod(compiler, 0o755);
-    const forgeSuccess = { stdout: "Ran 1 test suite: 1 test passed, 0 failed, 0 skipped", stderr: "", exitCode: 0, durationMs: 9, timedOut: false, stdoutTruncated: false, stderrTruncated: false };
-    const processRunner: ObservedProcessRunner = async (request) => request.command === compiler ? { ...forgeSuccess, stdout: "Version: 0.8.24" } : forgeSuccess;
-    const isolationProvider: VerificationIsolationProvider = {
-      async confirmNetworkIsolation() { return isolation; },
-      async execute(request, runner) { return { ...await runner(request), isolation: { ...isolation, wallClockTimeoutMs: request.timeoutMs, maxOutputBytes: request.maxOutputBytes, writableProjectPath: request.cwd ?? "" } }; },
-    };
-    const foundryRunner = new FoundryVerificationRunner({ verificationRoot, repositoryRoot, toolHomeDir: toolHome, temporaryDirectory, executablePath: "/usr/bin:/bin", isolationProvider, processRunner });
-    const result = await service(runnerResult(), { runner: foundryRunner }).run(hypothesisId, accessControlPlan());
+  it("runs the generated BrokenAccessControl workspace through the result interpretation boundary", async () => {
+    const result = await service(runnerResult(), { runner: { run: async (input) => { await validateVerificationWorkspaceIntegrity(input.workspacePath); return runnerResult({ stdoutSummary: "Ran 1 test suite: 1 test passed, 0 failed, 0 skipped" }); } } }).run(hypothesisId, accessControlPlan());
     expect(result).toMatchObject({ status: "completed", run: { outcome: "confirmed", compilerVersion: "0.8.24" } });
     expect(JSON.parse(result.run.dynamicEvidence)).toEqual([expect.objectContaining({ direction: "supports", functionName: "owner" }), expect.objectContaining({ direction: "supports", functionName: "withdraw" })]);
   });
@@ -141,11 +131,11 @@ describe("explicit hypothesis verification orchestration", () => {
   });
 
   it("fails closed for isolation unavailability and timeout", async () => {
-    const unavailable = runnerResult({ status: "refused", exitCode: null, testCount: null, passedCount: null, failedCount: null, errorCode: "network_isolation_unavailable", errorMessage: "Unavailable.", isolation: null });
-    expect(await service(unavailable).run(hypothesisId, plan())).toMatchObject({ status: "failed", run: { status: "failed", outcome: null, error: "network_isolation_unavailable" } });
+    const unavailable = runnerResult({ status: "refused", exitCode: null, testCount: null, passedCount: null, failedCount: null, errorCode: "verification_worker_isolation_unavailable", errorMessage: "Unavailable.", isolation: null });
+    expect(await service(unavailable).run(hypothesisId, plan())).toMatchObject({ status: "failed", run: { status: "failed", outcome: null, error: "verification_worker_isolation_unavailable" } });
     expect(getVulnerabilityHypothesis(database, hypothesisId)?.status).toBe("candidate");
-    const second = runnerResult({ status: "failed", exitCode: -1, timedOut: true, testCount: null, passedCount: null, failedCount: null, errorCode: "execution_timeout", errorMessage: "Timed out." });
-    expect(await service(second).run(hypothesisId, plan())).toMatchObject({ status: "failed", run: { error: "execution_timeout", timedOut: true } });
+    const second = runnerResult({ status: "failed", exitCode: -1, timedOut: true, testCount: null, passedCount: null, failedCount: null, errorCode: "verification_worker_timeout", errorMessage: "Timed out." });
+    expect(await service(second).run(hypothesisId, plan())).toMatchObject({ status: "failed", run: { error: "verification_worker_timeout", timedOut: true } });
     const compilerUnavailable = runnerResult({ status: "refused", exitCode: null, testCount: null, passedCount: null, failedCount: null, errorCode: "trusted_compiler_unavailable", errorMessage: "Unavailable.", isolation: null });
     expect(await service(compilerUnavailable).run(hypothesisId, plan())).toMatchObject({ status: "failed", run: { error: "trusted_compiler_unavailable" } });
   });

@@ -1,28 +1,25 @@
 # Development
 
-Prerequisites are Node.js 20+, npm, and Git. Docker Compose is recommended. Local verification additionally needs Linux Bubblewrap network/PID namespaces, `prlimit`, Forge, and a trusted compiler cache.
+Prerequisites are Node.js 20+, npm, Docker, and Docker Compose. The web service uses UID/GID 10001:10001. The separate verification worker uses UID/GID 10002:10001. Docker's default enforcing seccomp and AppArmor profiles are used; there is no custom host profile to install.
 
 ```bash
 cp .env.example .env
 npm install
 npm run dev
-```
-
-Local data defaults to `data/` and contains SQLite, cloned repositories, compiler/tool caches, and verification workspaces.
-
-```bash
+npm run typecheck
 npm test
 npm run lint
-npm run typecheck
 npm run build
-docker compose up --build
-docker compose down
+docker compose config
+docker compose build
+docker compose up -d
+docker compose ps
 ```
 
-`.env` must never be committed; `.env.example` may contain safe defaults only.
+Local development without the Compose worker can scan and plan; “Verify locally” fails closed with `verification_worker_unavailable`. Production verification requires the worker's isolated container, the dedicated workspace and IPC named volumes, and a compiler already prepared in `contracthunter-data/tool-home`. Compose mounts only that subpath into the worker as read-only. If the Docker engine cannot mount named-volume subpaths, do not replace it with a whole `/data` mount.
 
-## Release smoke test
+The existing `contracthunter-data` volume holds the database, repository clones, and trusted compiler cache. Keep it when rebuilding or restarting. The new `verification-workspaces` volume stores generated harness workspaces, while `verification-ipc` stores only the worker socket. Neither contains the main database. Old verification history and plans remain in SQLite and are reusable; generating another AI plan is unnecessary for a rerun.
 
-A successful Next.js build is not sufficient to catch every Server/Client runtime boundary issue. Before releases, run the production Docker image and smoke-test `/`, an existing `/hunts/:id`, and an existing `/hypotheses/:id` page where practical. Inspect logs for server-rendering errors. Keep local verification fail-closed when isolation or its toolchain is unavailable.
+Use `docker compose exec -T verification-worker` to inspect `id`, `/proc/self/status`, `/proc/self/attr/current`, `/proc/net/route`, `/proc/net/ipv6_route`, `/sys/class/net`, and `/sys/fs/cgroup/pids.max`. The worker should have only `lo`, no usable default route, zero effective/bounding capabilities, `NoNewPrivs: 1`, `Seccomp: 2`, enforcing AppArmor, and a PID limit of 64. The socket should be mode 0660. The worker should not see `/data/contracthunter.db`, `/data/repositories`, `/var/run/docker.sock`, OpenAI/GitHub secrets, or proxy keys.
 
-The project previously hit a production-only Server/Client boundary error when `shouldPollHunt()` was called from a Server Component through a client-marked module. Production-container rendering is therefore part of release validation, not an optional build substitute.
+A Docker run is also the release smoke test for production-only Next.js behavior. Check `/`, an existing hunt page, an existing hypothesis page, and a saved-plan verification where practical. `.env` must not be committed.

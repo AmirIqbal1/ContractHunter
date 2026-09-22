@@ -73,8 +73,10 @@ export function LocalVerification({ hypothesisId, hypothesisStatus, initialRuns 
 
   const currentExplanation = useMemo(() => {
     if (!latest) return "No local verification has been run.";
-    if (latest.status === "failed") return latest.failureCode === "network_isolation_unavailable"
-      ? "Local verification could not run because the required isolation environment is unavailable. ContractHunter did not fall back to unsafe execution."
+    if (latest.status === "failed") return latest.failureCode === "isolation_tool_unavailable"
+      ? "Local verification could not run because a required isolation tool is unavailable. ContractHunter did not fall back to unsafe execution."
+      : latest.failureCode === "network_isolation_unavailable"
+        ? "Local verification could not run because the required isolation environment is unavailable. ContractHunter did not fall back to unsafe execution."
       : latest.failureCode === "trusted_compiler_unavailable"
         ? "Local verification could not run because the scan's trusted compiler is unavailable or invalid. ContractHunter did not download a compiler or use an untrusted fallback."
         : "The verification process could not be completed safely.";

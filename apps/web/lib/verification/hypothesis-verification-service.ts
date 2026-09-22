@@ -7,7 +7,7 @@ import {
   type DatabaseClient, type HypothesisVerificationRunRow,
 } from "@contracthunter/db";
 import {
-  FoundryVerificationRunner, VerificationWorkspaceBuilder, interpretVerificationResult, validateVerificationWorkspaceIntegrity,
+  VerificationWorkerClient, VerificationWorkspaceBuilder, interpretVerificationResult, validateVerificationWorkspaceIntegrity,
   type BuiltVerificationWorkspace, type FoundryVerificationInput, type FoundryVerificationResult,
 } from "@contracthunter/scanners";
 
@@ -141,8 +141,8 @@ export class HypothesisVerificationService {
 }
 
 export function createLocalHypothesisVerificationService(database: DatabaseClient = getDatabase()): HypothesisVerificationService {
-  const config = loadConfig(); const verificationRoot = path.join(config.DATA_DIR, "verifications"); const temporaryDirectory = path.join(config.DATA_DIR, "verification-tmp");
-  const runner = new FoundryVerificationRunner({ verificationRoot, repositoryRoot: config.REPOSITORY_DIR, toolHomeDir: config.TOOL_HOME_DIR, temporaryDirectory, executablePath: process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin" });
+  const config = loadConfig(); const verificationRoot = process.env.VERIFICATION_ROOT ?? path.join(config.DATA_DIR, "verifications");
+  const runner = new VerificationWorkerClient(verificationRoot);
   return new HypothesisVerificationService({
     database, repositoryRoot: config.REPOSITORY_DIR, timeoutMs: 300_000, maxOutputBytes: config.SCANNER_MAX_OUTPUT_BYTES, runner,
     workspaceBuilder: (acceptedCompilerVersions) => new VerificationWorkspaceBuilder({ verificationRoot, repositoryRoot: config.REPOSITORY_DIR, acceptedCompilerVersions, approvedSourceRoots: ["src", "contracts", "lib", "node_modules"], generatorVersion: "0.1.0" }),

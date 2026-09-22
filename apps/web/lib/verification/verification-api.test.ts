@@ -65,6 +65,13 @@ describe("explicit local verification API", () => {
 describe("verification history API", () => {
   it("returns 404 for an unknown hypothesis", async () => { expect((await readVerificationHistory(new Request("http://localhost"), context(crypto.randomUUID()), database)).status).toBe(404); });
 
+  it("publishes the bounded missing-isolation-tool failure code", async () => {
+    const run = queued(); markHypothesisVerificationRunRunning(database, run.id);
+    failHypothesisVerificationRun(database, run.id, { error: "isolation_tool_unavailable", durationMs: 3, stdoutSummary: "", stderrSummary: "", contentFingerprint: null, isolationBackend: null, executionExitCode: null, timedOut: false });
+    const response = await readVerificationHistory(new Request("http://localhost"), context(), database); const body = await response.json();
+    expect(body.verifications[0]).toMatchObject({ failureCode: "isolation_tool_unavailable", isolationBackend: null, exitCode: null });
+  });
+
   it("returns newest first with bounded structured evidence and sanitised output", async () => {
     const first = completed(); const second = queued(); markHypothesisVerificationRunRunning(database, second.id);
     failHypothesisVerificationRun(database, second.id, { error: "arbitrary /internal/path secret prose", durationMs: 3, stdoutSummary: "do not publish", stderrSummary: "do not publish", contentFingerprint: null, isolationBackend: null, executionExitCode: null, timedOut: false });

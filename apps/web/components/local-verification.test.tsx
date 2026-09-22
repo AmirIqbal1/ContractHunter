@@ -35,6 +35,11 @@ describe("local verification UI", () => {
     expect(html).toContain("required isolation environment is unavailable"); expect(html).toContain("did not fall back to unsafe execution"); expect(html).not.toMatch(/sudo|host networking|privileged container/i);
   });
 
+  it("distinguishes a missing isolation tool without suggesting an unsafe fallback", () => {
+    const html = render([{ ...base, status: "failed", outcome: null, isolationBackend: null, failureCode: "isolation_tool_unavailable" }]);
+    expect(html).toContain("required isolation tool is unavailable"); expect(html).toContain("did not fall back to unsafe execution"); expect(html).not.toMatch(/sudo|host networking|privileged container/i);
+  });
+
   it("explains trusted compiler failure without suggesting a download fallback", () => {
     const html = render([{ ...base, status: "failed", outcome: null, isolationBackend: null, failureCode: "trusted_compiler_unavailable" }]);
     expect(html).toContain("trusted compiler is unavailable or invalid"); expect(html).toContain("did not download a compiler"); expect(html).not.toMatch(/enable network|auto-install|fallback to host/i);
