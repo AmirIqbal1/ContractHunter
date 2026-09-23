@@ -1,4 +1,4 @@
-import { access, mkdir } from "node:fs/promises";
+import { access, lstat, mkdir, realpath } from "node:fs/promises";
 import { constants } from "node:fs";
 import path from "node:path";
 import { sanitiseError, type CompilerStatus } from "@contracthunter/core";
@@ -7,6 +7,45 @@ import { ProcessOutputLimitError, ProcessTimeoutError, runBoundedProcess, type P
 
 const VERSION = /^\d+\.\d+\.\d+$/;
 const installLocks = new Map<string, Promise<void>>();
+
+export type TrustedVerificationCompiler = { version: string; executablePath: string };
+export class TrustedVerificationCompilerError extends Error {
+  readonly code = "trusted_compiler_unavailable" as const;
+  constructor(message: string) { super(message); this.name = "TrustedVerificationCompilerError"; }
+}
+
+export async function resolveTrustedVerificationCompiler(options: {
+  toolHomeDir: string; version: string; processRunner?: ProcessRunner;
+}): Promise<TrustedVerificationCompiler> {
+  if (!VERSION.test(options.version)) throw new TrustedVerificationCompilerError("The requested compiler version is invalid.");
+  const runner = options.processRunner ?? runBoundedProcess;
+  try {
+    const toolHomeInfo = await lstat(options.toolHomeDir);
+    if (!toolHomeInfo.isDirectory() || toolHomeInfo.isSymbolicLink()) throw new Error("unsafe tool home");
+    const toolHome = await realpath(options.toolHomeDir);
+    const selectDirectory = path.join(toolHome, ".solc-select");
+    const artifactsDirectory = path.join(selectDirectory, "artifacts");
+    const versionDirectory = path.join(artifactsDirectory, `solc-${options.version}`);
+    const executable = path.join(versionDirectory, `solc-${options.version}`);
+    for (const directory of [selectDirectory, artifactsDirectory, versionDirectory]) {
+      const info = await lstat(directory);
+      if (!info.isDirectory() || info.isSymbolicLink() || await realpath(directory) !== directory) throw new Error("unsafe compiler directory");
+    }
+    const info = await lstat(executable);
+    if (!info.isFile() || info.isSymbolicLink() || await realpath(executable) !== executable) throw new Error("unsafe compiler executable");
+    await access(executable, constants.X_OK);
+    const result = await runner({
+      command: executable, args: ["--version"], timeoutMs: 10_000, maxOutputBytes: 65_536,
+      env: { NODE_ENV: "production", PATH: "/usr/bin:/bin", HOME: toolHome, TMPDIR: "/tmp", LANG: "C.UTF-8", LC_ALL: "C.UTF-8" },
+    });
+    const reported = `${result.stdout}\n${result.stderr}`.match(/Version:\s*(\d+\.\d+\.\d+)/i)?.[1];
+    if (result.exitCode !== 0 || reported !== options.version) throw new Error("compiler version mismatch");
+    return { version: options.version, executablePath: executable };
+  } catch (error) {
+    if (error instanceof TrustedVerificationCompilerError) throw error;
+    throw new TrustedVerificationCompilerError(`Trusted Solidity compiler ${options.version} is unavailable or invalid.`);
+  }
+}
 
 export async function findExecutableOnPath(command: string, environmentPath: string | undefined): Promise<string | null> {
   for (const directory of (environmentPath ?? "").split(path.delimiter).filter(Boolean)) {

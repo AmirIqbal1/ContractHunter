@@ -1,6 +1,23 @@
 services:
+  contracthunter-data-init:
+    build:
+      context: .
+      target: data-initializer
+    network_mode: "none"
+    user: "10001:10001"
+    volumes:
+      - contracthunter-data:/data
+    read_only: true
+    restart: "no"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
   contracthunter:
-    build: .
+    build:
+      context: .
+      target: runner
     ports:
       - "3000:3000"
     environment:
@@ -15,6 +32,7 @@ services:
       MAX_SOLC_VERSIONS_PER_SCAN: 8
       ALLOW_COMPILER_DOWNLOADS: "true"
       TOOL_HOME_DIR: /data/tool-home
+      VERIFICATION_ROOT: /verification
       DEPENDENCY_PREP_TIMEOUT_MS: 300000
       MAX_DEPENDENCY_OUTPUT_BYTES: 20971520
       MAX_SUBMODULE_DEPTH: 5
@@ -42,6 +60,10 @@ services:
       AI_VERIFICATION_PLAN_MAX_FILES: ${AI_VERIFICATION_PLAN_MAX_FILES:-12}
     volumes:
       - contracthunter-data:/data
+      - verification-workspaces:/verification
+      - verification-ipc:/run/contracthunter-verification
+    depends_on:
+      - verification-worker
     init: true
     restart: unless-stopped
     security_opt:
@@ -49,5 +71,39 @@ services:
     cap_drop:
       - ALL
 
+  verification-worker:
+    build:
+      context: .
+      target: verification-worker-runtime
+    network_mode: "none"
+    depends_on:
+      contracthunter-data-init:
+        condition: service_completed_successfully
+    user: "10002:10001"
+    environment:
+      NODE_ENV: production
+    volumes:
+      - type: volume
+        source: contracthunter-data
+        target: /data/tool-home
+        read_only: true
+        volume:
+          subpath: tool-home
+      - verification-workspaces:/verification
+      - verification-ipc:/run/contracthunter-verification
+    tmpfs:
+      - /tmp:size=67108864,mode=1770,uid=10002,gid=10001
+      - /home/contracthunter:size=33554432,mode=0700,uid=10002,gid=10001
+    init: true
+    restart: unless-stopped
+    read_only: true
+    pids_limit: 64
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
 volumes:
   contracthunter-data:
+  verification-workspaces:
+  verification-ipc:

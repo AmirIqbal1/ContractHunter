@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { verificationHarnessManifestSchema, verificationHarnessPlanSchema, type VerificationHarnessPlan } from "@contracthunter/core";
 import {
-  VerificationHarnessGenerationError, VerificationHarnessGenerator, VerificationWorkspaceBuildError, VerificationWorkspaceBuilder,
+  VerificationHarnessGenerator, VerificationWorkspaceBuildError, VerificationWorkspaceBuilder,
   createContractHunterFoundryConfig, sha256Bytes, validateVerificationWorkspaceIntegrity,
 } from "./index";
 
@@ -27,6 +27,27 @@ function plan(overrides: Partial<VerificationHarnessPlan> = {}): VerificationHar
     expectedProperty: "Calling increment changes count from zero to one.", verificationSteps: ["Deploy Counter.", "Call increment.", "Read count."],
     operations: [{ kind: "deploy", contractName: "Counter", instanceName: "target" }, { kind: "call", instanceName: "target", functionName: "increment" }, { kind: "read-uint", instanceName: "target", functionName: "count", resultName: "observed" }],
     assertions: [{ id: "count-is-one", kind: "uint-eq", actual: "observed", expected: "1", expectedOutcome: "hypothesis-supported", description: "The count changed to one." }], ...overrides,
+  });
+}
+
+function accessControlPlan(contractName = "BrokenAccessControl"): VerificationHarnessPlan {
+  return verificationHarnessPlanSchema.parse({
+    scanId, hypothesisId, resolvedCommit, compilerVersion: "0.8.24", primaryContract: contractName, primarySourcePath: `contracts/${contractName}.sol`,
+    relevantFunctions: ["setOwner", "owner", "withdraw"], sourceFiles: [`contracts/${contractName}.sol`], actors: ["deployer", "attacker"],
+    verificationGoal: "Determine whether an unauthenticated actor can replace owner and use the owner-gated withdrawal.", expectedProperty: "Only the current owner can replace owner.", verificationSteps: ["Deploy and fund the target.", "Attempt owner replacement as attacker.", "Observe owner and withdrawal state."],
+    operations: [
+      { kind: "deploy", contractName, instanceName: "target" },
+      { kind: "fund", target: { kind: "instance", name: "target" }, amountWei: "1000000000000000000" },
+      { kind: "read-address", instanceName: "target", functionName: "owner", resultName: "ownerBefore" },
+      { kind: "call", instanceName: "target", functionName: "setOwner", caller: "attacker", args: [{ kind: "address", source: "actor", name: "attacker" }] },
+      { kind: "read-address", instanceName: "target", functionName: "owner", resultName: "ownerAfter" },
+      { kind: "call", instanceName: "target", functionName: "withdraw", caller: "attacker", args: [] },
+      { kind: "read-balance", target: { kind: "instance", name: "target" }, resultName: "targetBalance" },
+    ],
+    assertions: [
+      { id: "attacker-controls-owner", kind: "address-eq", actual: "ownerAfter", expected: { kind: "address", source: "actor", name: "attacker" }, expectedOutcome: "hypothesis-supported", description: "The unauthorized attacker becomes the observed owner." },
+      { id: "attacker-drains-target", kind: "uint-eq", actual: "targetBalance", expected: "0", expectedOutcome: "hypothesis-supported", description: "The target native balance is zero after attacker withdrawal." },
+    ],
   });
 }
 
@@ -81,9 +102,20 @@ describe("structured harness generation", () => {
 
   it("cannot emit prohibited capability calls", () => {
     for (const functionName of ["ffi", "createFork", "selectFork", "readFile", "writeFile", "envUint", "broadcast", "startBroadcast", "deriveKey"]) {
-      const unsafe = plan({ relevantFunctions: [functionName, "count"], operations: [{ kind: "deploy", contractName: "Counter", instanceName: "target" }, { kind: "call", instanceName: "target", functionName }, { kind: "read-uint", instanceName: "target", functionName: "count", resultName: "observed" }] });
-      expect(() => new VerificationHarnessGenerator().generate(unsafe)).toThrow(VerificationHarnessGenerationError);
+      const unsafe = { ...plan(), relevantFunctions: [functionName, "count"], operations: [{ kind: "deploy", contractName: "Counter", instanceName: "target" }, { kind: "call", instanceName: "target", functionName }, { kind: "read-uint", instanceName: "target", functionName: "count", resultName: "observed" }] } as VerificationHarnessPlan;
+      expect(() => new VerificationHarnessGenerator().generate(unsafe)).toThrow();
     }
+  });
+
+  it("deterministically renders the BrokenAccessControl actor, funding, address, and balance proof", () => {
+    const generator = new VerificationHarnessGenerator(); const first = generator.generate(accessControlPlan()); const second = generator.generate(accessControlPlan());
+    expect(first).toBe(second);
+    expect(first).toContain("address actor_deployer = address(this);"); expect(first).toContain("address actor_attacker = address(uint160(4098));");
+    expect(first).toContain("vm.deal(address(target), 1000000000000000000);"); expect(first).toContain("vm.prank(actor_attacker);");
+    expect(first).toContain("target.setOwner(actor_attacker);"); expect(first).toContain("address ownerAfter = target.owner();");
+    expect(first).toContain('require(ownerAfter == actor_attacker, "CH_ASSERT_0");'); expect(first).toContain("target.withdraw();");
+    expect(first).toContain("uint256 targetBalance = address(target).balance;"); expect(first).toContain('require(targetBalance == 0, "CH_ASSERT_1");');
+    expect(first).not.toMatch(/ffi|createFork|selectFork|readFile|writeFile|env[A-Z]|broadcast|deriveKey|private key|rpc/i);
   });
 });
 

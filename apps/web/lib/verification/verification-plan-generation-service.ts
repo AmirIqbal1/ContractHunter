@@ -3,7 +3,8 @@ import path from "node:path";
 import {
   VERIFICATION_PLAN_PROMPT_VERSION, VERIFICATION_PLAN_SYSTEM_PROMPT, VerificationPlanContextBuilder, loadConfig,
   repositorySolidityPathSchema, sourceEvidenceSchema, stableCompilerVersionSchema, validateEvidence,
-  verificationPlanProposalSchema, type VerificationHarnessPlan, type VerificationPlanGenerationResult,
+  verificationHarnessPlanSchema, verificationPlanProposalSchema, type VerificationHarnessPlan, type VerificationPlanGenerationResult,
+  type VerificationPlanGenerationFailureCode,
   type VerificationPlanProvider, type VerificationPlanProviderResult,
 } from "@contracthunter/core";
 import {
@@ -20,12 +21,47 @@ export class VerificationPlanGenerationError extends Error {
 export type VerificationPlanGenerationServiceOptions = {
   database: DatabaseClient; repositoryRoot: string; provider: VerificationPlanProvider; requestedModel: string;
   timeoutMs: number; maxSourceBytes: number; maxFiles: number; maxFileBytes: number; now?: () => Date;
+  logger?: (event: { hypothesisId: string; scanId: string; promptVersion: string; category: VerificationPlanGenerationFailureCode; reason: string }) => void;
 };
 
 type Evidence = { filePath: string; contract: string | null; functionName: string | null; startLine: number | null; endLine: number | null };
 const parse = <T,>(value: string, fallback: T): T => { try { return JSON.parse(value) as T; } catch { return fallback; } };
 const escape = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const solidityStructure = (value: string) => value.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\r\n]*/g, " ").replace(/"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/g, "");
+
+type StaticPlanFailureCode = Exclude<VerificationPlanGenerationFailureCode, "plan_generation_failed" | "ambiguous_trusted_compiler" | "invalid_provider_proposal">;
+class StaticPlanValidationError extends Error {
+  constructor(readonly code: StaticPlanFailureCode, readonly reason: string) { super(reason); this.name = "StaticPlanValidationError"; }
+}
+const reject = (code: StaticPlanFailureCode, reason: string): never => { throw new StaticPlanValidationError(code, reason); };
+const signatureKind = (parameter: string): "address" | "uint" | "bool" | null => {
+  const tokens = parameter.trim().split(/\s+/).filter(Boolean);
+  const hasUnsupportedLocation = tokens.some((token) => ["calldata", "memory", "storage"].includes(token));
+  if (tokens[0] === "address") {
+    if (hasUnsupportedLocation) return null;
+    return "address";
+  }
+  if ((tokens[0] === "uint" || tokens[0] === "uint256") && !hasUnsupportedLocation) return "uint";
+  if (tokens[0] === "bool" && !hasUnsupportedLocation) return "bool";
+  return null;
+};
+const parameterKinds = (parameters: string): Array<"address" | "uint" | "bool"> | null => {
+  if (!parameters.trim()) return [];
+  const result = parameters.split(",").map(signatureKind);
+  return result.some((kind) => kind === null) ? null : result as Array<"address" | "uint" | "bool">;
+};
+const returnKind = (suffix: string): "address" | "uint" | "bool" | null => {
+  const match = /\breturns\s*\(([^)]*)\)/.exec(suffix);
+  if (!match) return null;
+  const kinds = parameterKinds(match[1]);
+  return kinds?.length === 1 ? kinds[0] : null;
+};
+
+function logRejection(options: VerificationPlanGenerationServiceOptions, hypothesisId: string, scanId: string, category: VerificationPlanGenerationFailureCode, reason: string): void {
+  const event = { hypothesisId, scanId, promptVersion: VERIFICATION_PLAN_PROMPT_VERSION, category, reason: reason.slice(0, 96) };
+  if (options.logger) options.logger(event);
+  else console.warn("[verification-plan] proposal rejected", event);
+}
 
 function acceptedCompilers(raw: string | null): string[] {
   const parsed = stableCompilerVersionSchema.array().min(1).max(32).safeParse(parse(raw ?? "null", null));
@@ -65,28 +101,66 @@ function provenance(options: VerificationPlanGenerationServiceOptions, context: 
 }
 
 async function validateStaticPlan(plan: VerificationHarnessPlan, repositoryPath: string, allowlist: Set<string>): Promise<void> {
-  if (plan.sourceFiles.some((file) => !allowlist.has(file)) || !allowlist.has(plan.primarySourcePath)) throw new Error("source_not_allowlisted");
+  if (plan.sourceFiles.some((file) => !allowlist.has(file)) || !allowlist.has(plan.primarySourcePath)) reject("invalid_plan_source", "source_not_allowlisted");
   const sources = new Map<string, string>();
   for (const file of plan.sourceFiles) {
-    const expected = path.join(repositoryPath, file); const info = await lstat(expected); const real = await realpath(expected);
-    if (!info.isFile() || info.isSymbolicLink() || real !== expected || !real.startsWith(`${repositoryPath}${path.sep}`)) throw new Error("source_no_longer_safe");
-    sources.set(file, solidityStructure(await readFile(real, "utf8")));
+    const expected = path.join(repositoryPath, file);
+    try {
+      const info = await lstat(expected); const real = await realpath(expected);
+      if (!info.isFile() || info.isSymbolicLink() || real !== expected || !real.startsWith(`${repositoryPath}${path.sep}`)) reject("invalid_plan_source", "source_no_longer_safe");
+      sources.set(file, solidityStructure(await readFile(real, "utf8")));
+    } catch (error) {
+      if (error instanceof StaticPlanValidationError) throw error;
+      reject("invalid_plan_source", "source_unavailable");
+    }
   }
   const primary = sources.get(plan.primarySourcePath)!;
-  if (!new RegExp(`\\b(?:contract|library)\\s+${escape(plan.primaryContract)}\\b`).test(primary)) throw new Error("primary_contract_not_found");
-  if ([...primary.matchAll(/\bconstructor\s*\(([^)]*)\)/g)].some((match) => match[1].trim())) throw new Error("constructor_arguments_unsupported");
+  if (!new RegExp(`\\b(?:contract|library)\\s+${escape(plan.primaryContract)}\\b`).test(primary)) reject("invalid_plan_source", "primary_contract_not_found");
+  if ([...primary.matchAll(/\bconstructor\s*\(([^)]*)\)/g)].some((match) => match[1].trim())) reject("unsupported_function_signature", "constructor_arguments_unsupported");
   const combined = [...sources.values()].join("\n");
-  const hasUintGetter = (functionName: string) => new RegExp(`\\buint(?:256)?\\s+public\\s+(?:override\\s+)?${escape(functionName)}\\b`).test(combined);
-  for (const functionName of plan.relevantFunctions) if (!new RegExp(`\\bfunction\\s+${escape(functionName)}\\s*\\(`).test(combined) && !hasUintGetter(functionName)) throw new Error("function_not_found");
-  for (const operation of plan.operations) {
-    if (operation.kind === "deploy") continue;
-    const signatures = [...combined.matchAll(new RegExp(`\\bfunction\\s+${escape(operation.functionName)}\\s*\\(([^)]*)\\)([^;{]*)`, "g"))];
-    const zeroArgument = signatures.filter((match) => !match[1].trim());
-    if (!zeroArgument.length && !(operation.kind === "read-uint" && hasUintGetter(operation.functionName))) throw new Error("function_arguments_unsupported");
-    if (operation.kind === "read-uint" && !hasUintGetter(operation.functionName) && !zeroArgument.some((match) => /\breturns\s*\(\s*uint(?:256)?\b/.test(match[2]))) throw new Error("unsupported_return_type");
+  const hasExplicitFunction = (functionName: string) => new RegExp(`\\bfunction\\s+${escape(functionName)}\\s*\\(`).test(combined);
+  const hasPublicGetter = (kind: "uint" | "address", functionName: string) => {
+    const type = kind === "uint" ? "uint(?:256)?" : "address(?:\\s+payable)?";
+    const identifier = /^[A-Za-z_][A-Za-z0-9_]*$/;
+    return identifier.test(functionName) && [...combined.matchAll(new RegExp(`\\b${type}\\s+([^;{}]+);`, "g"))].some((match) => {
+      const declaration = match[1].split("=", 1)[0].trim().split(/\s+/).filter(Boolean);
+      return declaration.includes("public") && declaration.at(-1) === functionName;
+    });
+  };
+  const hasPublicUintGetter = (functionName: string) => hasPublicGetter("uint", functionName);
+  const hasPublicAddressGetter = (functionName: string) => hasPublicGetter("address", functionName);
+  const hasSupportedRelevantFunction = (functionName: string) => hasExplicitFunction(functionName) || hasPublicUintGetter(functionName) || hasPublicAddressGetter(functionName);
+  for (const functionName of plan.relevantFunctions) {
+    if (!hasSupportedRelevantFunction(functionName)) reject("invalid_function_signature", "relevant_function_not_found");
   }
-  if (plan.assertions.some((assertion) => assertion.description.trim().length < 12 || /^(?:check|test|assert|verify)(?: it)?[.!]?$/i.test(assertion.description.trim()))) throw new Error("vague_assertion");
-  new VerificationHarnessGenerator().generate(plan);
+  for (const operation of plan.operations) {
+    if (operation.kind === "deploy" || operation.kind === "fund" || operation.kind === "read-balance") continue;
+    const signatures = [...combined.matchAll(new RegExp(`\\bfunction\\s+${escape(operation.functionName)}\\s*\\(([^)]*)\\)([^;{]*)`, "g"))];
+    const expectedArguments = operation.kind === "call" ? (operation.args ?? []).map((argument) => argument.kind) : [];
+    const supported = signatures.map((match) => ({ match, kinds: parameterKinds(match[1]) }));
+    const matching = supported.filter(({ kinds }) => {
+      return kinds !== null && kinds.length === expectedArguments.length && kinds.every((kind, index) => kind === expectedArguments[index]);
+    });
+    const getterKind = operation.kind === "read-uint" ? "uint" : operation.kind === "read-address" ? "address" : null;
+    const getters = getterKind === "uint" ? Number(hasPublicUintGetter(operation.functionName)) : getterKind === "address" ? Number(hasPublicAddressGetter(operation.functionName)) : 0;
+    const incompatibleGetters = operation.kind === "read-uint" ? Number(hasPublicAddressGetter(operation.functionName)) : operation.kind === "read-address" ? Number(hasPublicUintGetter(operation.functionName)) : 0;
+    if (!signatures.length && !getters && incompatibleGetters) reject("unsupported_function_signature", "unsupported_return_type");
+    if (!signatures.length && !getters) reject("invalid_function_signature", "function_not_found");
+    if (supported.some(({ kinds }) => kinds === null) && !matching.length && !getters) reject("unsupported_function_signature", "unsupported_parameter_type");
+    if (!matching.length && !getters) reject("invalid_function_signature", "argument_shape_mismatch");
+    if (operation.kind === "call") {
+      if (matching.length !== 1) reject("invalid_function_signature", "ambiguous_function_signature");
+      continue;
+    }
+    const expectedReturn = operation.kind === "read-address" ? "address" : "uint";
+    const returnMatches = matching.filter(({ match }) => returnKind(match[2]) === expectedReturn);
+    const compatibleTargets = getters + returnMatches.length;
+    if (!compatibleTargets) reject("unsupported_function_signature", "unsupported_return_type");
+    if (compatibleTargets !== 1) reject("invalid_function_signature", "ambiguous_function_signature");
+  }
+  if (plan.assertions.some((assertion) => assertion.description.trim().length < 12 || /^(?:check|test|assert|verify)(?: it)?[.!]?$/i.test(assertion.description.trim()))) reject("invalid_harness_plan", "vague_assertion");
+  try { new VerificationHarnessGenerator().generate(plan); }
+  catch { reject("invalid_harness_plan", "harness_generation_rejected"); }
 }
 
 export class VerificationPlanGenerationService {
@@ -114,30 +188,59 @@ export class VerificationPlanGenerationService {
       const parsed = sourceEvidenceSchema.safeParse(item); if (parsed.success && repositorySolidityPathSchema.safeParse(parsed.data.filePath).success && validateEvidence(repositoryPath, parsed.data).valid) extraEvidence.push(parsed.data);
     }
     const context = new VerificationPlanContextBuilder({ maxSourceBytes: this.options.maxSourceBytes, maxFiles: this.options.maxFiles, maxFileBytes: this.options.maxFileBytes }).build(repositoryPath, [...new Set([...evidence, ...extraEvidence].map((item) => item.filePath))], {
-      identity: { hypothesisId: hypothesis.id, scanId: scan.id, resolvedCommit: scan.resolvedCommit, acceptedCompilerVersions: compilers },
+      trustedCompilerVersions: compilers,
       hypothesis: { title: hypothesis.title, category: hypothesis.category, summary: hypothesis.summary, rootCause: hypothesis.rootCause, preconditions: parse(hypothesis.preconditions, []), attackPath: parse(hypothesis.attackPath, []), impact: hypothesis.impact, affectedContracts: parse(hypothesis.affectedContracts, []), affectedFunctions: parse(hypothesis.affectedFunctions, []), evidence, verificationStrategy: parse(hypothesis.verificationStrategy, []) },
       protocol: { name: analysis.protocolName, types: parse(analysis.protocolTypes, []), summary: analysis.summary, architectureSummary: analysis.architectureSummary, limitations: parse(analysis.limitations, []) },
       invariants: invariants.map((item) => item && ({ id: item.id, title: item.title, description: item.description, relatedContracts: parse(item.relatedContracts, []), relatedFunctions: parse(item.relatedFunctions, []), testability: item.testability })),
       investigations: investigations.map((item) => item && ({ id: item.id, title: item.title, category: item.category, summary: parse(item.reasons, []), contract: item.primaryContract, functionName: item.primaryFunction, filePath: item.primaryFilePath })),
     });
     if (!context.manifest.files.length) throw new VerificationPlanGenerationError("missing_context", "No bounded source context is available for verification planning.");
-    const started = Date.now(); let response: VerificationPlanProviderResult;
+    const started = Date.now();
+    if (compilers.length !== 1) {
+      logRejection(this.options, hypothesis.id, scan.id, "ambiguous_trusted_compiler", "multiple_trusted_compilers_without_source_mapping");
+      return { status: "failed", plan: null, rationale: null, limitations: [], notPlannableReasons: [], failureCode: "ambiguous_trusted_compiler", provenance: provenance(this.options, context, null, started) };
+    }
+    const trustedCompilerVersion = compilers[0];
+    let response: VerificationPlanProviderResult;
     try {
       response = await this.options.provider.generateVerificationPlan({ model: this.options.requestedModel, promptVersion: VERIFICATION_PLAN_PROMPT_VERSION, systemPrompt: VERIFICATION_PLAN_SYSTEM_PROMPT, context, timeoutMs: this.options.timeoutMs });
     } catch {
+      logRejection(this.options, hypothesis.id, scan.id, "plan_generation_failed", "provider_request_failed");
       return { status: "failed", plan: null, rationale: null, limitations: [], notPlannableReasons: [], failureCode: "plan_generation_failed", provenance: provenance(this.options, context, null, started) };
     }
     const proposal = verificationPlanProposalSchema.safeParse(response.proposal);
-    if (!proposal.success) return { status: "failed", plan: null, rationale: null, limitations: [], notPlannableReasons: [], failureCode: "invalid_plan_proposal", provenance: provenance(this.options, context, response, started) };
-    if (proposal.data.status === "not_plannable") return { ...proposal.data, failureCode: null, provenance: provenance(this.options, context, response, started) };
+    if (!proposal.success) {
+      logRejection(this.options, hypothesis.id, scan.id, "invalid_provider_proposal", "provider_schema_rejected");
+      return { status: "failed", plan: null, rationale: null, limitations: [], notPlannableReasons: [], failureCode: "invalid_provider_proposal", provenance: provenance(this.options, context, response, started) };
+    }
+    if (proposal.data.status === "not_plannable") return {
+      status: "not_plannable", plan: null, rationale: proposal.data.rationale, limitations: proposal.data.limitations,
+      notPlannableReasons: proposal.data.notPlannableReasons, failureCode: null, provenance: provenance(this.options, context, response, started),
+    };
+    const generatedPlan = proposal.data.plan!;
+    const parsedPlan = verificationHarnessPlanSchema.safeParse({
+        ...generatedPlan,
+        scanId: scan.id,
+        hypothesisId: hypothesis.id,
+        resolvedCommit: scan.resolvedCommit,
+        compilerVersion: trustedCompilerVersion,
+        operations: generatedPlan.operations.map((operation) => operation.kind === "call"
+          ? { ...operation, caller: operation.caller ?? undefined }
+          : operation),
+      });
+    if (!parsedPlan.success) {
+      logRejection(this.options, hypothesis.id, scan.id, "invalid_harness_plan", "runtime_plan_schema_rejected");
+      return { status: "failed", plan: null, rationale: null, limitations: [], notPlannableReasons: [], failureCode: "invalid_harness_plan", provenance: provenance(this.options, context, response, started) };
+    }
+    const plan = parsedPlan.data;
     try {
-      const plan = proposal.data.plan!;
-      if (plan.hypothesisId !== hypothesis.id || plan.scanId !== scan.id || plan.resolvedCommit !== scan.resolvedCommit || !compilers.includes(plan.compilerVersion)) throw new Error("persisted_identity_mismatch");
       await validateStaticPlan(plan, repositoryPath, new Set(context.manifest.files.map((file) => file.path)));
       const limitations = [...proposal.data.limitations, ...(context.manifest.truncated ? ["The bounded source context was truncated; review the proposal against the repository before execution."] : [])];
       return { ...proposal.data, plan, limitations, failureCode: null, provenance: provenance(this.options, context, response, started) };
-    } catch {
-      return { status: "failed", plan: null, rationale: null, limitations: [], notPlannableReasons: [], failureCode: "invalid_plan_proposal", provenance: provenance(this.options, context, response, started) };
+    } catch (error) {
+      const rejection = error instanceof StaticPlanValidationError ? error : new StaticPlanValidationError("invalid_harness_plan", "unexpected_static_validation_failure");
+      logRejection(this.options, hypothesis.id, scan.id, rejection.code, rejection.reason);
+      return { status: "failed", plan: null, rationale: null, limitations: [], notPlannableReasons: [], failureCode: rejection.code, provenance: provenance(this.options, context, response, started) };
     }
   }
 }

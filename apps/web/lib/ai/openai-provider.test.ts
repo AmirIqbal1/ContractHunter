@@ -41,12 +41,14 @@ describe("OpenAI Responses provider", () => {
   });
 
   it("generates verification proposals with one tool-free structured request and no provider-internal retry", async () => {
-    const proposal = { status: "not_plannable", plan: null, rationale: "Function arguments are required.", limitations: ["The harness supports zero-argument calls only."], notPlannableReasons: ["function_arguments_unsupported"] };
+    const proposal = { status: "not_plannable", plan: null, rationale: "A bytes argument is required.", limitations: ["Bytes arguments are outside the structured harness."], notPlannableReasons: ["unsupported_function_argument_type"] };
     const parse = vi.fn().mockResolvedValue({ output_parsed: proposal, model: "actual-plan-model", _request_id: "plan-request", usage: { input_tokens: 40, output_tokens: 15, total_tokens: 55 } });
     const provider = new OpenAIProvider("server-only-key", { responses: { parse } } as unknown as OpenAI);
-    const result = await provider.generateVerificationPlan({ model: "configured-model", promptVersion: "verification-plan-v1", systemPrompt: VERIFICATION_PLAN_SYSTEM_PROMPT, context: { content: input.context.content, manifest: { files: [], totalSourceBytes: 0, omittedFileCount: 0, truncated: false, approximateInputBytes: 10 } }, timeoutMs: 1000 });
+    const result = await provider.generateVerificationPlan({ model: "configured-model", promptVersion: "verification-plan-v4", systemPrompt: VERIFICATION_PLAN_SYSTEM_PROMPT, context: { content: input.context.content, manifest: { files: [], totalSourceBytes: 0, omittedFileCount: 0, truncated: false, approximateInputBytes: 10 } }, timeoutMs: 1000 });
     expect(result).toMatchObject({ actualModel: "actual-plan-model", totalTokens: 55, proposal }); const request = parse.mock.calls[0][0]; expect(request.tools).toEqual([]); expect(request.store).toBe(false); expect(request.text.format.type).toBe("json_schema"); expect(JSON.stringify(request)).not.toContain("server-only-key");
+    const schema = JSON.stringify(request.text.format); for (const field of ["actors", "caller", "args", "read-address", "read-balance", "fund", "address-eq", "address-not-eq"]) expect(schema).toContain(field);
+    for (const serverOwned of ["scanId", "hypothesisId", "resolvedCommit", "compilerVersion"]) expect(schema).not.toContain(serverOwned);
     const failed = vi.fn().mockRejectedValue(new OpenAISDK.APIConnectionError({ message: "temporary" }));
-    await expect(new OpenAIProvider("key", { responses: { parse: failed } } as unknown as OpenAI).generateVerificationPlan({ model: "model", promptVersion: "verification-plan-v1", systemPrompt: VERIFICATION_PLAN_SYSTEM_PROMPT, context: { content: input.context.content, manifest: { files: [], totalSourceBytes: 0, omittedFileCount: 0, truncated: false, approximateInputBytes: 10 } }, timeoutMs: 1000 })).rejects.toThrow("temporary"); expect(failed).toHaveBeenCalledTimes(1);
+    await expect(new OpenAIProvider("key", { responses: { parse: failed } } as unknown as OpenAI).generateVerificationPlan({ model: "model", promptVersion: "verification-plan-v4", systemPrompt: VERIFICATION_PLAN_SYSTEM_PROMPT, context: { content: input.context.content, manifest: { files: [], totalSourceBytes: 0, omittedFileCount: 0, truncated: false, approximateInputBytes: 10 } }, timeoutMs: 1000 })).rejects.toThrow("temporary"); expect(failed).toHaveBeenCalledTimes(1);
   });
 });

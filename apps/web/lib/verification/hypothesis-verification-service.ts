@@ -7,7 +7,7 @@ import {
   type DatabaseClient, type HypothesisVerificationRunRow,
 } from "@contracthunter/db";
 import {
-  FoundryVerificationRunner, VerificationWorkspaceBuilder, interpretVerificationResult, validateVerificationWorkspaceIntegrity,
+  VerificationWorkerClient, VerificationWorkspaceBuilder, interpretVerificationResult, validateVerificationWorkspaceIntegrity,
   type BuiltVerificationWorkspace, type FoundryVerificationInput, type FoundryVerificationResult,
 } from "@contracthunter/scanners";
 
@@ -110,7 +110,7 @@ export class HypothesisVerificationService {
       built = await this.options.workspaceBuilder(bound.compilers).build({ verificationRunId: run.id, repositoryPath: bound.repositoryPath, plan: bound.plan });
       const validatedManifest = await this.validateIntegrity(built.workspacePath);
       if (JSON.stringify(validatedManifest) !== JSON.stringify(built.manifest)) throw new Error("workspace_manifest_mismatch");
-      result = await this.options.runner.run({ workspacePath: built.workspacePath, scanId: bound.plan.scanId, hypothesisId, resolvedCommit: bound.plan.resolvedCommit, timeoutMs: this.options.timeoutMs, maxOutputBytes: this.options.maxOutputBytes });
+      result = await this.options.runner.run({ workspacePath: built.workspacePath, scanId: bound.plan.scanId, hypothesisId, resolvedCommit: bound.plan.resolvedCommit, compilerVersion: bound.plan.compilerVersion, timeoutMs: this.options.timeoutMs, maxOutputBytes: this.options.maxOutputBytes });
       const interpretation = interpretVerificationResult(bound.plan, result);
       const semanticAssertionFailure = result.status === "failed" && result.errorCode === "forge_failed" && interpretation.dynamicEvidence.some((item) => item.direction !== "neutral");
       if (result.status === "refused" || result.timedOut || (result.status === "failed" && !semanticAssertionFailure)) {
@@ -141,8 +141,8 @@ export class HypothesisVerificationService {
 }
 
 export function createLocalHypothesisVerificationService(database: DatabaseClient = getDatabase()): HypothesisVerificationService {
-  const config = loadConfig(); const verificationRoot = path.join(config.DATA_DIR, "verifications"); const temporaryDirectory = path.join(config.DATA_DIR, "verification-tmp");
-  const runner = new FoundryVerificationRunner({ verificationRoot, repositoryRoot: config.REPOSITORY_DIR, toolHomeDir: config.TOOL_HOME_DIR, temporaryDirectory, executablePath: process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin" });
+  const config = loadConfig(); const verificationRoot = process.env.VERIFICATION_ROOT ?? path.join(config.DATA_DIR, "verifications");
+  const runner = new VerificationWorkerClient(verificationRoot);
   return new HypothesisVerificationService({
     database, repositoryRoot: config.REPOSITORY_DIR, timeoutMs: 300_000, maxOutputBytes: config.SCANNER_MAX_OUTPUT_BYTES, runner,
     workspaceBuilder: (acceptedCompilerVersions) => new VerificationWorkspaceBuilder({ verificationRoot, repositoryRoot: config.REPOSITORY_DIR, acceptedCompilerVersions, approvedSourceRoots: ["src", "contracts", "lib", "node_modules"], generatorVersion: "0.1.0" }),
