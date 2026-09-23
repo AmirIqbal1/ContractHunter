@@ -1,4 +1,19 @@
 services:
+  contracthunter-data-init:
+    build:
+      context: .
+      target: data-initializer
+    network_mode: "none"
+    user: "10001:10001"
+    volumes:
+      - contracthunter-data:/data
+    read_only: true
+    restart: "no"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
   contracthunter:
     build:
       context: .
@@ -61,6 +76,9 @@ services:
       context: .
       target: verification-worker-runtime
     network_mode: "none"
+    depends_on:
+      contracthunter-data-init:
+        condition: service_completed_successfully
     user: "10002:10001"
     environment:
       NODE_ENV: production

@@ -6,6 +6,7 @@ packages/core     Domain models, Zod schemas, configuration, safety rules
 packages/db       Drizzle schema and SQLite repository functions
 packages/scanners Dependency/compiler managers, scanners, parsers, workspace builder, worker protocol
 docker/verification-worker.ts  Networkless deterministic Forge controller
+contracthunter-data-init       One-shot, networkless tool-home directory initialization
 data volume       SQLite, cloned repositories, trusted compiler cache
 verification-workspaces volume  Generated harnesses only
 verification-ipc volume         Group-restricted Unix socket only
@@ -20,4 +21,4 @@ UI/API → runner → repository preparation → compiler resolution
                  → hypotheses → optional plan → explicit local verification
 ```
 
-The scanning runner is intentionally small and single-instance; interrupted jobs are marked failed after restart. Static scanning is completed before optional AI stages. For verification, the web service validates persisted evidence, copies an allowlisted source closure, generates a deterministic Foundry harness/configuration, validates hashes, and sends bounded identifiers to the worker over a Unix-domain socket. The worker revalidates the workspace and trusted compiler, then executes fixed Forge arguments under `prlimit` without networking. It returns execution facts only. The web interpreter creates dynamic evidence and applies the hypothesis lifecycle rules. There is no Docker socket, dynamic container creation, or nested Bubblewrap execution.
+The scanning runner is intentionally small and single-instance; interrupted jobs are marked failed after restart. Static scanning is completed before optional AI stages. A one-shot, non-root data initializer ensures the trusted-cache directory is usable before the worker starts, including when Compose pre-creates an empty root-owned subpath during container creation. For verification, the web service validates persisted evidence, copies an allowlisted source closure, generates a deterministic Foundry harness/configuration, validates hashes, and sends bounded identifiers to the worker over a Unix-domain socket. The worker revalidates the workspace and trusted compiler, then executes fixed Forge arguments under `prlimit` without networking. It returns execution facts only. The web interpreter creates dynamic evidence and applies the hypothesis lifecycle rules. There is no Docker socket, dynamic container creation, or nested Bubblewrap execution.

@@ -30,7 +30,8 @@ Prerequisites: Docker and Docker Compose.
 
 ```bash
 cp .env.example .env
-docker compose up --build
+docker compose build
+docker compose up -d
 ```
 
 `OPENAI_API_KEY` may remain empty unless AI features are wanted. Open <http://localhost:3000>. Health is available at <http://localhost:3000/api/health>.

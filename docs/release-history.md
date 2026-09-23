@@ -1,5 +1,13 @@
 # Release history
 
+## v0.1.9
+
+Broader structured verification plans now support actors and caller identity, typed arguments, address reads/assertions, bounded local ETH funding and balance reads, and recognition of compatible public Solidity getters. ContractHunter supplies scan, hypothesis, commit, and compiler identity from trusted server state, reports more precise plan diagnostics, and generates a deterministic Foundry harness and configuration. The worker binds the exact scan-prepared compiler artifact and runs Forge offline under resource limits through a dedicated networkless container and bounded Unix-domain socket protocol. Web-owned deterministic interpretation produces dynamic evidence; only completed, confirmed runs with valid supporting evidence can transition a hypothesis to `verified`.
+
+The real BrokenAccessControl benchmark plan (`verification-plan-v4`) completed with trusted solc 0.8.36: one Forge test passed, four supporting dynamic evidence items were produced, and the hypothesis became `verified`. This demonstrates that case; it does not establish dynamic coverage of the other benchmark families. Hostile repository content remains data. Verification has no live RPC, wallets/private keys, FFI, arbitrary AI-generated commands, Docker socket, or network access, and fails closed when its worker, isolation, workspace, or trusted compiler is unavailable. Nested Bubblewrap and its custom Docker profiles were investigated during development, then retired before release.
+
+A one-shot, non-root data initializer prepares the trusted-cache directory before the worker starts on fresh Docker volumes, including an empty root-owned subpath Docker may create during container creation; it leaves populated compiler caches intact.
+
 ## v0.1.8.1
 
 Static-first scanning, optional/manual AI analysis and security review, background polling, cost/usage visibility, stale-scan recovery, improved progress state, Slither Foundry/Forge support, multi-scanner correlation, and duplicate-request safeguards. The production hunt-page Server/Client polling boundary is fixed. Verification remains explicit, deterministic, structured, and fail-closed.
@@ -27,9 +35,3 @@ Aderyn integration alongside Slither. Per-scanner failures were isolated and suc
 ## v0.1.3
 
 Safe preparation of pinned Git submodules and lockfile-backed npm dependencies. Lifecycle scripts and unsupported dependency sources were rejected.
-
-## Unreleased — v0.1.9 development
-
-Implemented structured local verification coverage: typed function arguments, explicit actors and caller identity, address reads/assertions, bounded local ETH funding, native balance observations, deterministic dynamic evidence, and backward-compatible historical plans. `BrokenAccessControl` is now structurally plannable. The verification-plan empty-body request bug fix is also present.
-
-v0.1.9 is not released. Compiler hardening resolves the exact scan-prepared solc-select artifact, verifies its version, and supplies it to offline Forge. Missing or invalid cache entries return `trusted_compiler_unavailable`; verification never downloads a compiler. Dynamic verification now runs in a dedicated networkless Docker worker with a strict Unix-socket protocol, read-only compiler-cache subpath, separate workspace volume, default Docker seccomp/AppArmor, and bounded `prlimit` execution. The previous nested Bubblewrap path and custom Docker profiles were removed. The saved BrokenAccessControl `verification-plan-v4` completed against trusted solc 0.8.36: one Forge test passed, four supporting dynamic evidence items were interpreted, and the hypothesis became verified.

@@ -1,12 +1,12 @@
 # Roadmap
 
-## v0.1.9 — current development
+## v0.1.9 — completed
 
-Implemented: typed function arguments, actors/caller identity, address reads/assertions, native ETH funding, native balance observations, and stronger structured access-control verification.
+Delivered: typed function arguments, actors/caller identity, address reads/assertions, native ETH funding, native balance observations, and stronger structured access-control verification through the networkless worker.
 
-Remaining before release: validate a real end-to-end `BrokenAccessControl` plan generation/validation flow against a scan-prepared compiler cache, attempt local verification where isolation permits, complete Docker smoke testing, and perform release hardening/version bump.
+The real BrokenAccessControl plan was validated and verified with trusted solc 0.8.36: one Forge test passed and supporting dynamic evidence changed the hypothesis to `verified`.
 
-## v0.2.0
+## v0.2.0 — next target
 
 Executable invariants, Foundry fuzzing, and stateful invariant testing.
 

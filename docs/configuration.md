@@ -55,4 +55,4 @@ AI_VERIFICATION_PLAN_MAX_FILES=12
 
 ## Local verification
 
-Verification requires the networkless Compose worker, its Unix socket, `prlimit`, Forge, and an already prepared trusted compiler in the read-only `tool-home` volume subpath. Missing worker or isolation fails closed; the web service never executes Forge as a fallback.
+Verification requires the networkless Compose worker, its Unix socket, `prlimit`, and Forge. Compose's one-shot data initializer creates an empty `tool-home` directory on a fresh volume before the worker starts; no compiler is needed at startup. A verification job needs a trusted compiler prepared by an earlier scan in that read-only worker mount. Missing worker, isolation, or requested cached compiler fails closed; the web service never executes Forge as a fallback.

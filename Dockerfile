@@ -1,3 +1,12 @@
+FROM debian:bookworm-slim AS data-initializer
+RUN mkdir -p /data/tool-home \
+  && chown 10001:10001 /data /data/tool-home \
+  && chmod 0755 /data /data/tool-home
+USER 10001:10001
+# Compose may pre-create an empty root-owned subpath while creating the worker.
+# rmdir fails closed if that directory contains any existing cache data.
+CMD ["sh", "-ec", "if [ -d /data/tool-home ] && [ ! -w /data/tool-home ]; then rmdir /data/tool-home; fi; mkdir -p /data/tool-home && test -d /data/tool-home && test -r /data/tool-home && test -w /data/tool-home && test -x /data/tool-home"]
+
 FROM node:22-bookworm-slim AS dependencies
 WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ && rm -rf /var/lib/apt/lists/*
