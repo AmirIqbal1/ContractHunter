@@ -11,7 +11,7 @@ import {
   getCurrentProtocolAnalysis, getDatabase, getInvestigation, getInvariant, getScan, getVulnerabilityHypothesis,
   type DatabaseClient, type VulnerabilityHypothesisRow,
 } from "@contracthunter/db";
-import { VerificationHarnessGenerator } from "@contracthunter/scanners";
+import { VerificationHarnessGenerator, SolidityFunctionValidationError, validateSolidityFunctionUses } from "@contracthunter/scanners";
 import { OpenAIProvider } from "@/lib/ai/openai-provider";
 
 export class VerificationPlanGenerationError extends Error {
@@ -26,37 +26,11 @@ export type VerificationPlanGenerationServiceOptions = {
 
 type Evidence = { filePath: string; contract: string | null; functionName: string | null; startLine: number | null; endLine: number | null };
 const parse = <T,>(value: string, fallback: T): T => { try { return JSON.parse(value) as T; } catch { return fallback; } };
-const escape = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-const solidityStructure = (value: string) => value.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\r\n]*/g, " ").replace(/"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/g, "");
-
 type StaticPlanFailureCode = Exclude<VerificationPlanGenerationFailureCode, "plan_generation_failed" | "ambiguous_trusted_compiler" | "invalid_provider_proposal">;
 class StaticPlanValidationError extends Error {
   constructor(readonly code: StaticPlanFailureCode, readonly reason: string) { super(reason); this.name = "StaticPlanValidationError"; }
 }
 const reject = (code: StaticPlanFailureCode, reason: string): never => { throw new StaticPlanValidationError(code, reason); };
-const signatureKind = (parameter: string): "address" | "uint" | "bool" | null => {
-  const tokens = parameter.trim().split(/\s+/).filter(Boolean);
-  const hasUnsupportedLocation = tokens.some((token) => ["calldata", "memory", "storage"].includes(token));
-  if (tokens[0] === "address") {
-    if (hasUnsupportedLocation) return null;
-    return "address";
-  }
-  if ((tokens[0] === "uint" || tokens[0] === "uint256") && !hasUnsupportedLocation) return "uint";
-  if (tokens[0] === "bool" && !hasUnsupportedLocation) return "bool";
-  return null;
-};
-const parameterKinds = (parameters: string): Array<"address" | "uint" | "bool"> | null => {
-  if (!parameters.trim()) return [];
-  const result = parameters.split(",").map(signatureKind);
-  return result.some((kind) => kind === null) ? null : result as Array<"address" | "uint" | "bool">;
-};
-const returnKind = (suffix: string): "address" | "uint" | "bool" | null => {
-  const match = /\breturns\s*\(([^)]*)\)/.exec(suffix);
-  if (!match) return null;
-  const kinds = parameterKinds(match[1]);
-  return kinds?.length === 1 ? kinds[0] : null;
-};
-
 function logRejection(options: VerificationPlanGenerationServiceOptions, hypothesisId: string, scanId: string, category: VerificationPlanGenerationFailureCode, reason: string): void {
   const event = { hypothesisId, scanId, promptVersion: VERIFICATION_PLAN_PROMPT_VERSION, category, reason: reason.slice(0, 96) };
   if (options.logger) options.logger(event);
@@ -108,55 +82,24 @@ async function validateStaticPlan(plan: VerificationHarnessPlan, repositoryPath:
     try {
       const info = await lstat(expected); const real = await realpath(expected);
       if (!info.isFile() || info.isSymbolicLink() || real !== expected || !real.startsWith(`${repositoryPath}${path.sep}`)) reject("invalid_plan_source", "source_no_longer_safe");
-      sources.set(file, solidityStructure(await readFile(real, "utf8")));
+      sources.set(file, await readFile(real, "utf8"));
     } catch (error) {
       if (error instanceof StaticPlanValidationError) throw error;
       reject("invalid_plan_source", "source_unavailable");
     }
   }
-  const primary = sources.get(plan.primarySourcePath)!;
-  if (!new RegExp(`\\b(?:contract|library)\\s+${escape(plan.primaryContract)}\\b`).test(primary)) reject("invalid_plan_source", "primary_contract_not_found");
-  if ([...primary.matchAll(/\bconstructor\s*\(([^)]*)\)/g)].some((match) => match[1].trim())) reject("unsupported_function_signature", "constructor_arguments_unsupported");
-  const combined = [...sources.values()].join("\n");
-  const hasExplicitFunction = (functionName: string) => new RegExp(`\\bfunction\\s+${escape(functionName)}\\s*\\(`).test(combined);
-  const hasPublicGetter = (kind: "uint" | "address", functionName: string) => {
-    const type = kind === "uint" ? "uint(?:256)?" : "address(?:\\s+payable)?";
-    const identifier = /^[A-Za-z_][A-Za-z0-9_]*$/;
-    return identifier.test(functionName) && [...combined.matchAll(new RegExp(`\\b${type}\\s+([^;{}]+);`, "g"))].some((match) => {
-      const declaration = match[1].split("=", 1)[0].trim().split(/\s+/).filter(Boolean);
-      return declaration.includes("public") && declaration.at(-1) === functionName;
-    });
-  };
-  const hasPublicUintGetter = (functionName: string) => hasPublicGetter("uint", functionName);
-  const hasPublicAddressGetter = (functionName: string) => hasPublicGetter("address", functionName);
-  const hasSupportedRelevantFunction = (functionName: string) => hasExplicitFunction(functionName) || hasPublicUintGetter(functionName) || hasPublicAddressGetter(functionName);
-  for (const functionName of plan.relevantFunctions) {
-    if (!hasSupportedRelevantFunction(functionName)) reject("invalid_function_signature", "relevant_function_not_found");
-  }
-  for (const operation of plan.operations) {
-    if (operation.kind === "deploy" || operation.kind === "fund" || operation.kind === "read-balance") continue;
-    const signatures = [...combined.matchAll(new RegExp(`\\bfunction\\s+${escape(operation.functionName)}\\s*\\(([^)]*)\\)([^;{]*)`, "g"))];
-    const expectedArguments = operation.kind === "call" ? (operation.args ?? []).map((argument) => argument.kind) : [];
-    const supported = signatures.map((match) => ({ match, kinds: parameterKinds(match[1]) }));
-    const matching = supported.filter(({ kinds }) => {
-      return kinds !== null && kinds.length === expectedArguments.length && kinds.every((kind, index) => kind === expectedArguments[index]);
-    });
-    const getterKind = operation.kind === "read-uint" ? "uint" : operation.kind === "read-address" ? "address" : null;
-    const getters = getterKind === "uint" ? Number(hasPublicUintGetter(operation.functionName)) : getterKind === "address" ? Number(hasPublicAddressGetter(operation.functionName)) : 0;
-    const incompatibleGetters = operation.kind === "read-uint" ? Number(hasPublicAddressGetter(operation.functionName)) : operation.kind === "read-address" ? Number(hasPublicUintGetter(operation.functionName)) : 0;
-    if (!signatures.length && !getters && incompatibleGetters) reject("unsupported_function_signature", "unsupported_return_type");
-    if (!signatures.length && !getters) reject("invalid_function_signature", "function_not_found");
-    if (supported.some(({ kinds }) => kinds === null) && !matching.length && !getters) reject("unsupported_function_signature", "unsupported_parameter_type");
-    if (!matching.length && !getters) reject("invalid_function_signature", "argument_shape_mismatch");
-    if (operation.kind === "call") {
-      if (matching.length !== 1) reject("invalid_function_signature", "ambiguous_function_signature");
-      continue;
+  try {
+    validateSolidityFunctionUses(sources.get(plan.primarySourcePath)!, [...sources.values()], plan.primaryContract,
+      plan.operations.filter((op) => op.kind === "call" || op.kind === "read-uint" || op.kind === "read-address").map((op) => ({
+        kind: op.kind as "call" | "read-uint" | "read-address", functionName: op.functionName,
+        argumentKinds: op.kind === "call" ? (op.args ?? []).map((arg) => arg.kind) : [],
+      })), plan.relevantFunctions);
+  } catch (error) {
+    if (error instanceof SolidityFunctionValidationError) {
+      const unsupported = ["constructor_arguments_unsupported", "unsupported_return_type", "unsupported_parameter_type"].includes(error.reason);
+      reject(unsupported ? "unsupported_function_signature" : error.reason === "primary_contract_not_found" ? "invalid_plan_source" : "invalid_function_signature", error.reason);
     }
-    const expectedReturn = operation.kind === "read-address" ? "address" : "uint";
-    const returnMatches = matching.filter(({ match }) => returnKind(match[2]) === expectedReturn);
-    const compatibleTargets = getters + returnMatches.length;
-    if (!compatibleTargets) reject("unsupported_function_signature", "unsupported_return_type");
-    if (compatibleTargets !== 1) reject("invalid_function_signature", "ambiguous_function_signature");
+    throw error;
   }
   if (plan.assertions.some((assertion) => assertion.description.trim().length < 12 || /^(?:check|test|assert|verify)(?: it)?[.!]?$/i.test(assertion.description.trim()))) reject("invalid_harness_plan", "vague_assertion");
   try { new VerificationHarnessGenerator().generate(plan); }

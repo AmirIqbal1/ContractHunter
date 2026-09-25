@@ -10,7 +10,7 @@ ContractHunter is a locally hosted smart-contract security analysis workstation 
 
 Latest released: `v0.1.9`.
 
-Next roadmap target: `v0.2.0` executable invariants, Foundry fuzzing, and stateful invariant testing. These are not v0.1.9 capabilities.
+`v0.2.0` is in development. Milestone 1 implements internal executable-invariant plan and deterministic harness foundations; invariant execution is not yet available. These are not v0.1.9 capabilities.
 
 ## Current stack
 
@@ -73,3 +73,9 @@ The default is `OPENAI_MODEL=gpt-5.6-luna`. Configuration currently uses one `OP
 ## Continuation rules
 
 Preserve static-first ordering, manual AI actions, structured outputs, deterministic generation, evidence validation, confidence caps, immutable verification history, and fail-closed isolation. Do not add arbitrary execution paths or silently broaden the verification language. Read [security-model](security-model.md), [architecture](architecture.md), [configuration](configuration.md), and [roadmap](roadmap.md) before changing trust boundaries. Git operations are handled manually outside AI/Codex: do not run Git commands, commit, push, or tag.
+
+## v0.2.0 Milestone 1 handoff
+
+The separate `ExecutableInvariantPlan` (`contracthunter-invariant-plan-v1`) supports bounded `fuzz-property` and `stateful-invariant` plans with trusted identity, symbolic actors/instances, `uint256` and `bool` fuzz inputs, deterministic setup, current-state observations, and typed assertions. Assumptions are deferred. `ExecutableInvariantGenerator` validates primary-contract signatures through the same helper used by the historical verification planner and produces fixed Solidity templates. `VerificationWorkspaceBuilder.buildInvariant` creates a bounded source closure and an invariant-specific hashed manifest and Foundry configuration. SHA-256 of canonical plan JSON supplies the Foundry `[fuzz].seed`; Foundry 1.7.1 also uses it in the invariant runner. Fuzz runs are 128; invariant runs/depth are 64/32 with `fail_on_revert = false`. No forge-std dependency is downloaded; the generated stateful test has a minimal ContractHunter target registration helper.
+
+No AI schemas/prompts, public API, UI, worker IPC, hypothesis lifecycle, or production database behavior was changed for invariant generation. Invariant execution and dynamic evidence interpretation remain Milestone 2 work. Preserve v0.1.9 verification output and worker isolation.

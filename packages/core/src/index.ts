@@ -15,3 +15,4 @@ export * from "./verification-plan-generation";
 export * from "./verification-plan-context";
 export * from "./reviewer-context";
 export * from "./ai-test-fixture";
+export * from "./executable-invariant";

@@ -6,9 +6,9 @@ Delivered: typed function arguments, actors/caller identity, address reads/asser
 
 The real BrokenAccessControl plan was validated and verified with trusted solc 0.8.36: one Forge test passed and supporting dynamic evidence changed the hypothesis to `verified`.
 
-## v0.2.0 — next target
+## v0.2.0 — in development
 
-Executable invariants, Foundry fuzzing, and stateful invariant testing.
+Milestone 1 adds an internal, versioned `ExecutableInvariantPlan` for bounded fuzz properties and stateful invariants. Trusted, manually constructed plans can generate Solidity, an offline Foundry configuration, and a hashed workspace manifest deterministically. Small accounting and access-control fixtures plus offline tests exercise these foundations. Invariant worker execution, dynamic evidence, AI planning, and UI controls remain future milestones.
 
 ## v0.2.1
 
@@ -29,3 +29,4 @@ Per-stage AI models (including inexpensive Luna triage, a stronger deep-review m
 ## Explicit non-goals
 
 No automatic bounty submission, live exploit deployment, wallet/private-key interaction, or automatic live-chain transactions.
+
