@@ -10,7 +10,7 @@ ContractHunter is a locally hosted smart-contract security analysis workstation 
 
 Latest released: `v0.1.9`.
 
-`v0.2.0` is in development. Milestone 1 implements internal executable-invariant plans and deterministic harness foundations. Milestone 2 adds networkless worker execution, deterministic bounded Forge result interpretation, dynamic evidence and separate immutable run history. These are not v0.1.9 released capabilities.
+`v0.2.0` is in development. Milestone 1 implements internal executable-invariant plans and deterministic harness foundations. Milestone 2 adds networkless worker execution, deterministic bounded Forge result interpretation, dynamic evidence and separate immutable run history. Milestone 3 adds reviewed manual AI invariant proposals and explicit validate/run controls. These are not v0.1.9 released capabilities.
 
 ## Current stack
 
@@ -85,3 +85,9 @@ Milestone 1 changed no AI schemas/prompts, public API, UI, worker IPC, hypothesi
 The worker protocol adds a strict `execute-invariant` branch; the caller supplies only bounded run/workspace identity, scan/hypothesis/commit/compiler identity, plan hash, mode and fixed limits. Version 2 invariant manifests embed the structured plan for independent worker revalidation. The worker checks workspace path, symlinks, exact expected files, source hashes, generated harness/config, manifest and compiler identity before fixed `forge test --json` via the existing trusted compiler resolver and `prlimit`. The version 1 verification branch remains separate. Forge 1.7.1 cannot combine `--json` with `--color never`; `NO_COLOR=1` is set in the fixed environment.
 
 `ExecutableInvariantService` is an internal entry point. It binds plans to persisted scan/hypothesis state, creates immutable `executable_invariant_runs` rows, invokes the worker, interprets pinned Forge JSON into bounded property evidence, and never changes hypothesis status. Successful fuzz/invariant runs mean no counterexample was found within the configured run/depth budget; they are not formal proof. Counterexamples are contradictory evidence for the claimed property. No AI proposals, public endpoint or UI were added. Tested the three synthetic fixtures and a legacy BrokenAccessControl verification through an isolated Compose worker using trusted solc 0.8.36. The legacy fixture's exact `0.8.24` pragma was widened only in the isolated probe copy because no trusted 0.8.24 compiler was cached.
+
+## v0.2.0 Milestone 3 handoff
+
+The hypothesis page now has a separate Executable invariant testing section. `invariant-plan-v1` asks the configured provider for one tool-free semantic proposal under the canonical invariant capability profile. The proposal schema has no authoritative IDs, compiler, source paths, commands or Solidity. `InvariantProposalService` selects bounded validated source context, injects persisted scan/hypothesis/commit and a unique compatible trusted compiler, validates the generated harness, and appends an immutable proposal-history row. It stores source hashes so validation refuses a source change after review. Failure categories are bounded; raw source and provider payload are not logged or persisted.
+
+Generation is one manual POST and never executes. Validation is a separate bodyless POST. Execution is another bodyless POST referencing the persisted proposal ID, revalidates it, and uses the Milestone 2 networkless worker service. The UI shows plan semantics, mode, compiler, configured bounds, plan hash, and bounded result evidence. Neither a proposal nor a fuzz/invariant run transitions hypothesis status. Automated tests use provider mocks; no real OpenAI request was made. Browser testing with actual credentials must be started manually by the user.

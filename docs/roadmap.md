@@ -12,7 +12,9 @@ Milestone 1 adds an internal, versioned `ExecutableInvariantPlan` for bounded fu
 
 Milestone 2 executes those workspaces through the existing networkless verification worker. The worker independently revalidates the embedded structured plan, source closure, generated harness, config, manifest identity and trusted compiler, then runs fixed `forge test --json` under invariant-specific resource limits. Web interprets bounded Forge 1.7.1 facts into supporting or contradicting dynamic evidence and stores immutable invariant run history. Synthetic vulnerable accounting and stateful access-control fixtures produced counterexamples; the safe accounting control found none within 128 configured fuzz runs. The historical single-path verification flow remains separate.
 
-AI invariant proposals, public APIs, UI controls and automatic hypothesis status transitions remain future work. A passing bounded fuzz run is supporting evidence, not formal proof.
+Milestone 3 adds manual, one-shot AI invariant proposals. A strict semantic schema excludes scan/hypothesis IDs, commit, compiler, paths and executable content. The server composes and validates a canonical plan from persisted evidence, records every proposal attempt, and requires separate user actions to validate and run it. The hypothesis page presents a reviewable plan and bounded execution evidence alongside the existing structured verification workflow. A passing bounded fuzz run is supporting evidence, not formal proof. Invariant proposals and results do not change hypothesis status.
+
+Automatic hypothesis status policy, broader invariant semantics, and any autonomous execution remain future work.
 
 ## v0.2.1
 

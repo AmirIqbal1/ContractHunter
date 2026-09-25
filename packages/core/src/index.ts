@@ -16,3 +16,4 @@ export * from "./verification-plan-context";
 export * from "./reviewer-context";
 export * from "./ai-test-fixture";
 export * from "./executable-invariant";
+export * from "./invariant-proposal";

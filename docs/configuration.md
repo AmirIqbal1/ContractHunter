@@ -16,6 +16,8 @@
 
 `AI_INPUT_COST_PER_MILLION_USD` and `AI_OUTPUT_COST_PER_MILLION_USD` are manually configurable estimates, not an official invoice. Recheck them when the model changes.
 
+Manual AI invariant proposals reuse `OPENAI_MODEL`, `AI_VERIFICATION_PLAN_TIMEOUT_MS`, `AI_VERIFICATION_PLAN_MAX_SOURCE_BYTES`, `AI_VERIFICATION_PLAN_MAX_FILES`, and `AI_MAX_FILE_BYTES`. No stage-specific model routing or automatic retry is added. Invariant execution bounds remain fixed in ContractHunter code and cannot be supplied through configuration or proposal content.
+
 The current default is `OPENAI_MODEL=gpt-5.6-luna`. A single model setting is used today; per-stage model routing is not implemented.
 
 The safe example defaults are:

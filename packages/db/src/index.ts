@@ -4,9 +4,9 @@ import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/better-sqlite3";
-import type { ExecutableInvariantPlan, ExecutableInvariantEvidence, AIAnalysisStatus, CompilerStatus, CompleteHypothesisVerificationRunInput, CreateHypothesisVerificationRunInput, CreateScanInput, DependencyStatus, DynamicEvidence, FailHypothesisVerificationRunInput, FindingStatus, HypothesisStatus, InvariantCategory, InvariantStatus, InvariantTestability, InvestigationStatus, NewFinding, ProtocolAnalysisResult, ReviewRunStatus, ReviewStageStatus, ScannerStatus, ScanStatus, SecurityReviewPlan, Severity, ValidatedEvidence } from "@contracthunter/core";
+import type { ExecutableInvariantPlan, ExecutableInvariantEvidence, InvariantProposalGenerationResult, AIAnalysisStatus, CompilerStatus, CompleteHypothesisVerificationRunInput, CreateHypothesisVerificationRunInput, CreateScanInput, DependencyStatus, DynamicEvidence, FailHypothesisVerificationRunInput, FindingStatus, HypothesisStatus, InvariantCategory, InvariantStatus, InvariantTestability, InvestigationStatus, NewFinding, ProtocolAnalysisResult, ReviewRunStatus, ReviewStageStatus, ScannerStatus, ScanStatus, SecurityReviewPlan, Severity, ValidatedEvidence } from "@contracthunter/core";
 import { executableInvariantPlanSchema, executableInvariantEvidenceSchema, invariantPlanHash, assertTransition, assertVerificationRunTransition, buildInvestigations, completeHypothesisVerificationRunSchema, correlateHypotheses, createHypothesisVerificationRunSchema, dynamicEvidenceSchema, failHypothesisVerificationRunSchema, findingSchema, investigationSchema, loadConfig, scanSchema } from "@contracthunter/core";
-import { executableInvariantRuns, findings, hypothesisGroupMembers, hypothesisGroups, hypothesisVerificationRuns, investigationFindings, investigations, invariants, protocolAnalyses, scans, scanScanners, securityReviewerRuns, securityReviewPlans, vulnerabilityHypotheses, type ExecutableInvariantRunRow, type FindingRow, type HypothesisGroupRow, type HypothesisVerificationRunRow, type InvariantRow, type InvestigationRow, type ProtocolAnalysisRow, type ScanRow, type ScanScannerRow, type SecurityReviewerRunRow, type SecurityReviewPlanRow, type VulnerabilityHypothesisRow } from "./schema";
+import { executableInvariantProposals, executableInvariantRuns, findings, hypothesisGroupMembers, hypothesisGroups, hypothesisVerificationRuns, investigationFindings, investigations, invariants, protocolAnalyses, scans, scanScanners, securityReviewerRuns, securityReviewPlans, vulnerabilityHypotheses, type ExecutableInvariantProposalRow, type ExecutableInvariantRunRow, type FindingRow, type HypothesisGroupRow, type HypothesisVerificationRunRow, type InvariantRow, type InvestigationRow, type ProtocolAnalysisRow, type ScanRow, type ScanScannerRow, type SecurityReviewerRunRow, type SecurityReviewPlanRow, type VulnerabilityHypothesisRow } from "./schema";
 
 export * from "./schema";
 
@@ -95,6 +95,12 @@ export function createDatabase(databasePath: string) {
       stdout_summary TEXT NOT NULL DEFAULT '', stderr_summary TEXT NOT NULL DEFAULT '', dynamic_evidence TEXT NOT NULL DEFAULT '[]', content_fingerprint TEXT, isolation_metadata TEXT, execution_exit_code INTEGER, timed_out INTEGER NOT NULL DEFAULT 0, error_code TEXT,
       created_at INTEGER NOT NULL, started_at INTEGER, completed_at INTEGER, duration_ms INTEGER
     );
+    CREATE TABLE IF NOT EXISTS executable_invariant_proposals (
+      id TEXT PRIMARY KEY, hypothesis_id TEXT NOT NULL REFERENCES vulnerability_hypotheses(id) ON DELETE CASCADE, scan_id TEXT NOT NULL REFERENCES scans(id) ON DELETE CASCADE,
+      status TEXT NOT NULL, plan TEXT, plan_hash TEXT, rationale TEXT, limitations TEXT NOT NULL, not_plannable_reasons TEXT NOT NULL, failure_code TEXT,
+      provider TEXT NOT NULL, requested_model TEXT NOT NULL, actual_model TEXT, prompt_version TEXT NOT NULL, context_manifest TEXT NOT NULL,
+      input_tokens INTEGER, output_tokens INTEGER, total_tokens INTEGER, estimated_cost_usd REAL, duration_ms INTEGER NOT NULL, request_id TEXT, created_at INTEGER NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS hypothesis_groups (
       id TEXT PRIMARY KEY, plan_id TEXT NOT NULL REFERENCES security_review_plans(id) ON DELETE CASCADE, scan_id TEXT NOT NULL REFERENCES scans(id) ON DELETE CASCADE, fingerprint TEXT NOT NULL, priority_score INTEGER NOT NULL, confidence_score INTEGER NOT NULL, evidence_classes TEXT NOT NULL, reasons TEXT NOT NULL, created_at INTEGER NOT NULL
     );
@@ -128,6 +134,8 @@ export function createDatabase(databasePath: string) {
   if (!verificationColumns.has("isolation_backend")) sqlite.exec("ALTER TABLE hypothesis_verification_runs ADD COLUMN isolation_backend TEXT");
   if (!verificationColumns.has("execution_exit_code")) sqlite.exec("ALTER TABLE hypothesis_verification_runs ADD COLUMN execution_exit_code INTEGER");
   if (!verificationColumns.has("timed_out")) sqlite.exec("ALTER TABLE hypothesis_verification_runs ADD COLUMN timed_out INTEGER NOT NULL DEFAULT 0");
+  const invariantProposalColumns = new Set((sqlite.prepare("PRAGMA table_info(executable_invariant_proposals)").all() as Array<{ name: string }>).map((column) => column.name));
+  if (!invariantProposalColumns.has("estimated_cost_usd")) sqlite.exec("ALTER TABLE executable_invariant_proposals ADD COLUMN estimated_cost_usd REAL");
   sqlite.exec(`
     UPDATE hypothesis_verification_runs
     SET status = 'failed', error = 'Duplicate active verification reconciled during migration.', completed_at = unixepoch() * 1000
@@ -153,10 +161,11 @@ export function createDatabase(databasePath: string) {
     CREATE UNIQUE INDEX IF NOT EXISTS hypothesis_verification_runs_active_idx ON hypothesis_verification_runs(hypothesis_id) WHERE status IN ('queued', 'running');
     CREATE INDEX IF NOT EXISTS executable_invariant_runs_hypothesis_idx ON executable_invariant_runs(hypothesis_id, created_at);
     CREATE UNIQUE INDEX IF NOT EXISTS executable_invariant_runs_active_idx ON executable_invariant_runs(hypothesis_id) WHERE status IN ('queued', 'running');
+    CREATE INDEX IF NOT EXISTS executable_invariant_proposals_hypothesis_idx ON executable_invariant_proposals(hypothesis_id, created_at);
     CREATE INDEX IF NOT EXISTS hypothesis_groups_plan_idx ON hypothesis_groups(plan_id, priority_score);
     CREATE INDEX IF NOT EXISTS hypothesis_group_members_hypothesis_idx ON hypothesis_group_members(hypothesis_id);
   `);
-  const orm = drizzle(sqlite, { schema: { scans, findings, scanScanners, investigations, investigationFindings, protocolAnalyses, invariants, securityReviewPlans, securityReviewerRuns, vulnerabilityHypotheses, hypothesisVerificationRuns, executableInvariantRuns, hypothesisGroups, hypothesisGroupMembers } });
+  const orm = drizzle(sqlite, { schema: { scans, findings, scanScanners, investigations, investigationFindings, protocolAnalyses, invariants, securityReviewPlans, securityReviewerRuns, vulnerabilityHypotheses, hypothesisVerificationRuns, executableInvariantRuns, executableInvariantProposals, hypothesisGroups, hypothesisGroupMembers } });
   return { sqlite, orm };
 }
 
@@ -628,6 +637,16 @@ export function dashboardStats(database: DatabaseClient) {
 export function getExecutableInvariantRun(database: DatabaseClient, id: string): ExecutableInvariantRunRow | undefined { return database.orm.select().from(executableInvariantRuns).where(eq(executableInvariantRuns.id, id)).get(); }
 export function getActiveExecutableInvariantRun(database: DatabaseClient, hypothesisId: string): ExecutableInvariantRunRow | undefined { return database.orm.select().from(executableInvariantRuns).where(and(eq(executableInvariantRuns.hypothesisId, hypothesisId), inArray(executableInvariantRuns.status, ["queued", "running"]))).get(); }
 export function listExecutableInvariantRuns(database: DatabaseClient, hypothesisId: string): ExecutableInvariantRunRow[] { return database.orm.select().from(executableInvariantRuns).where(eq(executableInvariantRuns.hypothesisId, hypothesisId)).orderBy(desc(executableInvariantRuns.createdAt), desc(sql`rowid`)).all(); }
+export function getExecutableInvariantProposal(database: DatabaseClient, id: string): ExecutableInvariantProposalRow | undefined { return database.orm.select().from(executableInvariantProposals).where(eq(executableInvariantProposals.id, id)).get(); }
+export function listExecutableInvariantProposals(database: DatabaseClient, hypothesisId: string): ExecutableInvariantProposalRow[] { return database.orm.select().from(executableInvariantProposals).where(eq(executableInvariantProposals.hypothesisId, hypothesisId)).orderBy(desc(executableInvariantProposals.createdAt), desc(sql`rowid`)).all(); }
+export function createExecutableInvariantProposal(database: DatabaseClient, input: { hypothesisId: string; scanId: string; result: InvariantProposalGenerationResult; contextManifest: object; requestId: string | null }): ExecutableInvariantProposalRow {
+  const { result } = input, hypothesis = getVulnerabilityHypothesis(database, input.hypothesisId);
+  if (!hypothesis || hypothesis.scanId !== input.scanId || (result.status === "generated") !== !!result.plan || (result.status === "generated") !== !!result.planHash || (result.plan && invariantPlanHash(result.plan) !== result.planHash)) throw new Error("Invariant proposal history is invalid.");
+  const row: ExecutableInvariantProposalRow = { id: randomUUID(), hypothesisId: input.hypothesisId, scanId: input.scanId, status: result.status, plan: result.plan ? JSON.stringify(executableInvariantPlanSchema.parse(result.plan)) : null, planHash: result.planHash, rationale: result.rationale, limitations: JSON.stringify(result.limitations), notPlannableReasons: JSON.stringify(result.notPlannableReasons), failureCode: result.failureCode,
+    provider: result.provenance.provider, requestedModel: result.provenance.requestedModel, actualModel: result.provenance.actualModel, promptVersion: result.provenance.promptVersion, contextManifest: JSON.stringify(input.contextManifest), inputTokens: result.provenance.inputTokens, outputTokens: result.provenance.outputTokens, totalTokens: result.provenance.totalTokens, estimatedCostUsd: result.provenance.estimatedCostUsd, durationMs: result.provenance.durationMs, requestId: input.requestId, createdAt: new Date(result.provenance.generatedAt) };
+  database.orm.insert(executableInvariantProposals).values(row).run();
+  return row;
+}
 export function createExecutableInvariantRun(database: DatabaseClient, input: { plan: ExecutableInvariantPlan }): ExecutableInvariantRunRow {
   const plan = executableInvariantPlanSchema.parse(input.plan), hypothesis = getVulnerabilityHypothesis(database, plan.hypothesisId), scan = getScan(database, plan.scanId);
   if (!hypothesis || hypothesis.scanId !== plan.scanId || !scan || scan.resolvedCommit !== plan.resolvedCommit) throw new Error("Invariant plan does not match persisted scan identity.");

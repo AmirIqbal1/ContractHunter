@@ -1,4 +1,4 @@
-import { integer, primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { integer, primaryKey, real, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { aiAnalysisStatuses, compilerStatuses, coverageStatuses, dependencyStatuses, findingStatuses, frameworks, hypothesisStatuses, invariantCategories, invariantStatuses, invariantTestabilities, investigationStatuses, reviewRunStatuses, reviewStageStatuses, scannerStatuses, scanDepths, scanStatuses, severities, verificationOutcomes, verificationRunStatuses, vulnerabilityCategories } from "@contracthunter/core";
 
 export const scans = sqliteTable("scans", {
@@ -161,6 +161,13 @@ export const executableInvariantRuns = sqliteTable("executable_invariant_runs", 
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(), startedAt: integer("started_at", { mode: "timestamp" }), completedAt: integer("completed_at", { mode: "timestamp" }), durationMs: integer("duration_ms"),
 });
 
+export const executableInvariantProposals = sqliteTable("executable_invariant_proposals", {
+  id: text("id").primaryKey(), hypothesisId: text("hypothesis_id").notNull().references(() => vulnerabilityHypotheses.id, { onDelete: "cascade" }), scanId: text("scan_id").notNull().references(() => scans.id, { onDelete: "cascade" }),
+  status: text("status", { enum: ["generated", "not_plannable", "failed"] }).notNull(), plan: text("plan"), planHash: text("plan_hash"), rationale: text("rationale"), limitations: text("limitations").notNull(), notPlannableReasons: text("not_plannable_reasons").notNull(), failureCode: text("failure_code"),
+  provider: text("provider").notNull(), requestedModel: text("requested_model").notNull(), actualModel: text("actual_model"), promptVersion: text("prompt_version").notNull(), contextManifest: text("context_manifest").notNull(),
+  inputTokens: integer("input_tokens"), outputTokens: integer("output_tokens"), totalTokens: integer("total_tokens"), estimatedCostUsd: real("estimated_cost_usd"), durationMs: integer("duration_ms").notNull(), requestId: text("request_id"), createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+});
+
 export const hypothesisGroups = sqliteTable("hypothesis_groups", {
   id: text("id").primaryKey(), planId: text("plan_id").notNull().references(() => securityReviewPlans.id, { onDelete: "cascade" }), scanId: text("scan_id").notNull().references(() => scans.id, { onDelete: "cascade" }), fingerprint: text("fingerprint").notNull(), priorityScore: integer("priority_score").notNull(), confidenceScore: integer("confidence_score").notNull(), evidenceClasses: text("evidence_classes").notNull(), reasons: text("reasons").notNull(), createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
@@ -182,3 +189,4 @@ export type HypothesisVerificationRunRow = typeof hypothesisVerificationRuns.$in
 export type HypothesisGroupRow = typeof hypothesisGroups.$inferSelect;
 
 export type ExecutableInvariantRunRow = typeof executableInvariantRuns.$inferSelect;
+export type ExecutableInvariantProposalRow = typeof executableInvariantProposals.$inferSelect;

@@ -1,12 +1,14 @@
 import type { AIProvider, AIProviderResult, ProtocolAnalysisInput, ProtocolAnalysisResult } from "./ai-domain";
 import type { SecurityReviewInput, SecurityReviewProviderResult, SecurityReviewResult } from "./security-review";
 import type { VerificationPlanGenerationInput, VerificationPlanProviderResult } from "./verification-plan-generation";
+import type { InvariantProposalInput, InvariantProposalProviderResult } from "./invariant-proposal";
 
 export class MockAIProvider implements AIProvider {
   readonly id = "mock";
   calls: ProtocolAnalysisInput[] = [];
   reviewCalls: SecurityReviewInput[] = [];
   verificationPlanCalls: VerificationPlanGenerationInput[] = [];
+  invariantProposalCalls: InvariantProposalInput[] = [];
   constructor(private readonly result: ProtocolAnalysisResult | Error, private readonly metadata: Partial<Omit<AIProviderResult, "analysis">> = {}, private readonly reviews: Partial<Record<string, SecurityReviewResult | Error>> = {}) {}
   async analyzeProtocol(input: ProtocolAnalysisInput): Promise<AIProviderResult> {
     this.calls.push(input);
@@ -22,5 +24,9 @@ export class MockAIProvider implements AIProvider {
   async generateVerificationPlan(input: VerificationPlanGenerationInput): Promise<VerificationPlanProviderResult> {
     this.verificationPlanCalls.push(input);
     return { proposal: { status: "not_plannable", plan: null, rationale: "The mock provider has no configured verification plan.", limitations: ["Mock provider response."], notPlannableReasons: ["insufficient_source_evidence"] }, actualModel: input.model, requestId: "mock-verification-plan", inputTokens: 50, outputTokens: 20, totalTokens: 70, durationMs: 5 };
+  }
+  async generateInvariantProposal(input: InvariantProposalInput): Promise<InvariantProposalProviderResult> {
+    this.invariantProposalCalls.push(input);
+    return { proposal: { status: "not_plannable", semantics: null, rationale: "The mock provider has no configured invariant proposal.", limitations: [], notPlannableReasons: ["insufficient_source_evidence"] }, actualModel: input.model, requestId: "mock-invariant-proposal", inputTokens: 50, outputTokens: 20, totalTokens: 70, durationMs: 5 };
   }
 }

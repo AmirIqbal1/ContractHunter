@@ -54,6 +54,7 @@ export interface AIProvider {
   analyzeProtocol(input: ProtocolAnalysisInput): Promise<AIProviderResult>;
   reviewSecurity(input: import("./security-review").SecurityReviewInput): Promise<import("./security-review").SecurityReviewProviderResult>;
   generateVerificationPlan(input: import("./verification-plan-generation").VerificationPlanGenerationInput): Promise<import("./verification-plan-generation").VerificationPlanProviderResult>;
+  generateInvariantProposal(input: import("./invariant-proposal").InvariantProposalInput): Promise<import("./invariant-proposal").InvariantProposalProviderResult>;
 }
 
 export type ValidatedEvidence = SourceEvidence & { valid: boolean; validationError: string | null };

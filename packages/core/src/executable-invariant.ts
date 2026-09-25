@@ -4,6 +4,16 @@ import { VERIFICATION_MAX_ACTORS, VERIFICATION_MAX_FUNDING_WEI, repositorySolidi
 
 export const EXECUTABLE_INVARIANT_SCHEMA_VERSION = "contracthunter-invariant-plan-v1" as const;
 export const INVARIANT_LIMITS = { actors: VERIFICATION_MAX_ACTORS, sourceFiles: 50, setupOperations: 32, handlerActions: 16, parameters: 8, properties: 16, observations: 16, assertions: 16 } as const;
+export const INVARIANT_MODES = ["fuzz-property", "stateful-invariant"] as const;
+export const INVARIANT_FUZZ_TYPES = ["uint256", "bool"] as const;
+export const invariantCapabilityProfile = {
+  modes: INVARIANT_MODES, fuzzParameterTypes: INVARIANT_FUZZ_TYPES, symbolicAddresses: ["actor", "instance"],
+  setupOperations: ["deploy", "fund", "call"], observations: ["read-uint", "read-address", "read-balance"],
+  assertions: ["uint-eq", "uint-not-eq", "address-eq", "address-not-eq"],
+  limits: INVARIANT_LIMITS, constructorArguments: false, arbitrarySolidity: false, arbitraryCheatcodes: false,
+  rawAddresses: false, rawCalldata: false, bytes: false, strings: false, arrays: false, tuples: false,
+  arbitraryFoundryConfig: false, ffi: false, rpc: false, forks: false, wallets: false, liveChain: false,
+} as const;
 const reserved = new Set(["address", "uint", "uint256", "bool", "contract", "function", "mapping", "return", "returns", "public", "external", "internal", "private", "new", "delete", "if", "else", "for", "while", "this", "super", "import", "pragma", "receive", "fallback", "event", "error", "struct", "enum", "using", "memory", "storage", "calldata", "payable", "view", "pure", "unchecked", "true", "false", "assembly", "let", "switch", "case", "default", "try", "catch", "handler", "vm", "targetContract", "targetContracts"]);
 const identifier = z.string().regex(/^[A-Za-z][A-Za-z0-9_]{0,63}$/).refine((name) => !reserved.has(name) && !/^(?:test|setUp|invariant|action|actor_|ContractHunter|ffi|rpc|createFork|selectFork|broadcast|startBroadcast|readFile|writeFile|env\w*)/.test(name), "reserved identifier");
 const uint = z.string().regex(/^(?:0|[1-9]\d{0,77})$/).refine((value) => BigInt(value) < (1n << 256n));
@@ -12,7 +22,7 @@ const fixedArg = verificationTypedValueSchema;
 const addressArg = z.object({ kind: z.literal("address"), source: z.enum(["actor", "instance"]), name: identifier }).strict();
 const uintArg = z.object({ kind: z.literal("uint"), value: uint }).strict();
 const boolArg = z.object({ kind: z.literal("bool"), value: z.boolean() }).strict();
-const parameter = z.object({ name: identifier, type: z.enum(["uint256", "bool"]) }).strict();
+const parameter = z.object({ name: identifier, type: z.enum(INVARIANT_FUZZ_TYPES) }).strict();
 const actionArg = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("parameter"), name: identifier }).strict(),
   addressArg, uintArg, boolArg,
@@ -95,6 +105,18 @@ function references(plan: Plan, context: z.RefinementCtx): void {
 }
 export const executableInvariantPlanSchema = z.discriminatedUnion("mode", [fuzz, stateful]).superRefine(references);
 export type ExecutableInvariantPlan = z.infer<typeof executableInvariantPlanSchema>;
+export const invariantFuzzSemanticsSchema = fuzz.omit({ schemaVersion: true, scanId: true, hypothesisId: true, resolvedCommit: true, compilerVersion: true, primarySourcePath: true, sourceFiles: true });
+export const invariantStatefulSemanticsSchema = stateful.omit({ schemaVersion: true, scanId: true, hypothesisId: true, resolvedCommit: true, compilerVersion: true, primarySourcePath: true, sourceFiles: true });
+export const invariantSemanticsSchema = z.discriminatedUnion("mode", [invariantFuzzSemanticsSchema, invariantStatefulSemanticsSchema]);
+export type InvariantSemantics = z.infer<typeof invariantSemanticsSchema>;
+// Responses structured outputs require every object field. AI uses explicit null
+// for an absent caller; composition converts null to the core plan's omission.
+const aiSetupOperation = z.discriminatedUnion("kind", [setupOperation.options[0], setupOperation.options[1], setupOperation.options[2].extend({ caller: identifier.nullable() })]);
+const aiSetup = z.array(aiSetupOperation).min(1).max(INVARIANT_LIMITS.setupOperations);
+export const invariantAIProposalSemanticsSchema = z.discriminatedUnion("mode", [
+  invariantFuzzSemanticsSchema.extend({ setup: aiSetup, fuzzAction: fuzz.shape.fuzzAction.extend({ caller: identifier.nullable() }) }),
+  invariantStatefulSemanticsSchema.extend({ setup: aiSetup, handlerActions: z.array(call.extend({ name: identifier, caller: identifier.nullable() })).min(1).max(INVARIANT_LIMITS.handlerActions) }),
+]);
 export type InvariantCall = z.infer<typeof call>;
 export type InvariantProperty = z.infer<typeof property>;
 export type InvariantSetupOperation = z.infer<typeof setupOperation>;
