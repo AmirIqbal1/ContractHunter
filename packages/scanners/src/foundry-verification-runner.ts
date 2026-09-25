@@ -43,7 +43,14 @@ export type FoundryVerificationErrorCode =
   | "verification_worker_unavailable"
   | "verification_worker_isolation_unavailable"
   | "verification_worker_protocol_error"
-  | "verification_worker_timeout";
+  | "verification_worker_timeout"
+  | "invariant_workspace_invalid"
+  | "invariant_manifest_mismatch"
+  | "invariant_worker_unavailable"
+  | "invariant_worker_isolation_unavailable"
+  | "invariant_execution_timeout"
+  | "invariant_forge_failed"
+  | "invariant_result_unparseable";
 
 export type FoundryVerificationResult = {
   status: "completed" | "failed" | "refused";

@@ -8,7 +8,11 @@ The real BrokenAccessControl plan was validated and verified with trusted solc 0
 
 ## v0.2.0 — in development
 
-Milestone 1 adds an internal, versioned `ExecutableInvariantPlan` for bounded fuzz properties and stateful invariants. Trusted, manually constructed plans can generate Solidity, an offline Foundry configuration, and a hashed workspace manifest deterministically. Small accounting and access-control fixtures plus offline tests exercise these foundations. Invariant worker execution, dynamic evidence, AI planning, and UI controls remain future milestones.
+Milestone 1 adds an internal, versioned `ExecutableInvariantPlan` for bounded fuzz properties and stateful invariants. Trusted, manually constructed plans generate Solidity, an offline Foundry configuration, and a hashed workspace manifest deterministically.
+
+Milestone 2 executes those workspaces through the existing networkless verification worker. The worker independently revalidates the embedded structured plan, source closure, generated harness, config, manifest identity and trusted compiler, then runs fixed `forge test --json` under invariant-specific resource limits. Web interprets bounded Forge 1.7.1 facts into supporting or contradicting dynamic evidence and stores immutable invariant run history. Synthetic vulnerable accounting and stateful access-control fixtures produced counterexamples; the safe accounting control found none within 128 configured fuzz runs. The historical single-path verification flow remains separate.
+
+AI invariant proposals, public APIs, UI controls and automatic hypothesis status transitions remain future work. A passing bounded fuzz run is supporting evidence, not formal proof.
 
 ## v0.2.1
 
@@ -29,4 +33,3 @@ Per-stage AI models (including inexpensive Luna triage, a stronger deep-review m
 ## Explicit non-goals
 
 No automatic bounty submission, live exploit deployment, wallet/private-key interaction, or automatic live-chain transactions.
-

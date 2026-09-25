@@ -18,3 +18,5 @@ export * from "./slither-parser";
 export * from "./slither-scanner";
 export * from "./solidity-function-validation";
 export * from "./executable-invariant-generator";
+export * from "./executable-invariant-workspace-integrity";
+export * from "./executable-invariant-result";

@@ -63,4 +63,18 @@ describe("production verification worker boundary", () => {
     expect(worker).not.toMatch(/bubblewrap|slither|aderyn|git |docker /i);
     expect(web).not.toMatch(/bubblewrap|prlimit --version/);
   });
+  it("keeps invariant execution on the fixed worker command and bounded offline environment", async () => {
+    const worker = await readFile(path.join(root, "docker/verification-worker.ts"), "utf8");
+    const invariant = worker.split("export async function executeInvariant(")[1].split("async function main()")[0];
+    expect(invariant).toContain("await isolationPreflight()");
+    expect(invariant).toContain("validateExecutableInvariantWorkspaceIntegrity(workspace)");
+    expect(invariant).toContain("resolveTrustedVerificationCompiler({ toolHomeDir: TOOL_HOME");
+    expect(invariant).toContain('"/usr/bin/prlimit"');
+    expect(invariant).toContain('"/usr/local/bin/forge", "test", "--json"');
+    expect(invariant).toContain('FOUNDRY_OFFLINE: "true"');
+    expect(invariant).toContain('FOUNDRY_AUTO_DETECT_SOLC: "false"');
+    expect(invariant).toContain('FOUNDRY_FFI: "false"');
+    expect(invariant).toContain('NO_COLOR: "1"');
+    expect(invariant).not.toMatch(/OPENAI_API_KEY|GITHUB_TOKEN|PRIVATE_KEY|MNEMONIC|RPC_URL|HTTP_PROXY|HTTPS_PROXY/);
+  });
 });

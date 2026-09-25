@@ -4,9 +4,9 @@ import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/better-sqlite3";
-import type { AIAnalysisStatus, CompilerStatus, CompleteHypothesisVerificationRunInput, CreateHypothesisVerificationRunInput, CreateScanInput, DependencyStatus, DynamicEvidence, FailHypothesisVerificationRunInput, FindingStatus, HypothesisStatus, InvariantCategory, InvariantStatus, InvariantTestability, InvestigationStatus, NewFinding, ProtocolAnalysisResult, ReviewRunStatus, ReviewStageStatus, ScannerStatus, ScanStatus, SecurityReviewPlan, Severity, ValidatedEvidence } from "@contracthunter/core";
-import { assertTransition, assertVerificationRunTransition, buildInvestigations, completeHypothesisVerificationRunSchema, correlateHypotheses, createHypothesisVerificationRunSchema, dynamicEvidenceSchema, failHypothesisVerificationRunSchema, findingSchema, investigationSchema, loadConfig, scanSchema } from "@contracthunter/core";
-import { findings, hypothesisGroupMembers, hypothesisGroups, hypothesisVerificationRuns, investigationFindings, investigations, invariants, protocolAnalyses, scans, scanScanners, securityReviewerRuns, securityReviewPlans, vulnerabilityHypotheses, type FindingRow, type HypothesisGroupRow, type HypothesisVerificationRunRow, type InvariantRow, type InvestigationRow, type ProtocolAnalysisRow, type ScanRow, type ScanScannerRow, type SecurityReviewerRunRow, type SecurityReviewPlanRow, type VulnerabilityHypothesisRow } from "./schema";
+import type { ExecutableInvariantPlan, ExecutableInvariantEvidence, AIAnalysisStatus, CompilerStatus, CompleteHypothesisVerificationRunInput, CreateHypothesisVerificationRunInput, CreateScanInput, DependencyStatus, DynamicEvidence, FailHypothesisVerificationRunInput, FindingStatus, HypothesisStatus, InvariantCategory, InvariantStatus, InvariantTestability, InvestigationStatus, NewFinding, ProtocolAnalysisResult, ReviewRunStatus, ReviewStageStatus, ScannerStatus, ScanStatus, SecurityReviewPlan, Severity, ValidatedEvidence } from "@contracthunter/core";
+import { executableInvariantPlanSchema, executableInvariantEvidenceSchema, invariantPlanHash, assertTransition, assertVerificationRunTransition, buildInvestigations, completeHypothesisVerificationRunSchema, correlateHypotheses, createHypothesisVerificationRunSchema, dynamicEvidenceSchema, failHypothesisVerificationRunSchema, findingSchema, investigationSchema, loadConfig, scanSchema } from "@contracthunter/core";
+import { executableInvariantRuns, findings, hypothesisGroupMembers, hypothesisGroups, hypothesisVerificationRuns, investigationFindings, investigations, invariants, protocolAnalyses, scans, scanScanners, securityReviewerRuns, securityReviewPlans, vulnerabilityHypotheses, type ExecutableInvariantRunRow, type FindingRow, type HypothesisGroupRow, type HypothesisVerificationRunRow, type InvariantRow, type InvestigationRow, type ProtocolAnalysisRow, type ScanRow, type ScanScannerRow, type SecurityReviewerRunRow, type SecurityReviewPlanRow, type VulnerabilityHypothesisRow } from "./schema";
 
 export * from "./schema";
 
@@ -88,6 +88,13 @@ export function createDatabase(databasePath: string) {
       stdout_summary TEXT NOT NULL DEFAULT '', stderr_summary TEXT NOT NULL DEFAULT '', dynamic_evidence TEXT NOT NULL DEFAULT '[]', content_fingerprint TEXT, isolation_backend TEXT, execution_exit_code INTEGER, timed_out INTEGER NOT NULL DEFAULT 0, error TEXT,
       created_at INTEGER NOT NULL, started_at INTEGER, completed_at INTEGER, duration_ms INTEGER
     );
+    CREATE TABLE IF NOT EXISTS executable_invariant_runs (
+      id TEXT PRIMARY KEY, hypothesis_id TEXT NOT NULL REFERENCES vulnerability_hypotheses(id) ON DELETE CASCADE, scan_id TEXT NOT NULL REFERENCES scans(id) ON DELETE CASCADE,
+      resolved_commit TEXT NOT NULL, compiler_version TEXT NOT NULL, plan_hash TEXT NOT NULL, mode TEXT NOT NULL, plan TEXT NOT NULL, status TEXT NOT NULL, outcome TEXT,
+      configured_runs INTEGER NOT NULL, configured_depth INTEGER, test_count INTEGER NOT NULL DEFAULT 0, passed_count INTEGER NOT NULL DEFAULT 0, failed_count INTEGER NOT NULL DEFAULT 0, runs_executed INTEGER,
+      stdout_summary TEXT NOT NULL DEFAULT '', stderr_summary TEXT NOT NULL DEFAULT '', dynamic_evidence TEXT NOT NULL DEFAULT '[]', content_fingerprint TEXT, isolation_metadata TEXT, execution_exit_code INTEGER, timed_out INTEGER NOT NULL DEFAULT 0, error_code TEXT,
+      created_at INTEGER NOT NULL, started_at INTEGER, completed_at INTEGER, duration_ms INTEGER
+    );
     CREATE TABLE IF NOT EXISTS hypothesis_groups (
       id TEXT PRIMARY KEY, plan_id TEXT NOT NULL REFERENCES security_review_plans(id) ON DELETE CASCADE, scan_id TEXT NOT NULL REFERENCES scans(id) ON DELETE CASCADE, fingerprint TEXT NOT NULL, priority_score INTEGER NOT NULL, confidence_score INTEGER NOT NULL, evidence_classes TEXT NOT NULL, reasons TEXT NOT NULL, created_at INTEGER NOT NULL
     );
@@ -144,10 +151,12 @@ export function createDatabase(databasePath: string) {
     CREATE INDEX IF NOT EXISTS vulnerability_hypotheses_scan_idx ON vulnerability_hypotheses(scan_id, severity, status, confidence);
     CREATE INDEX IF NOT EXISTS hypothesis_verification_runs_hypothesis_idx ON hypothesis_verification_runs(hypothesis_id, created_at);
     CREATE UNIQUE INDEX IF NOT EXISTS hypothesis_verification_runs_active_idx ON hypothesis_verification_runs(hypothesis_id) WHERE status IN ('queued', 'running');
+    CREATE INDEX IF NOT EXISTS executable_invariant_runs_hypothesis_idx ON executable_invariant_runs(hypothesis_id, created_at);
+    CREATE UNIQUE INDEX IF NOT EXISTS executable_invariant_runs_active_idx ON executable_invariant_runs(hypothesis_id) WHERE status IN ('queued', 'running');
     CREATE INDEX IF NOT EXISTS hypothesis_groups_plan_idx ON hypothesis_groups(plan_id, priority_score);
     CREATE INDEX IF NOT EXISTS hypothesis_group_members_hypothesis_idx ON hypothesis_group_members(hypothesis_id);
   `);
-  const orm = drizzle(sqlite, { schema: { scans, findings, scanScanners, investigations, investigationFindings, protocolAnalyses, invariants, securityReviewPlans, securityReviewerRuns, vulnerabilityHypotheses, hypothesisVerificationRuns, hypothesisGroups, hypothesisGroupMembers } });
+  const orm = drizzle(sqlite, { schema: { scans, findings, scanScanners, investigations, investigationFindings, protocolAnalyses, invariants, securityReviewPlans, securityReviewerRuns, vulnerabilityHypotheses, hypothesisVerificationRuns, executableInvariantRuns, hypothesisGroups, hypothesisGroupMembers } });
   return { sqlite, orm };
 }
 
@@ -303,12 +312,14 @@ export function markActiveScansInterrupted(database: DatabaseClient, currentRunn
     const updatePlans = database.sqlite.prepare("UPDATE security_review_plans SET status = 'failed', error = 'Security review interrupted by application restart.', completed_at = ? WHERE scan_id = ? AND status IN ('pending', 'running')");
     const updateReviewers = database.sqlite.prepare("UPDATE security_reviewer_runs SET status = 'failed', error = 'Reviewer interrupted by application restart.', completed_at = ? WHERE scan_id = ? AND status IN ('queued', 'running')");
     const updateVerifications = database.sqlite.prepare("UPDATE hypothesis_verification_runs SET status = 'failed', error = 'Verification interrupted by application restart.', completed_at = ? WHERE scan_id = ? AND status IN ('queued', 'running')");
+    const updateInvariantRuns = database.sqlite.prepare("UPDATE executable_invariant_runs SET status = 'failed', error_code = 'invariant_worker_unavailable', completed_at = ? WHERE scan_id = ? AND status IN ('queued', 'running')");
     for (const scanId of scanIds) {
       updateScan.run(interruptedAt, scanId);
       updateScanners.run(scanId);
       updatePlans.run(interruptedAt, scanId);
       updateReviewers.run(interruptedAt, scanId);
       updateVerifications.run(interruptedAt, scanId);
+      updateInvariantRuns.run(interruptedAt, scanId);
     }
   });
   interrupt(staleIds);
@@ -329,6 +340,7 @@ export function markDetachedJobsInterrupted(database: DatabaseClient, currentPro
     for (const scanId of staleProtocolIds) updateProtocol.run(scanId);
     for (const scanId of staleReviewIds) { updateReview.run(scanId); updatePlans.run(interruptedAt, scanId); updateReviewers.run(interruptedAt, scanId); }
     database.sqlite.prepare("UPDATE hypothesis_verification_runs SET status = 'failed', error = 'Verification interrupted by application restart.', completed_at = ? WHERE status IN ('queued', 'running')").run(interruptedAt);
+    database.sqlite.prepare("UPDATE executable_invariant_runs SET status = 'failed', error_code = 'invariant_worker_unavailable', completed_at = ? WHERE status IN ('queued', 'running')").run(interruptedAt);
   })();
 }
 
@@ -611,4 +623,39 @@ export function dashboardStats(database: DatabaseClient) {
     verified: investigationRows.filter((item) => item.status === "verified").reduce((sum, item) => sum + item.count, 0),
     rejected: investigationRows.filter((item) => item.status === "rejected").reduce((sum, item) => sum + item.count, 0),
   };
+}
+
+export function getExecutableInvariantRun(database: DatabaseClient, id: string): ExecutableInvariantRunRow | undefined { return database.orm.select().from(executableInvariantRuns).where(eq(executableInvariantRuns.id, id)).get(); }
+export function getActiveExecutableInvariantRun(database: DatabaseClient, hypothesisId: string): ExecutableInvariantRunRow | undefined { return database.orm.select().from(executableInvariantRuns).where(and(eq(executableInvariantRuns.hypothesisId, hypothesisId), inArray(executableInvariantRuns.status, ["queued", "running"]))).get(); }
+export function listExecutableInvariantRuns(database: DatabaseClient, hypothesisId: string): ExecutableInvariantRunRow[] { return database.orm.select().from(executableInvariantRuns).where(eq(executableInvariantRuns.hypothesisId, hypothesisId)).orderBy(desc(executableInvariantRuns.createdAt), desc(sql`rowid`)).all(); }
+export function createExecutableInvariantRun(database: DatabaseClient, input: { plan: ExecutableInvariantPlan }): ExecutableInvariantRunRow {
+  const plan = executableInvariantPlanSchema.parse(input.plan), hypothesis = getVulnerabilityHypothesis(database, plan.hypothesisId), scan = getScan(database, plan.scanId);
+  if (!hypothesis || hypothesis.scanId !== plan.scanId || !scan || scan.resolvedCommit !== plan.resolvedCommit) throw new Error("Invariant plan does not match persisted scan identity.");
+  const row: ExecutableInvariantRunRow = { id: randomUUID(), hypothesisId: plan.hypothesisId, scanId: plan.scanId, resolvedCommit: plan.resolvedCommit, compilerVersion: plan.compilerVersion,
+    planHash: invariantPlanHash(plan), mode: plan.mode, plan: JSON.stringify(plan), status: "queued", outcome: null, configuredRuns: plan.mode === "fuzz-property" ? 128 : 64, configuredDepth: plan.mode === "stateful-invariant" ? 32 : null,
+    testCount: 0, passedCount: 0, failedCount: 0, runsExecuted: null, stdoutSummary: "", stderrSummary: "", dynamicEvidence: "[]", contentFingerprint: null, isolationMetadata: null, executionExitCode: null, timedOut: false, errorCode: null,
+    createdAt: new Date(), startedAt: null, completedAt: null, durationMs: null };
+  database.sqlite.transaction(() => { if (getActiveExecutableInvariantRun(database, plan.hypothesisId)) throw new Error("An active invariant run already exists."); database.orm.insert(executableInvariantRuns).values(row).run(); })();
+  return row;
+}
+export function markExecutableInvariantRunRunning(database: DatabaseClient, id: string): ExecutableInvariantRunRow {
+  const run = getExecutableInvariantRun(database, id); if (!run || run.status !== "queued") throw new Error("Invalid invariant run transition.");
+  database.orm.update(executableInvariantRuns).set({ status: "running", startedAt: new Date() }).where(eq(executableInvariantRuns.id, id)).run();
+  return getExecutableInvariantRun(database, id)!;
+}
+export function completeExecutableInvariantRun(database: DatabaseClient, id: string, input: { evidence: ExecutableInvariantEvidence[]; testCount: number; passedCount: number; failedCount: number; runsExecuted: number; stdoutSummary: string; stderrSummary: string; contentFingerprint: string; isolationMetadata: string; exitCode: number; durationMs: number }): ExecutableInvariantRunRow {
+  const run = getExecutableInvariantRun(database, id); if (!run || run.status !== "running") throw new Error("Invalid invariant run transition.");
+  const evidence = executableInvariantEvidenceSchema.array().min(1).max(16).parse(input.evidence);
+  if (evidence.length !== input.testCount || input.passedCount + input.failedCount !== input.testCount || input.runsExecuted !== evidence.reduce((sum, item) => sum + item.runsExecuted, 0) || evidence.some((item) => item.planHash !== run.planHash || item.mode !== run.mode || item.compilerVersion !== run.compilerVersion || item.configuredRuns !== run.configuredRuns || item.configuredDepth !== run.configuredDepth || (item.outcome === "counterexample-found") !== (item.direction === "contradicts") || (item.outcome === "counterexample-found") !== !!item.counterexample) || evidence.filter((item) => item.direction === "supports").length !== input.passedCount || evidence.filter((item) => item.direction === "contradicts").length !== input.failedCount) throw new Error("Invariant evidence does not match the run.");
+  if (![input.stdoutSummary, input.stderrSummary].every((text) => text.length <= 4096) || !/^[a-f0-9]{64}$/.test(input.contentFingerprint) || input.isolationMetadata.length > 4096 || !Number.isInteger(input.durationMs) || input.durationMs < 0) throw new Error("Invariant completion metadata is invalid.");
+  const outcome = input.failedCount ? "counterexample-found" : "held-within-bounds";
+  database.orm.update(executableInvariantRuns).set({ status: "completed", outcome, testCount: input.testCount, passedCount: input.passedCount, failedCount: input.failedCount, runsExecuted: input.runsExecuted,
+    stdoutSummary: input.stdoutSummary, stderrSummary: input.stderrSummary, dynamicEvidence: JSON.stringify(evidence), contentFingerprint: input.contentFingerprint, isolationMetadata: input.isolationMetadata, executionExitCode: input.exitCode, timedOut: false, errorCode: null, completedAt: new Date(), durationMs: input.durationMs }).where(eq(executableInvariantRuns.id, id)).run();
+  return getExecutableInvariantRun(database, id)!;
+}
+export function failExecutableInvariantRun(database: DatabaseClient, id: string, input: { errorCode: string; durationMs: number; stdoutSummary?: string; stderrSummary?: string; contentFingerprint?: string | null; isolationMetadata?: string | null; exitCode?: number | null; timedOut?: boolean }): ExecutableInvariantRunRow {
+  const run = getExecutableInvariantRun(database, id); if (!run || run.status !== "running") throw new Error("Invalid invariant run transition.");
+  if (!/^[a-z_]{1,80}$/.test(input.errorCode) || !Number.isInteger(input.durationMs) || input.durationMs < 0 || (input.stdoutSummary ?? "").length > 4096 || (input.stderrSummary ?? "").length > 4096) throw new Error("Invariant failure metadata is invalid.");
+  database.orm.update(executableInvariantRuns).set({ status: "failed", errorCode: input.errorCode, durationMs: input.durationMs, stdoutSummary: input.stdoutSummary ?? "", stderrSummary: input.stderrSummary ?? "", contentFingerprint: input.contentFingerprint ?? null, isolationMetadata: input.isolationMetadata ?? null, executionExitCode: input.exitCode ?? null, timedOut: input.timedOut ?? false, completedAt: new Date() }).where(eq(executableInvariantRuns.id, id)).run();
+  return getExecutableInvariantRun(database, id)!;
 }

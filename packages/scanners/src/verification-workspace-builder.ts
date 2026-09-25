@@ -3,8 +3,8 @@ import { chmod, lstat, mkdir, readFile, realpath, readdir, rename, rm, writeFile
 import path from "node:path";
 import semver from "semver";
 import {
-  VERIFICATION_HARNESS_MANIFEST, INVARIANT_HARNESS_MANIFEST, executableInvariantManifestSchema, executableInvariantPlanSchema, invariantManifestFingerprint, repositorySolidityPathSchema, verificationHarnessManifestSchema, verificationHarnessPlanSchema,
-  type VerificationHarnessManifest, type VerificationHarnessPlan, type VerificationSourceManifestEntry, type ExecutableInvariantPlan, type ExecutableInvariantManifest,
+  VERIFICATION_HARNESS_MANIFEST, INVARIANT_HARNESS_MANIFEST, executableInvariantExecutionManifestSchema, executableInvariantPlanSchema, invariantManifestFingerprint, repositorySolidityPathSchema, verificationHarnessManifestSchema, verificationHarnessPlanSchema,
+  type VerificationHarnessManifest, type VerificationHarnessPlan, type VerificationSourceManifestEntry, type ExecutableInvariantPlan, type ExecutableInvariantExecutionManifest,
 } from "@contracthunter/core";
 import { createContractHunterFoundryConfig } from "./verification-foundry-config";
 import { VerificationHarnessGenerator } from "./verification-harness-generator";
@@ -146,7 +146,7 @@ export class VerificationWorkspaceBuilder {
     } finally { await rm(lockPath, { force: true }); }
   }
 
-  async buildInvariant(input: { workspaceId: string; repositoryPath: string; plan: ExecutableInvariantPlan }): Promise<{ workspacePath: string; manifest: ExecutableInvariantManifest; harnessSource: string }> {
+  async buildInvariant(input: { workspaceId: string; repositoryPath: string; plan: ExecutableInvariantPlan }): Promise<{ workspacePath: string; manifest: ExecutableInvariantExecutionManifest; harnessSource: string }> {
     if (!SAFE_RUN_ID.test(input.workspaceId)) throw new VerificationWorkspaceBuildError("Invariant workspace identifier is invalid.");
     const plan = executableInvariantPlanSchema.parse(input.plan);
     if (!this.options.acceptedCompilerVersions.includes(plan.compilerVersion) || !semver.valid(plan.compilerVersion) || semver.prerelease(plan.compilerVersion)) throw new VerificationWorkspaceBuildError("Compiler version was not accepted by ContractHunter compiler management.");
@@ -176,10 +176,10 @@ export class VerificationWorkspaceBuilder {
       const harnessPath = "test/ContractHunterInvariant.t.sol" as const;
       await writeFile(path.join(temporaryPath, ...harnessPath.split("/")), generated.source, { flag: "wx", mode: 0o640 });
       await writeFile(path.join(temporaryPath, "foundry.toml"), generated.foundryConfig, { flag: "wx", mode: 0o640 });
-      const base = { formatVersion: 1 as const, workspaceId: input.workspaceId, planKind: "executable-invariant" as const, mode: plan.mode, schemaVersion: plan.schemaVersion, planHash: generated.planHash,
+      const base = { formatVersion: 2 as const, plan, workspaceId: input.workspaceId, planKind: "executable-invariant" as const, mode: plan.mode, schemaVersion: plan.schemaVersion, planHash: generated.planHash,
         hypothesisId: plan.hypothesisId, scanId: plan.scanId, resolvedCommit: plan.resolvedCommit, compilerVersion: plan.compilerVersion, generatorVersion: this.options.generatorVersion,
         generatedBy: "contracthunter" as const, sourceManifest, generatedHarnessPath: harnessPath, generatedHarnessSha256: generated.harnessHash, foundryConfigSha256: generated.configHash, foundry: generated.settings };
-      const manifest = executableInvariantManifestSchema.parse({ ...base, contentFingerprint: invariantManifestFingerprint(base) });
+      const manifest = executableInvariantExecutionManifestSchema.parse({ ...base, contentFingerprint: invariantManifestFingerprint(base) });
       await writeFile(path.join(temporaryPath, INVARIANT_HARNESS_MANIFEST), `${JSON.stringify(manifest, null, 2)}\n`, { flag: "wx", mode: 0o640 });
       try { await lstat(finalPath); throw new VerificationWorkspaceBuildError("Invariant workspace already exists."); }
       catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }

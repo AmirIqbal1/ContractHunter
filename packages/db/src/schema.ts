@@ -152,6 +152,15 @@ export const hypothesisVerificationRuns = sqliteTable("hypothesis_verification_r
   durationMs: integer("duration_ms"),
 });
 
+export const executableInvariantRuns = sqliteTable("executable_invariant_runs", {
+  id: text("id").primaryKey(), hypothesisId: text("hypothesis_id").notNull().references(() => vulnerabilityHypotheses.id, { onDelete: "cascade" }), scanId: text("scan_id").notNull().references(() => scans.id, { onDelete: "cascade" }),
+  resolvedCommit: text("resolved_commit").notNull(), compilerVersion: text("compiler_version").notNull(), planHash: text("plan_hash").notNull(), mode: text("mode", { enum: ["fuzz-property", "stateful-invariant"] }).notNull(), plan: text("plan").notNull(),
+  status: text("status", { enum: ["queued", "running", "completed", "failed"] }).notNull(), outcome: text("outcome", { enum: ["held-within-bounds", "counterexample-found"] }),
+  configuredRuns: integer("configured_runs").notNull(), configuredDepth: integer("configured_depth"), testCount: integer("test_count").notNull(), passedCount: integer("passed_count").notNull(), failedCount: integer("failed_count").notNull(), runsExecuted: integer("runs_executed"),
+  stdoutSummary: text("stdout_summary").notNull(), stderrSummary: text("stderr_summary").notNull(), dynamicEvidence: text("dynamic_evidence").notNull(), contentFingerprint: text("content_fingerprint"), isolationMetadata: text("isolation_metadata"), executionExitCode: integer("execution_exit_code"), timedOut: integer("timed_out", { mode: "boolean" }).notNull(), errorCode: text("error_code"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(), startedAt: integer("started_at", { mode: "timestamp" }), completedAt: integer("completed_at", { mode: "timestamp" }), durationMs: integer("duration_ms"),
+});
+
 export const hypothesisGroups = sqliteTable("hypothesis_groups", {
   id: text("id").primaryKey(), planId: text("plan_id").notNull().references(() => securityReviewPlans.id, { onDelete: "cascade" }), scanId: text("scan_id").notNull().references(() => scans.id, { onDelete: "cascade" }), fingerprint: text("fingerprint").notNull(), priorityScore: integer("priority_score").notNull(), confidenceScore: integer("confidence_score").notNull(), evidenceClasses: text("evidence_classes").notNull(), reasons: text("reasons").notNull(), createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
@@ -171,3 +180,5 @@ export type SecurityReviewerRunRow = typeof securityReviewerRuns.$inferSelect;
 export type VulnerabilityHypothesisRow = typeof vulnerabilityHypotheses.$inferSelect;
 export type HypothesisVerificationRunRow = typeof hypothesisVerificationRuns.$inferSelect;
 export type HypothesisGroupRow = typeof hypothesisGroups.$inferSelect;
+
+export type ExecutableInvariantRunRow = typeof executableInvariantRuns.$inferSelect;

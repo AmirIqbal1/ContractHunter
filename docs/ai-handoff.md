@@ -10,7 +10,7 @@ ContractHunter is a locally hosted smart-contract security analysis workstation 
 
 Latest released: `v0.1.9`.
 
-`v0.2.0` is in development. Milestone 1 implements internal executable-invariant plan and deterministic harness foundations; invariant execution is not yet available. These are not v0.1.9 capabilities.
+`v0.2.0` is in development. Milestone 1 implements internal executable-invariant plans and deterministic harness foundations. Milestone 2 adds networkless worker execution, deterministic bounded Forge result interpretation, dynamic evidence and separate immutable run history. These are not v0.1.9 released capabilities.
 
 ## Current stack
 
@@ -78,4 +78,10 @@ Preserve static-first ordering, manual AI actions, structured outputs, determini
 
 The separate `ExecutableInvariantPlan` (`contracthunter-invariant-plan-v1`) supports bounded `fuzz-property` and `stateful-invariant` plans with trusted identity, symbolic actors/instances, `uint256` and `bool` fuzz inputs, deterministic setup, current-state observations, and typed assertions. Assumptions are deferred. `ExecutableInvariantGenerator` validates primary-contract signatures through the same helper used by the historical verification planner and produces fixed Solidity templates. `VerificationWorkspaceBuilder.buildInvariant` creates a bounded source closure and an invariant-specific hashed manifest and Foundry configuration. SHA-256 of canonical plan JSON supplies the Foundry `[fuzz].seed`; Foundry 1.7.1 also uses it in the invariant runner. Fuzz runs are 128; invariant runs/depth are 64/32 with `fail_on_revert = false`. No forge-std dependency is downloaded; the generated stateful test has a minimal ContractHunter target registration helper.
 
-No AI schemas/prompts, public API, UI, worker IPC, hypothesis lifecycle, or production database behavior was changed for invariant generation. Invariant execution and dynamic evidence interpretation remain Milestone 2 work. Preserve v0.1.9 verification output and worker isolation.
+Milestone 1 changed no AI schemas/prompts, public API, UI, worker IPC, hypothesis lifecycle or production database behavior. Preserve v0.1.9 verification output and worker isolation.
+
+## v0.2.0 Milestone 2 handoff
+
+The worker protocol adds a strict `execute-invariant` branch; the caller supplies only bounded run/workspace identity, scan/hypothesis/commit/compiler identity, plan hash, mode and fixed limits. Version 2 invariant manifests embed the structured plan for independent worker revalidation. The worker checks workspace path, symlinks, exact expected files, source hashes, generated harness/config, manifest and compiler identity before fixed `forge test --json` via the existing trusted compiler resolver and `prlimit`. The version 1 verification branch remains separate. Forge 1.7.1 cannot combine `--json` with `--color never`; `NO_COLOR=1` is set in the fixed environment.
+
+`ExecutableInvariantService` is an internal entry point. It binds plans to persisted scan/hypothesis state, creates immutable `executable_invariant_runs` rows, invokes the worker, interprets pinned Forge JSON into bounded property evidence, and never changes hypothesis status. Successful fuzz/invariant runs mean no counterexample was found within the configured run/depth budget; they are not formal proof. Counterexamples are contradictory evidence for the claimed property. No AI proposals, public endpoint or UI were added. Tested the three synthetic fixtures and a legacy BrokenAccessControl verification through an isolated Compose worker using trusted solc 0.8.36. The legacy fixture's exact `0.8.24` pragma was widened only in the isolated probe copy because no trusted 0.8.24 compiler was cached.

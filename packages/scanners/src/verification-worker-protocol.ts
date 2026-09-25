@@ -43,3 +43,15 @@ export class WorkerFrameDecoder {
     return undefined;
   }
 }
+
+export const INVARIANT_TIMEOUT_MS = 180_000;
+export const INVARIANT_MAX_OUTPUT_BYTES = 2_097_152;
+export const executableInvariantWorkerRequestSchema = z.object({
+  command: z.literal("execute-invariant"), runId: uuid, workspaceId: uuid, scanId: uuid, hypothesisId: uuid,
+  resolvedCommit: z.string().regex(/^[a-f0-9]{40}$/), compilerVersion: z.string().regex(/^\d+\.\d+\.\d+$/),
+  planHash: z.string().regex(/^[a-f0-9]{64}$/), mode: z.enum(["fuzz-property", "stateful-invariant"]),
+  timeoutMs: z.literal(INVARIANT_TIMEOUT_MS), maxOutputBytes: z.literal(INVARIANT_MAX_OUTPUT_BYTES),
+}).strict().refine((request) => request.runId === request.workspaceId, "Workspace must match the invariant run.");
+export const workerRequestSchema = z.union([verificationWorkerRequestSchema, executableInvariantWorkerRequestSchema]);
+export type ExecutableInvariantWorkerRequest = z.infer<typeof executableInvariantWorkerRequestSchema>;
+export type WorkerRequest = z.infer<typeof workerRequestSchema>;
