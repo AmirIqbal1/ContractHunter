@@ -9,6 +9,12 @@ export function parseInvariantReplayForgeJson(output: string, replay: InvariantR
   const results = record(record(found[0][1])?.test_results); if (!results || Object.keys(results).length !== 1) return null;
   const entries = Object.entries(results).filter(([name]) => name.split("(")[0] === `testReplay_${replay.propertyName}`); if (entries.length !== 1) return null;
   const result = record(entries[0][1]); if (!result) return null;
-  if (result.status === "Success") return "reproduced";
-  return result.status === "Failure" && typeof result.reason === "string" && result.reason.includes("CH_REPLAY_NOT_REPRODUCED") ? "not-reproduced" : null;
+  if (result.counterexample !== null && result.counterexample !== undefined) return null;
+  if (result.status === "Success") return result.reason === null || result.reason === undefined ? "reproduced" : null;
+  return result.status === "Failure" && result.reason === "CH_REPLAY_NOT_REPRODUCED" ? "not-reproduced" : null;
+}
+export function parseTrustedInvariantReplayForgeResult(output: string, replay: InvariantReplayPlan, exitCode: number, outputTruncated: boolean): "reproduced" | "not-reproduced" | null {
+  if (outputTruncated) return null;
+  const outcome = parseInvariantReplayForgeJson(output, replay);
+  return outcome === "reproduced" && exitCode === 0 ? outcome : outcome === "not-reproduced" && exitCode !== 0 ? outcome : null;
 }

@@ -4,8 +4,9 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { counterexampleHash, executableInvariantPlanSchema, invariantPlanHash, invariantReplayPlanSchema, type ExecutableInvariantPlan } from "@contracthunter/core";
 import { InvariantReplayGenerator } from "./invariant-replay-generator";
-import { parseInvariantReplayForgeJson } from "./invariant-replay-result";
+import { parseInvariantReplayForgeJson, parseTrustedInvariantReplayForgeResult } from "./invariant-replay-result";
 import { validateInvariantReplayWorkspaceIntegrity } from "./invariant-replay-workspace-integrity";
+import { InvariantReplayWorkerClient } from "./verification-worker-client";
 import { invariantReplayWorkerRequestSchema, REPLAY_MAX_OUTPUT_BYTES, REPLAY_TIMEOUT_MS, workerRequestSchema } from "./verification-worker-protocol";
 import { VerificationWorkspaceBuilder } from "./verification-workspace-builder";
 
@@ -22,7 +23,19 @@ describe("deterministic invariant replay", () => {
   it("generates a fixed fuzz replay that passes only on the expected violation", async () => { const plan = fuzz(), source = await readFile(path.join(root, plan.primarySourcePath), "utf8"), generated = new InvariantReplayGenerator().generate(replay(plan, single, "accounting"), plan, new Map([[plan.primarySourcePath, source]])); expect(generated.source).toContain("function testReplay_accounting() public"); expect(generated.source).toContain("target.record(436);"); expect(generated.source).toContain('require(!((recorded == nativeBalance)), "CH_REPLAY_NOT_REPRODUCED")'); expect(generated.source).not.toContain("testFuzz"); expect(generated).toEqual(new InvariantReplayGenerator().generate(replay(plan, single, "accounting"), plan, new Map([[plan.primarySourcePath, source]]))); });
   it("renders the exact ordered stateful sequence with typed bool values", async () => { const plan = stateful(), source = await readFile(path.join(root, plan.primarySourcePath), "utf8"), generated = new InvariantReplayGenerator().generate(replay(plan, sequence, "ownerStable"), plan, new Map([[plan.primarySourcePath, source]])); expect(generated.source.indexOf("target.touch(true)")).toBeLessThan(generated.source.indexOf("target.transferOwnership(actor_attacker)")); expect(generated.source.match(/vm\.prank\(actor_attacker\)/g)).toHaveLength(2); });
   it("interprets only the exact generated replay result", () => { const value = replay(fuzz(), single, "accounting"), json = (status: string, reason: string | null) => JSON.stringify({ "test/ContractHunterReplay.t.sol:ContractHunterReplayTest": { test_results: { "testReplay_accounting()": { status, reason } } } }); expect(parseInvariantReplayForgeJson(json("Success", null), value)).toBe("reproduced"); expect(parseInvariantReplayForgeJson(json("Failure", "CH_REPLAY_NOT_REPRODUCED"), value)).toBe("not-reproduced"); expect(parseInvariantReplayForgeJson(json("Failure", "other"), value)).toBeNull(); });
+  it("rejects malformed, additional, truncated, counterexample-bearing, and exit-inconsistent replay output", () => {
+    const value = replay(fuzz(), single, "accounting"), suite = "test/ContractHunterReplay.t.sol:ContractHunterReplayTest";
+    const json = (tests: Record<string, unknown>) => JSON.stringify({ [suite]: { test_results: tests } }), success = { status: "Success", reason: null };
+    for (const malformed of ["{", json({}), json({ "testReplay_accounting()": success, "testUnexpected()": success }), json({ "testReplay_accounting()": { ...success, counterexample: { Single: {} } } }), json({ "testReplay_accounting()": { status: "Success", reason: "ambiguous" } }), json({ "testReplay_accounting()": { status: "Failure", reason: "prefix CH_REPLAY_NOT_REPRODUCED suffix" } })]) expect(parseInvariantReplayForgeJson(malformed, value)).toBeNull();
+    const reproduced = json({ "testReplay_accounting()": success }), notReproduced = json({ "testReplay_accounting()": { status: "Failure", reason: "CH_REPLAY_NOT_REPRODUCED" } });
+    expect(parseTrustedInvariantReplayForgeResult(reproduced, value, 1, false)).toBeNull(); expect(parseTrustedInvariantReplayForgeResult(notReproduced, value, 0, false)).toBeNull(); expect(parseTrustedInvariantReplayForgeResult(reproduced, value, 0, true)).toBeNull();
+  });
   it("accepts only the fixed replay worker request surface", () => { const request = { command: "execute-invariant-replay", replayRunId: invariantRunId, workspaceId, scanId, hypothesisId, resolvedCommit: commit, compilerVersion: "0.8.36", invariantPlanHash: "a".repeat(64), replayPlanHash: "b".repeat(64), counterexampleHash: "c".repeat(64), timeoutMs: REPLAY_TIMEOUT_MS, maxOutputBytes: REPLAY_MAX_OUTPUT_BYTES }; expect(invariantReplayWorkerRequestSchema.safeParse(request).success).toBe(true); expect(workerRequestSchema.safeParse(request).success).toBe(true); for (const field of [{ args: ["--ffi"] }, { executable: "sh" }, { env: { RPC_URL: "x" } }, { timeoutMs: 0 }, { workspaceId: "../x" }]) expect(invariantReplayWorkerRequestSchema.safeParse({ ...request, ...field }).success).toBe(false); });
+  it("constructs a strict replay request without leaking the local workspacePath field", async () => {
+    const base = await mkdtemp(path.join(tmpdir(), "ch-replay-client-"));
+    try { const workspace = path.join(base, workspaceId); await mkdir(workspace); const result = await new InvariantReplayWorkerClient(base, path.join(base, "missing.sock")).run({ replayRunId: invariantRunId, workspacePath: workspace, scanId, hypothesisId, resolvedCommit: commit, compilerVersion: "0.8.36", invariantPlanHash: "a".repeat(64), replayPlanHash: "b".repeat(64), counterexampleHash: "c".repeat(64) }); expect(result).toMatchObject({ status: "refused", errorCode: "replay_worker_unavailable" }); }
+    finally { await rm(base, { recursive: true, force: true }); }
+  });
 });
 
 describe("replay workspace integrity", () => {

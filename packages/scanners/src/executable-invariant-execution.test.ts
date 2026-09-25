@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { executableInvariantPlanSchema, INVARIANT_HARNESS_MANIFEST, type ExecutableInvariantPlan } from "@contracthunter/core";
 import { executeInvariant, isolationPreflight } from "../../../docker/verification-worker";
-import { parseInvariantForgeJson, interpretInvariantFacts } from "./executable-invariant-result";
+import { parseInvariantForgeJson, parseTrustedInvariantForgeResult, interpretInvariantFacts } from "./executable-invariant-result";
 import { validateExecutableInvariantWorkspaceIntegrity } from "./executable-invariant-workspace-integrity";
 import { ExecutableInvariantWorkerClient } from "./verification-worker-client";
 import { executableInvariantWorkerRequestSchema, INVARIANT_MAX_OUTPUT_BYTES, INVARIANT_TIMEOUT_MS, workerRequestSchema } from "./verification-worker-protocol";
@@ -18,7 +18,7 @@ const fixtureRoot = path.resolve("packages/scanners/fixtures/invariants");
 const property = { name: "accounting", observations: [{ kind: "read-uint", instanceName: "target", functionName: "totalRecordedBalance", resultName: "recorded" }, { kind: "read-balance", target: { kind: "instance", name: "target" }, resultName: "nativeBalance" }], assertions: [{ id: "conservation", kind: "uint-eq", actual: "recorded", expected: { kind: "result", name: "nativeBalance" } }] };
 const common = { schemaVersion: "contracthunter-invariant-plan-v1", scanId, hypothesisId, resolvedCommit, compilerVersion: "0.8.36", actors: ["deployer", "attacker"] };
 function fuzz(): ExecutableInvariantPlan { return executableInvariantPlanSchema.parse({ ...common, mode: "fuzz-property", primaryContract: "VulnerableAccounting", primarySourcePath: "contracts/VulnerableAccounting.sol", sourceFiles: ["contracts/VulnerableAccounting.sol"], setup: [{ kind: "deploy", contractName: "VulnerableAccounting", instanceName: "target" }], property, fuzzAction: { instanceName: "target", functionName: "record", caller: "attacker", parameters: [{ name: "amount", type: "uint256" }], args: [{ kind: "parameter", name: "amount" }] } }); }
-function stateful(): ExecutableInvariantPlan { return executableInvariantPlanSchema.parse({ ...common, mode: "stateful-invariant", primaryContract: "StatefulAccessControl", primarySourcePath: "contracts/StatefulAccessControl.sol", sourceFiles: ["contracts/StatefulAccessControl.sol"], setup: [{ kind: "deploy", contractName: "StatefulAccessControl", instanceName: "target" }], handlerActions: [{ name: "takeOwnership", instanceName: "target", functionName: "transferOwnership", caller: "attacker", parameters: [], args: [{ kind: "address", source: "actor", name: "attacker" }] }], properties: [{ name: "ownerStable", observations: [{ kind: "read-address", instanceName: "target", functionName: "owner", resultName: "observedOwner" }], assertions: [{ id: "owner", kind: "address-eq", actual: "observedOwner", expected: { kind: "address", source: "actor", name: "deployer" } }] }] }); }
+function stateful(): ExecutableInvariantPlan { return executableInvariantPlanSchema.parse({ ...common, mode: "stateful-invariant", primaryContract: "StatefulAccessControl", primarySourcePath: "contracts/StatefulAccessControl.sol", sourceFiles: ["contracts/StatefulAccessControl.sol"], setup: [{ kind: "deploy", contractName: "StatefulAccessControl", instanceName: "target" }], handlerActions: [{ name: "touch", instanceName: "target", functionName: "touch", caller: "attacker", parameters: [{ name: "flag", type: "bool" }], args: [{ kind: "parameter", name: "flag" }] }, { name: "takeOwnership", instanceName: "target", functionName: "transferOwnership", caller: "attacker", parameters: [], args: [{ kind: "address", source: "actor", name: "attacker" }] }], properties: [{ name: "ownerStable", observations: [{ kind: "read-address", instanceName: "target", functionName: "owner", resultName: "observedOwner" }], assertions: [{ id: "owner", kind: "address-eq", actual: "observedOwner", expected: { kind: "address", source: "actor", name: "deployer" } }] }] }); }
 const request = { command: "execute-invariant", runId, workspaceId: runId, scanId, hypothesisId, resolvedCommit, compilerVersion: "0.8.36", planHash: "b".repeat(64), mode: "fuzz-property", timeoutMs: INVARIANT_TIMEOUT_MS, maxOutputBytes: INVARIANT_MAX_OUTPUT_BYTES };
 const forgeJson = (contract: string, test: string, status: "Success" | "Failure", kind: "Fuzz" | "Invariant", runs: number, counterexample: unknown = null) => JSON.stringify({ [`test/ContractHunterInvariant.t.sol:${contract}`]: { test_results: { [test]: { status, reason: status === "Failure" ? "CH_ASSERT_0" : null, kind: { [kind]: { runs } }, counterexample } } } });
 
@@ -69,6 +69,33 @@ describe("pinned Forge 1.7.1 JSON interpretation", () => {
     expect(parseInvariantForgeJson(forgeJson("ContractHunterFuzzTest", "testFuzz_accounting(uint256)", "Failure", "Fuzz", 0), plan)).toBeNull();
     expect(parseInvariantForgeJson(forgeJson("ContractHunterInvariantTest", "invariant_ownerStable()", "Failure", "Invariant", 0, { Sequence: [1, [{ contract_name: "test/ContractHunterInvariant.t.sol:ContractHunterHandler", signature: "action_arbitrary()" }]] }), stateful())).toBeNull();
     expect(() => interpretInvariantFacts(plan, { testCount: 1, passedCount: 1, failedCount: 0, runsExecuted: 129, tests: [{ propertyName: "accounting", testName: "testFuzz_accounting(uint256)", status: "passed", runsExecuted: 129, reason: null, counterexample: null }] }, "worker")).toThrow("invariant_result_unparseable");
+  });
+  it("fails closed for every malformed pinned Forge result shape and process inconsistency", () => {
+    const plan = fuzz(), suite = "test/ContractHunterInvariant.t.sol:ContractHunterFuzzTest", validPass = forgeJson("ContractHunterFuzzTest", "testFuzz_accounting(uint256)", "Success", "Fuzz", 128);
+    const result = (changes: Record<string, unknown>) => JSON.stringify({ [suite]: { test_results: changes } });
+    const pass = { status: "Success", reason: null, kind: { Fuzz: { runs: 128 } }, counterexample: null };
+    const failure = (counterexample: unknown, reason = "CH_ASSERT_0") => ({ status: "Failure", reason, kind: { Fuzz: { runs: 1 } }, counterexample });
+    const single = { Single: { args: "436", calldata: "0x1234" } };
+    for (const malformed of [
+      result({}),
+      result({ "testFuzz_accounting(uint256)": pass, "testFuzz_accounting(bool)": pass }),
+      "{\"truncated\":",
+      result({ "testFuzz_accounting(uint256)": failure({ Single: {} }) }),
+      result({ "testFuzz_accounting(uint256)": failure({ Single: { args: "-1" } }) }),
+      result({ "testFuzz_accounting(uint256)": failure({ Single: { args: (1n << 256n).toString() } }) }),
+      result({ "testFuzz_accounting(uint256)": failure(single, "unexpected revert") }),
+      result({ "testFuzz_accounting(uint256)": { ...pass, counterexample: single } }),
+      result({ "testFuzz_accounting(uint256)": pass, "testUnexpected()": pass }),
+    ]) expect(parseInvariantForgeJson(malformed, plan)).toBeNull();
+    expect(parseTrustedInvariantForgeResult(validPass, plan, 1, false)).toBeNull();
+    expect(parseTrustedInvariantForgeResult(forgeJson("ContractHunterFuzzTest", "testFuzz_accounting(uint256)", "Failure", "Fuzz", 1, single), plan, 0, false)).toBeNull();
+    expect(parseTrustedInvariantForgeResult(validPass, plan, 0, true)).toBeNull();
+
+    const statefulPlan = stateful(), handler = "test/ContractHunterInvariant.t.sol:ContractHunterHandler";
+    const statefulJson = (steps: unknown[]) => forgeJson("ContractHunterInvariantTest", "invariant_ownerStable()", "Failure", "Invariant", 1, { Sequence: [1, steps] });
+    expect(parseInvariantForgeJson(statefulJson([{ contract_name: handler, signature: "action_touch(bool)", args: ["maybe"] }]), statefulPlan)).toBeNull();
+    expect(parseInvariantForgeJson(statefulJson([{ contract_name: handler, signature: "action_unknown()", args: "" }]), statefulPlan)).toBeNull();
+    expect(parseInvariantForgeJson(statefulJson(Array.from({ length: 33 }, () => ({ contract_name: handler, signature: "action_takeOwnership()", args: "" }))), statefulPlan)).toBeNull();
   });
 });
 

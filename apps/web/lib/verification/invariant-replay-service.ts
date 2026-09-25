@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { lstat, realpath } from "node:fs/promises";
 import path from "node:path";
-import { counterexampleHash, executableInvariantEvidenceSchema, executableInvariantPlanSchema, invariantReplayPlanHash, invariantReplayPlanSchema, loadConfig, stableCompilerVersionSchema, type InvariantReplayPlan } from "@contracthunter/core";
+import { counterexampleHash, executableInvariantEvidenceSchema, executableInvariantPlanSchema, invariantReplayManifestFingerprint, invariantReplayPlanHash, invariantReplayPlanSchema, loadConfig, stableCompilerVersionSchema, type InvariantReplayPlan } from "@contracthunter/core";
 import { createInvariantReplayArtifact, createInvariantReplayRun, finishInvariantReplayRun, getExecutableInvariantProposal, getExecutableInvariantRun, getInvariantReplayArtifact, getScan, getVulnerabilityHypothesis, listInvariantReplayArtifacts, markInvariantReplayRunRunning, reviewReproducedInvariantEvidence, type DatabaseClient, type InvariantEvidenceReviewRow, type InvariantReplayArtifactRow, type InvariantReplayRunRow, getDatabase } from "@contracthunter/db";
 import { InvariantReplayWorkerClient, VerificationWorkspaceBuilder, validateInvariantReplayWorkspaceIntegrity, type InvariantReplayWorkerResult } from "@contracthunter/scanners";
 
@@ -37,16 +37,20 @@ export class InvariantReplayService {
   }
   async execute(hypothesisId: string, replayArtifactId: string): Promise<InvariantReplayRunRow> {
     const artifact = getInvariantReplayArtifact(this.options.database, replayArtifactId); if (!artifact || artifact.hypothesisId !== hypothesisId) throw new InvariantReplayRequestError("unknown_replay", "Replay artifact not found.");
-    await this.repository(hypothesisId, artifact.proposalId, artifact.invariantRunId); const replayPlan = invariantReplayPlanSchema.safeParse(parse(artifact.replayPlan));
+    const bound = await this.repository(hypothesisId, artifact.proposalId, artifact.invariantRunId), replayPlan = invariantReplayPlanSchema.safeParse(parse(artifact.replayPlan));
     if (!replayPlan.success || invariantReplayPlanHash(replayPlan.data) !== artifact.replayPlanHash || counterexampleHash(replayPlan.data.counterexample) !== artifact.counterexampleHash) throw new InvariantReplayRequestError("invalid_state", "Replay artifact identity is invalid.");
-    const workspacePath = path.join(this.options.verificationRoot, artifact.id), manifest = await (this.options.validateIntegrity ?? validateInvariantReplayWorkspaceIntegrity)(workspacePath);
-    if (manifest.contentFingerprint !== artifact.contentFingerprint || manifest.generatedHarnessSha256 !== artifact.harnessHash) throw new InvariantReplayRequestError("invalid_state", "Replay workspace was modified.");
     const run = createInvariantReplayRun(this.options.database, artifact.id); markInvariantReplayRunRunning(this.options.database, run.id); let result: InvariantReplayWorkerResult | undefined; const started = Date.now();
     try {
-      result = await this.options.runner.run({ replayRunId: run.id, workspacePath, scanId: replayPlan.data.scanId, hypothesisId, resolvedCommit: replayPlan.data.resolvedCommit, compilerVersion: replayPlan.data.compilerVersion, invariantPlanHash: replayPlan.data.invariantPlanHash, replayPlanHash: artifact.replayPlanHash, counterexampleHash: artifact.counterexampleHash });
+      const built = await this.options.workspaceBuilder(bound.compilers).buildInvariantReplay({ workspaceId: run.id, repositoryPath: bound.repositoryPath, replayPlan: replayPlan.data, invariantPlan: bound.invariant });
+      const manifest = await (this.options.validateIntegrity ?? validateInvariantReplayWorkspaceIntegrity)(built.workspacePath);
+      const { contentFingerprint: _freshFingerprint, ...freshBase } = manifest;
+      void _freshFingerprint;
+      const artifactFingerprint = invariantReplayManifestFingerprint({ ...freshBase, workspaceId: artifact.id });
+      if (JSON.stringify(manifest) !== JSON.stringify(built.manifest) || artifactFingerprint !== artifact.contentFingerprint || manifest.generatedHarnessSha256 !== artifact.harnessHash || manifest.replayPlanHash !== artifact.replayPlanHash || manifest.replayPlan.counterexampleHash !== artifact.counterexampleHash) throw new Error("replay_manifest_mismatch");
+      result = await this.options.runner.run({ replayRunId: run.id, workspacePath: built.workspacePath, scanId: replayPlan.data.scanId, hypothesisId, resolvedCommit: replayPlan.data.resolvedCommit, compilerVersion: replayPlan.data.compilerVersion, invariantPlanHash: replayPlan.data.invariantPlanHash, replayPlanHash: artifact.replayPlanHash, counterexampleHash: artifact.counterexampleHash });
       const trusted = result.status === "completed" && !!result.isolation && !result.timedOut && !result.outputTruncated && !result.errorCode && result.outcome !== null;
       return finishInvariantReplayRun(this.options.database, run.id, { outcome: trusted ? result.outcome! : result.status === "refused" ? "refused" : "failed", exitCode: result.exitCode, timedOut: result.timedOut, errorCode: trusted ? null : result.errorCode ?? "replay_result_unparseable", isolationMetadata: result.isolation ? JSON.stringify(result.isolation).slice(0, 4096) : null, durationMs: result.durationMs });
-    } catch { return finishInvariantReplayRun(this.options.database, run.id, { outcome: "failed", exitCode: result?.exitCode ?? null, timedOut: result?.timedOut ?? false, errorCode: result?.errorCode ?? "replay_result_unparseable", isolationMetadata: result?.isolation ? JSON.stringify(result.isolation).slice(0, 4096) : null, durationMs: result?.durationMs ?? Date.now() - started }); }
+    } catch (error) { const code = error instanceof Error && /^[a-z_]{1,80}$/.test(error.message) ? error.message : "replay_workspace_invalid"; return finishInvariantReplayRun(this.options.database, run.id, { outcome: "failed", exitCode: result?.exitCode ?? null, timedOut: result?.timedOut ?? false, errorCode: result?.errorCode ?? code, isolationMetadata: result?.isolation ? JSON.stringify(result.isolation).slice(0, 4096) : null, durationMs: result?.durationMs ?? Date.now() - started }); }
   }
   review(hypothesisId: string, proposalId: string, runId: string, replayRunId: string): InvariantEvidenceReviewRow { return reviewReproducedInvariantEvidence(this.options.database, { hypothesisId, proposalId, invariantRunId: runId, replayRunId }); }
 }

@@ -18,6 +18,13 @@ export function createDatabase(databasePath: string) {
   sqlite.pragma("journal_mode = WAL");
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+      id TEXT PRIMARY KEY,
+      applied_at INTEGER NOT NULL
+    );
+  `);
+  const migrateV020 = sqlite.transaction(() => {
+    sqlite.exec(`
     CREATE TABLE IF NOT EXISTS scans (
       id TEXT PRIMARY KEY, repository_url TEXT NOT NULL, repository_name TEXT NOT NULL,
       requested_ref TEXT, resolved_commit TEXT, status TEXT NOT NULL, framework TEXT NOT NULL,
@@ -124,8 +131,8 @@ export function createDatabase(databasePath: string) {
     CREATE TABLE IF NOT EXISTS hypothesis_group_members (
       group_id TEXT NOT NULL REFERENCES hypothesis_groups(id) ON DELETE CASCADE, hypothesis_id TEXT NOT NULL REFERENCES vulnerability_hypotheses(id) ON DELETE CASCADE, PRIMARY KEY (group_id, hypothesis_id)
     );
-  `);
-  const scanColumns = new Set((sqlite.prepare("PRAGMA table_info(scans)").all() as Array<{ name: string }>).map((column) => column.name));
+    `);
+    const scanColumns = new Set((sqlite.prepare("PRAGMA table_info(scans)").all() as Array<{ name: string }>).map((column) => column.name));
   if (!scanColumns.has("scanner_name")) sqlite.exec("ALTER TABLE scans ADD COLUMN scanner_name TEXT");
   if (!scanColumns.has("scanner_status")) sqlite.exec("ALTER TABLE scans ADD COLUMN scanner_status TEXT NOT NULL DEFAULT 'pending'");
   if (!scanColumns.has("scanner_duration_ms")) sqlite.exec("ALTER TABLE scans ADD COLUMN scanner_duration_ms INTEGER");
@@ -155,14 +162,7 @@ export function createDatabase(databasePath: string) {
   if (!invariantProposalColumns.has("estimated_cost_usd")) sqlite.exec("ALTER TABLE executable_invariant_proposals ADD COLUMN estimated_cost_usd REAL");
   if (!invariantProposalColumns.has("hypothesis_expectation")) sqlite.exec("ALTER TABLE executable_invariant_proposals ADD COLUMN hypothesis_expectation TEXT");
   if (!invariantProposalColumns.has("relation_rationale")) sqlite.exec("ALTER TABLE executable_invariant_proposals ADD COLUMN relation_rationale TEXT");
-  sqlite.exec(`
-    UPDATE hypothesis_verification_runs
-    SET status = 'failed', error = 'Duplicate active verification reconciled during migration.', completed_at = unixepoch() * 1000
-    WHERE status IN ('queued', 'running') AND rowid NOT IN (
-      SELECT MIN(rowid) FROM hypothesis_verification_runs WHERE status IN ('queued', 'running') GROUP BY hypothesis_id
-    );
-  `);
-  sqlite.exec(`
+    sqlite.exec(`
     CREATE INDEX IF NOT EXISTS findings_scan_id_idx ON findings(scan_id);
     CREATE INDEX IF NOT EXISTS findings_filters_idx ON findings(severity, status, source);
     CREATE UNIQUE INDEX IF NOT EXISTS findings_fingerprint_idx ON findings(fingerprint) WHERE fingerprint IS NOT NULL;
@@ -188,7 +188,25 @@ export function createDatabase(databasePath: string) {
     CREATE INDEX IF NOT EXISTS hypothesis_lifecycle_transitions_hypothesis_idx ON hypothesis_lifecycle_transitions(hypothesis_id, created_at);
     CREATE INDEX IF NOT EXISTS hypothesis_groups_plan_idx ON hypothesis_groups(plan_id, priority_score);
     CREATE INDEX IF NOT EXISTS hypothesis_group_members_hypothesis_idx ON hypothesis_group_members(hypothesis_id);
-  `);
+    `);
+    sqlite.prepare("INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)").run("0001_v0_2_0_release_schema", Date.now());
+  });
+  const applied = sqlite.prepare("SELECT 1 FROM schema_migrations WHERE id = ?").get("0001_v0_2_0_release_schema");
+  if (!applied) {
+    try { migrateV020(); }
+    catch (error) {
+      sqlite.close();
+      throw new Error(`Database migration 0001_v0_2_0_release_schema failed without committing changes: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  const integrity = sqlite.pragma("quick_check") as Array<{ quick_check: string }>;
+  const foreignKeyViolations = sqlite.pragma("foreign_key_check") as unknown[];
+  const requiredTables = ["scans", "findings", "scan_scanners", "investigations", "investigation_findings", "protocol_analyses", "invariants", "security_review_plans", "security_reviewer_runs", "vulnerability_hypotheses", "hypothesis_verification_runs", "executable_invariant_runs", "executable_invariant_proposals", "invariant_replay_artifacts", "invariant_replay_runs", "authoritative_invariant_evidence", "invariant_evidence_reviews", "hypothesis_lifecycle_transitions", "hypothesis_groups", "hypothesis_group_members"];
+  const presentTables = new Set((sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as Array<{ name: string }>).map((row) => row.name));
+  if (integrity.length !== 1 || integrity[0]?.quick_check !== "ok" || foreignKeyViolations.length || requiredTables.some((table) => !presentTables.has(table))) {
+    sqlite.close();
+    throw new Error("Database validation failed after migration; no application access was started.");
+  }
   const orm = drizzle(sqlite, { schema: { scans, findings, scanScanners, investigations, investigationFindings, protocolAnalyses, invariants, securityReviewPlans, securityReviewerRuns, vulnerabilityHypotheses, hypothesisVerificationRuns, executableInvariantRuns, executableInvariantProposals, invariantReplayArtifacts, invariantReplayRuns, invariantEvidenceReviews, authoritativeInvariantEvidence, hypothesisLifecycleTransitions, hypothesisGroups, hypothesisGroupMembers } });
   return { sqlite, orm };
 }

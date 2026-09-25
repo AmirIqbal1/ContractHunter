@@ -75,10 +75,15 @@ export function parseInvariantForgeJson(output: string, plan: ExecutableInvarian
     const runsExecuted = detail?.runs;
     if (typeof runsExecuted !== "number" || !Number.isInteger(runsExecuted) || runsExecuted < 0 || runsExecuted > 1_000) return null;
     const fact = invariantTestFactSchema.safeParse({ propertyName: property.name, testName: small(testName, 160), status: result.status === "Success" ? "passed" : "failed", runsExecuted, reason: result.reason === null || result.reason === undefined ? null : small(result.reason), counterexample: counterexample(result.counterexample, plan) });
-    if (!fact.success || (fact.data.status === "failed" && !fact.data.counterexample)) return null;
+    if (!fact.success || (fact.data.status === "passed" && fact.data.counterexample !== null) || (fact.data.status === "failed" && (!fact.data.counterexample || !/^CH_ASSERT_\d+$/.test(fact.data.reason ?? "")))) return null;
     tests.push(fact.data);
   }
   return { testCount: tests.length, passedCount: tests.filter((test) => test.status === "passed").length, failedCount: tests.filter((test) => test.status === "failed").length, runsExecuted: tests.reduce((sum, test) => sum + test.runsExecuted, 0), tests };
+}
+export function parseTrustedInvariantForgeResult(output: string, plan: ExecutableInvariantPlan, exitCode: number, outputTruncated: boolean): ParsedInvariantForgeOutput | null {
+  if (outputTruncated) return null;
+  const parsed = parseInvariantForgeJson(output, plan);
+  return parsed && ((parsed.failedCount === 0 && exitCode === 0) || (parsed.failedCount > 0 && exitCode !== 0)) ? parsed : null;
 }
 export type InvariantEvidence = ExecutableInvariantEvidence;
 export function interpretInvariantFacts(plan: ExecutableInvariantPlan, facts: ParsedInvariantForgeOutput, isolationProvider: string): InvariantEvidence[] {

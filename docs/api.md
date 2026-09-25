@@ -25,21 +25,21 @@
 ## Hypotheses and verification
 
 - `GET /api/hypotheses` and `GET /api/hypotheses/:id` — list/retrieve hypotheses
-- `PATCH /api/hypotheses/:id` — update allowed hypothesis status
+- `PATCH /api/hypotheses/:id` — update an allowed non-authoritative hypothesis status; `verified` is never accepted and invalid transitions return a conflict
 - `POST /api/hypotheses/:id/verification-plan` — generate a non-executing plan preview
 - `POST /api/hypotheses/:id/verify` — validate and explicitly execute a local plan
 - `GET /api/hypotheses/:id/verifications` — list verification history
 - `GET /api/hypotheses/:id/invariant-proposals` — list bounded proposal and invariant-run history
 - `POST /api/hypotheses/:id/invariant-proposals` — manually request one AI semantic proposal; bodyless, no execution
 - `POST /api/hypotheses/:id/invariant-proposals/:proposalId/validate` — bodyless revalidation of a persisted plan and source
-- `POST /api/hypotheses/:id/invariant-proposals/:proposalId/run` — bodyless explicit local run of that validated proposal through the worker
+- `POST /api/hypotheses/:id/invariant-proposals/:proposalId/run` — bodyless explicit local run of that validated proposal through the worker; every retry gets a new run ID and freshly generated workspace
 - `POST /api/hypotheses/:id/invariant-proposals/:proposalId/runs/:runId/replays` — generate a deterministic replay artifact from the persisted counterexample; bodyless and does not execute
-- `POST /api/hypotheses/:id/invariant-proposals/:proposalId/runs/:runId/replays/:replayId/run` — explicitly execute the persisted replay artifact in the networkless worker
-- `POST /api/hypotheses/:id/invariant-proposals/:proposalId/runs/:runId/replays/:replayRunId/reviews` — confirm relevance of a successfully reproduced replay and invoke centralized lifecycle evaluation
+- `POST /api/hypotheses/:id/invariant-proposals/:proposalId/runs/:runId/replays/:replayId/run` — explicitly execute the persisted replay artifact in a fresh networkless-worker workspace; retries preserve the artifact and receive new replay-run IDs
+- `POST /api/hypotheses/:id/invariant-proposals/:proposalId/runs/:runId/replays/:replayRunId/reviews` — confirm relevance of that successfully reproduced replay run and invoke centralized lifecycle evaluation
 
-Replay endpoints never accept counterexample values, handler actions, plans, compilers, commands, environment, or Forge arguments. All POSTs read at most 1,024 actual body bytes and require an empty body.
+Every invariant identifier is UUID-validated and the service verifies the complete hypothesis → proposal → invariant run → replay artifact/run relationship against persisted server state. Replay endpoints never accept counterexample values, handler actions, plans, commit/compiler identity, commands, environment, or Forge arguments. All invariant action POSTs read at most 1,024 actual body bytes and require zero body bytes; declared or actual oversized input fails before service/provider use.
 
-Invariant routes accept no plan, command, Forge argument or configuration in request bodies. The application is a single-user local service without application authentication; expose it only on a trusted local interface. Invariant evidence does not change hypothesis status.
+Invalid state transitions fail without rewriting prior history. Proposal generation, validation, invariant execution, replay generation, failed/refused/not-reproduced replay, and counterexample discovery alone never set a hypothesis to `verified`. Only authoritative supporting evidence created by explicit relevance review enters the centralized lifecycle authority. The application is a single-user local service without application authentication; expose it only on a trusted local interface.
 
 ## Health
 

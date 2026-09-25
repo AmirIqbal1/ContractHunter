@@ -71,6 +71,7 @@ describe("production verification worker boundary", () => {
     expect(invariant).toContain("validateExecutableInvariantWorkspaceIntegrity(workspace)");
     expect(invariant).toContain("resolveTrustedVerificationCompiler({ toolHomeDir: TOOL_HOME");
     expect(invariant).toContain('"/usr/bin/prlimit"');
+    expect(invariant).not.toContain("--nproc=");
     expect(invariant).toContain('"/usr/local/bin/forge", "test", "--json"');
     expect(invariant).toContain('FOUNDRY_OFFLINE: "true"');
     expect(invariant).toContain('FOUNDRY_AUTO_DETECT_SOLC: "false"');
