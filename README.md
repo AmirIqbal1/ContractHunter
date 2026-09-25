@@ -10,7 +10,9 @@ Use it only with repositories and contracts you are authorised to analyse. Repos
 - Deterministic cross-scanner investigations
 - Optional AI protocol analysis and specialist security review
 - Ranked vulnerability hypotheses
-- Explicit verification-plan generation and deterministic local verification
+- Structured local verification with deterministic Foundry harnesses
+- Foundry fuzz testing and stateful invariant testing
+- Deterministic counterexample replay with explicit relevance review
 - API cost estimates and recorded usage visibility
 - Local-first, Docker-first operation
 
@@ -19,10 +21,11 @@ Use it only with repositories and contracts you are authorised to analyse. Repos
 ```text
 Repository → Slither + Aderyn → Investigations → Static scan complete
           → optional AI Protocol Analysis → optional AI Security Review
-          → Hypotheses → optional Verification Plan → explicit Local Verification
+          → Hypotheses → structured Verification or reviewed Invariant Proposal
+          → bounded execution → deterministic replay → relevance review
 ```
 
-Static scanning does not use OpenAI tokens. AI stages are optional and manual. AI hypotheses are not verified vulnerabilities. Local verification is explicit and fail-closed.
+Static scanning does not use OpenAI tokens. AI stages are optional and manual. AI hypotheses are not verified vulnerabilities. Local verification is explicit and fail-closed. Bounded fuzzing is not formal proof.
 
 ## Quick start
 

@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 
 const root = path.resolve(import.meta.dirname, "../../..");
 type ComposeVolume = { source: string; target: string; read_only?: boolean; volume?: { subpath?: string } };
-type ComposeService = { build?: { target?: string }; network_mode?: string; networks?: unknown; ports?: unknown; secrets?: unknown; user?: string; environment?: Record<string, string>; volumes?: ComposeVolume[]; read_only?: boolean; privileged?: boolean; restart?: string; pids_limit?: number; cap_drop?: string[]; security_opt?: string[]; depends_on?: Record<string, { condition: string }> };
+type ComposeService = { build?: { target?: string }; network_mode?: string; networks?: unknown; ports?: unknown; secrets?: unknown; user?: string; environment?: Record<string, string>; volumes?: ComposeVolume[]; read_only?: boolean; privileged?: boolean; restart?: string; pids_limit?: number; cpus?: number; cap_drop?: string[]; security_opt?: string[]; depends_on?: Record<string, { condition: string }> };
 function services(): Record<string, ComposeService> {
   const configuration = JSON.parse(execFileSync("docker", ["compose", "config", "--format", "json"], { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] })) as { services: Record<string, ComposeService> };
   return configuration.services;
@@ -18,6 +18,7 @@ describe("production verification worker boundary", () => {
     expect(worker.user).toBe("10002:10001");
     expect(worker.read_only).toBe(true);
     expect(worker.pids_limit).toBe(64);
+    expect(worker.cpus).toBe(1);
     expect(worker.cap_drop).toEqual(["ALL"]);
     expect(worker.security_opt).toEqual(["no-new-privileges:true"]);
     expect(worker.ports).toBeUndefined();
@@ -62,5 +63,26 @@ describe("production verification worker boundary", () => {
     expect(worker).toContain("useradd --uid 10002 --gid contracthunter");
     expect(worker).not.toMatch(/bubblewrap|slither|aderyn|git |docker /i);
     expect(web).not.toMatch(/bubblewrap|prlimit --version/);
+  });
+  it("keeps invariant execution on the fixed worker command and bounded offline environment", async () => {
+    const worker = await readFile(path.join(root, "docker/verification-worker.ts"), "utf8");
+    const invariant = worker.split("export async function executeInvariant(")[1].split("async function main()")[0];
+    expect(invariant).toContain("await isolationPreflight()");
+    expect(invariant).toContain("validateExecutableInvariantWorkspaceIntegrity(workspace)");
+    expect(invariant).toContain("resolveTrustedVerificationCompiler({ toolHomeDir: TOOL_HOME");
+    expect(invariant).toContain('"/usr/bin/prlimit"');
+    expect(invariant).not.toContain("--nproc=");
+    expect(invariant).toContain('"/usr/local/bin/forge", "test", "--json"');
+    expect(invariant).toContain('FOUNDRY_OFFLINE: "true"');
+    expect(invariant).toContain('FOUNDRY_AUTO_DETECT_SOLC: "false"');
+    expect(invariant).toContain('FOUNDRY_FFI: "false"');
+    expect(invariant).toContain('FOUNDRY_THREADS: "1"');
+    expect(invariant).toContain('NO_COLOR: "1"');
+    expect(invariant).not.toMatch(/OPENAI_API_KEY|GITHUB_TOKEN|PRIVATE_KEY|MNEMONIC|RPC_URL|HTTP_PROXY|HTTPS_PROXY/);
+  });
+  it("keeps replay on the same fixed networkless worker surface", async () => {
+    const worker = await readFile(path.join(root, "docker/verification-worker.ts"), "utf8");
+    const replay = worker.split("export async function executeInvariantReplay(")[1].split("async function main()")[0];
+    expect(replay).toContain("await isolationPreflight()"); expect(replay).toContain("validateInvariantReplayWorkspaceIntegrity(workspace)"); expect(replay).toContain("resolveTrustedVerificationCompiler({ toolHomeDir: TOOL_HOME"); expect(replay).toContain('"/usr/local/bin/forge", "test", "--json"'); expect(replay).toContain('FOUNDRY_OFFLINE: "true"'); expect(replay).toContain('FOUNDRY_FFI: "false"'); expect(replay).toContain('FOUNDRY_THREADS: "1"'); expect(replay).not.toMatch(/OPENAI|RPC_URL|createFork|selectFork|broadcast|--ffi|--fork-url/);
   });
 });

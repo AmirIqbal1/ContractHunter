@@ -3,11 +3,13 @@ import { chmod, lstat, mkdir, readFile, realpath, readdir, rename, rm, writeFile
 import path from "node:path";
 import semver from "semver";
 import {
-  VERIFICATION_HARNESS_MANIFEST, repositorySolidityPathSchema, verificationHarnessManifestSchema, verificationHarnessPlanSchema,
-  type VerificationHarnessManifest, type VerificationHarnessPlan, type VerificationSourceManifestEntry,
+  VERIFICATION_HARNESS_MANIFEST, INVARIANT_HARNESS_MANIFEST, INVARIANT_REPLAY_MANIFEST, executableInvariantExecutionManifestSchema, executableInvariantPlanSchema, invariantManifestFingerprint, invariantReplayManifestFingerprint, invariantReplayManifestSchema, invariantReplayPlanSchema, repositorySolidityPathSchema, verificationHarnessManifestSchema, verificationHarnessPlanSchema,
+  type VerificationHarnessManifest, type VerificationHarnessPlan, type VerificationSourceManifestEntry, type ExecutableInvariantPlan, type ExecutableInvariantExecutionManifest, type InvariantReplayPlan, type InvariantReplayManifest,
 } from "@contracthunter/core";
 import { createContractHunterFoundryConfig } from "./verification-foundry-config";
 import { VerificationHarnessGenerator } from "./verification-harness-generator";
+import { ExecutableInvariantGenerator } from "./executable-invariant-generator";
+import { InvariantReplayGenerator } from "./invariant-replay-generator";
 import { sha256Bytes, validateVerificationWorkspaceIntegrity, verificationContentFingerprint } from "./verification-workspace-integrity";
 
 const IMPORT = /\bimport\s+(?:(?:[^;"']+?\s+from\s+)?["']([^"']+)["'])\s*;/g;
@@ -143,6 +145,80 @@ export class VerificationWorkspaceBuilder {
       if (error instanceof VerificationWorkspaceBuildError) throw error;
       throw new VerificationWorkspaceBuildError(error instanceof Error ? error.message : "Verification workspace generation failed safely.");
     } finally { await rm(lockPath, { force: true }); }
+  }
+
+  async buildInvariant(input: { workspaceId: string; repositoryPath: string; plan: ExecutableInvariantPlan }): Promise<{ workspacePath: string; manifest: ExecutableInvariantExecutionManifest; harnessSource: string }> {
+    if (!SAFE_RUN_ID.test(input.workspaceId)) throw new VerificationWorkspaceBuildError("Invariant workspace identifier is invalid.");
+    const plan = executableInvariantPlanSchema.parse(input.plan);
+    if (!this.options.acceptedCompilerVersions.includes(plan.compilerVersion) || !semver.valid(plan.compilerVersion) || semver.prerelease(plan.compilerVersion)) throw new VerificationWorkspaceBuildError("Compiler version was not accepted by ContractHunter compiler management.");
+    let workspaceRoot: string; let repositoryRoot: string; let repository: string;
+    try {
+      await mkdir(this.options.verificationRoot, { recursive: true });
+      [workspaceRoot, repositoryRoot, repository] = await Promise.all([realpath(this.options.verificationRoot), realpath(this.options.repositoryRoot), realpath(input.repositoryPath)]);
+    } catch { throw new VerificationWorkspaceBuildError("Invariant workspace or repository root is unavailable."); }
+    if (repository === repositoryRoot || !repository.startsWith(`${repositoryRoot}${path.sep}`)) throw new VerificationWorkspaceBuildError("Repository path is outside the configured repository root.");
+    if (workspaceRoot === repositoryRoot || workspaceRoot.startsWith(`${repositoryRoot}${path.sep}`) || repositoryRoot.startsWith(`${workspaceRoot}${path.sep}`)) throw new VerificationWorkspaceBuildError("Workspace and repository roots must be separate.");
+    const finalPath = path.join(workspaceRoot, input.workspaceId), temporaryPath = path.join(workspaceRoot, `.tmp-${input.workspaceId}-${randomUUID()}`), lockPath = path.join(workspaceRoot, `.lock-${input.workspaceId}`);
+    try { await lstat(finalPath); throw new VerificationWorkspaceBuildError("Invariant workspace already exists."); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+    try {
+      await writeFile(lockPath, input.workspaceId, { flag: "wx", mode: 0o600 });
+      const closure = await this.sourceClosure(repository, plan.sourceFiles);
+      const sourceMap = new Map(closure.map((entry) => [entry.relativePath, entry.bytes.toString("utf8")]));
+      const generated = new ExecutableInvariantGenerator().generate(plan, sourceMap);
+      await sharedDirectory(temporaryPath);
+      await Promise.all(["src", "test", "cache", "out"].map((directory) => sharedDirectory(path.join(temporaryPath, directory))));
+      const sourceManifest: VerificationSourceManifestEntry[] = [];
+      for (const source of closure) {
+        const workspacePath = `src/${source.relativePath}`, destination = path.join(temporaryPath, ...workspacePath.split("/"));
+        await sharedDirectory(path.dirname(destination), true); await writeFile(destination, source.bytes, { flag: "wx", mode: 0o640 });
+        sourceManifest.push({ originalPath: source.relativePath, workspacePath, byteLength: source.bytes.length, sha256: sha256Bytes(source.bytes) });
+      }
+      const harnessPath = "test/ContractHunterInvariant.t.sol" as const;
+      await writeFile(path.join(temporaryPath, ...harnessPath.split("/")), generated.source, { flag: "wx", mode: 0o640 });
+      await writeFile(path.join(temporaryPath, "foundry.toml"), generated.foundryConfig, { flag: "wx", mode: 0o640 });
+      const base = { formatVersion: 2 as const, plan, workspaceId: input.workspaceId, planKind: "executable-invariant" as const, mode: plan.mode, schemaVersion: plan.schemaVersion, planHash: generated.planHash,
+        hypothesisId: plan.hypothesisId, scanId: plan.scanId, resolvedCommit: plan.resolvedCommit, compilerVersion: plan.compilerVersion, generatorVersion: this.options.generatorVersion,
+        generatedBy: "contracthunter" as const, sourceManifest, generatedHarnessPath: harnessPath, generatedHarnessSha256: generated.harnessHash, foundryConfigSha256: generated.configHash, foundry: generated.settings };
+      const manifest = executableInvariantExecutionManifestSchema.parse({ ...base, contentFingerprint: invariantManifestFingerprint(base) });
+      await writeFile(path.join(temporaryPath, INVARIANT_HARNESS_MANIFEST), `${JSON.stringify(manifest, null, 2)}\n`, { flag: "wx", mode: 0o640 });
+      try { await lstat(finalPath); throw new VerificationWorkspaceBuildError("Invariant workspace already exists."); }
+      catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+      await rename(temporaryPath, finalPath);
+      return { workspacePath: finalPath, manifest, harnessSource: generated.source };
+    } catch (error) {
+      await rm(temporaryPath, { recursive: true, force: true });
+      if (error instanceof VerificationWorkspaceBuildError) throw error;
+      throw new VerificationWorkspaceBuildError(error instanceof Error ? error.message : "Invariant workspace generation failed safely.");
+    } finally { await rm(lockPath, { force: true }); }
+  }
+
+  async buildInvariantReplay(input: { workspaceId: string; repositoryPath: string; replayPlan: InvariantReplayPlan; invariantPlan: ExecutableInvariantPlan }): Promise<{ workspacePath: string; manifest: InvariantReplayManifest; harnessSource: string }> {
+    if (!SAFE_RUN_ID.test(input.workspaceId)) throw new VerificationWorkspaceBuildError("Replay workspace identifier is invalid.");
+    const replayPlan = invariantReplayPlanSchema.parse(input.replayPlan), invariantPlan = executableInvariantPlanSchema.parse(input.invariantPlan);
+    if (!this.options.acceptedCompilerVersions.includes(replayPlan.compilerVersion) || !semver.valid(replayPlan.compilerVersion) || semver.prerelease(replayPlan.compilerVersion)) throw new VerificationWorkspaceBuildError("Replay compiler version was not accepted.");
+    let workspaceRoot: string; let repositoryRoot: string; let repository: string;
+    try { await mkdir(this.options.verificationRoot, { recursive: true }); [workspaceRoot, repositoryRoot, repository] = await Promise.all([realpath(this.options.verificationRoot), realpath(this.options.repositoryRoot), realpath(input.repositoryPath)]); }
+    catch { throw new VerificationWorkspaceBuildError("Replay workspace or repository root is unavailable."); }
+    if (repository === repositoryRoot || !repository.startsWith(`${repositoryRoot}${path.sep}`) || workspaceRoot === repositoryRoot || workspaceRoot.startsWith(`${repositoryRoot}${path.sep}`) || repositoryRoot.startsWith(`${workspaceRoot}${path.sep}`)) throw new VerificationWorkspaceBuildError("Replay roots are unsafe.");
+    const finalPath = path.join(workspaceRoot, input.workspaceId), temporaryPath = path.join(workspaceRoot, `.tmp-${input.workspaceId}-${randomUUID()}`), lockPath = path.join(workspaceRoot, `.lock-${input.workspaceId}`);
+    try { await lstat(finalPath); throw new VerificationWorkspaceBuildError("Replay workspace already exists."); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+    try {
+      await writeFile(lockPath, input.workspaceId, { flag: "wx", mode: 0o600 });
+      const closure = await this.sourceClosure(repository, invariantPlan.sourceFiles), sourceMap = new Map(closure.map((entry) => [entry.relativePath, entry.bytes.toString("utf8")]));
+      const generated = new InvariantReplayGenerator().generate(replayPlan, invariantPlan, sourceMap);
+      await sharedDirectory(temporaryPath); await Promise.all(["src", "test", "cache", "out"].map((directory) => sharedDirectory(path.join(temporaryPath, directory))));
+      const sourceManifest: VerificationSourceManifestEntry[] = [];
+      for (const source of closure) { const workspacePath = `src/${source.relativePath}`, destination = path.join(temporaryPath, ...workspacePath.split("/")); await sharedDirectory(path.dirname(destination), true); await writeFile(destination, source.bytes, { flag: "wx", mode: 0o640 }); sourceManifest.push({ originalPath: source.relativePath, workspacePath, byteLength: source.bytes.length, sha256: sha256Bytes(source.bytes) }); }
+      const harnessPath = "test/ContractHunterReplay.t.sol" as const;
+      await writeFile(path.join(temporaryPath, ...harnessPath.split("/")), generated.source, { flag: "wx", mode: 0o640 }); await writeFile(path.join(temporaryPath, "foundry.toml"), generated.foundryConfig, { flag: "wx", mode: 0o640 });
+      const base = { formatVersion: 1 as const, planKind: "invariant-replay" as const, workspaceId: input.workspaceId, replayPlan, replayPlanHash: generated.replayPlanHash, invariantPlan, hypothesisId: replayPlan.hypothesisId, scanId: replayPlan.scanId, resolvedCommit: replayPlan.resolvedCommit, compilerVersion: replayPlan.compilerVersion, sourceManifest, generatedHarnessPath: harnessPath, generatedHarnessSha256: generated.harnessHash, foundryConfigSha256: generated.configHash, generatorVersion: this.options.generatorVersion, generatedBy: "contracthunter" as const };
+      const manifest = invariantReplayManifestSchema.parse({ ...base, contentFingerprint: invariantReplayManifestFingerprint(base) });
+      await writeFile(path.join(temporaryPath, INVARIANT_REPLAY_MANIFEST), `${JSON.stringify(manifest, null, 2)}\n`, { flag: "wx", mode: 0o640 });
+      try { await lstat(finalPath); throw new VerificationWorkspaceBuildError("Replay workspace already exists."); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+      await rename(temporaryPath, finalPath); return { workspacePath: finalPath, manifest, harnessSource: generated.source };
+    } catch (error) { await rm(temporaryPath, { recursive: true, force: true }); if (error instanceof VerificationWorkspaceBuildError) throw error; throw new VerificationWorkspaceBuildError(error instanceof Error ? error.message : "Replay workspace generation failed safely."); }
+    finally { await rm(lockPath, { force: true }); }
   }
 
   async listTemporaryWorkspaces(): Promise<string[]> {

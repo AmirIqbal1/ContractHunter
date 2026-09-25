@@ -5,7 +5,11 @@ import path from "node:path";
 import { resolveTrustedVerificationCompiler, TrustedVerificationCompilerError } from "../packages/scanners/src/compiler-manager";
 import { runObservedProcess } from "../packages/scanners/src/process-runner";
 import { validateVerificationWorkspaceIntegrity, VerificationWorkspaceIntegrityError } from "../packages/scanners/src/verification-workspace-integrity";
-import { encodeWorkerFrame, verificationWorkerRequestSchema, WorkerFrameDecoder, WORKER_REQUEST_MAX_BYTES, WORKER_RESPONSE_MAX_BYTES, WORKER_SOCKET_PATH, type VerificationWorkerRequest } from "../packages/scanners/src/verification-worker-protocol";
+import { validateExecutableInvariantWorkspaceIntegrity, ExecutableInvariantWorkspaceIntegrityError } from "../packages/scanners/src/executable-invariant-workspace-integrity";
+import { validateInvariantReplayWorkspaceIntegrity, InvariantReplayWorkspaceIntegrityError } from "../packages/scanners/src/invariant-replay-workspace-integrity";
+import { parseInvariantForgeJson, parseTrustedInvariantForgeResult } from "../packages/scanners/src/executable-invariant-result";
+import { parseTrustedInvariantReplayForgeResult } from "../packages/scanners/src/invariant-replay-result";
+import { encodeWorkerFrame, workerRequestSchema, WorkerFrameDecoder, WORKER_REQUEST_MAX_BYTES, WORKER_RESPONSE_MAX_BYTES, WORKER_SOCKET_PATH, type VerificationWorkerRequest, type ExecutableInvariantWorkerRequest, type InvariantReplayWorkerRequest } from "../packages/scanners/src/verification-worker-protocol";
 
 const WORKSPACE_ROOT = "/verification";
 const TOOL_HOME = "/data/tool-home";
@@ -55,8 +59,8 @@ export async function executeVerification(request: VerificationWorkerRequest) {
   if (manifest.verificationRunId !== request.verificationRunId || manifest.scanId !== request.scanId || manifest.hypothesisId !== request.hypothesisId || manifest.resolvedCommit !== request.resolvedCommit || manifest.compilerVersion !== request.compilerVersion) throw new Error("manifest_mismatch");
   const compiler = await resolveTrustedVerificationCompiler({ toolHomeDir: TOOL_HOME, version: request.compilerVersion });
   const cpuSeconds = Math.min(300, Math.ceil(request.timeoutMs / 1_000) + 1);
-  const environment: NodeJS.ProcessEnv = { NODE_ENV: "production", PATH: "/usr/local/bin:/usr/bin:/bin", HOME: "/home/contracthunter", TMPDIR: "/tmp", LANG: "C.UTF-8", LC_ALL: "C.UTF-8", NO_COLOR: "1", FOUNDRY_PROFILE: "default", FOUNDRY_OFFLINE: "true", FOUNDRY_AUTO_DETECT_SOLC: "false", FOUNDRY_SOLC: compiler.executablePath, FOUNDRY_FFI: "false", RAYON_NUM_THREADS: "1", TOKIO_WORKER_THREADS: "1" };
-  const observed = await runObservedProcess({ command: "/usr/bin/prlimit", args: [`--cpu=${cpuSeconds}:${cpuSeconds}`, `--as=${limits.maxVirtualMemoryBytes}:${limits.maxVirtualMemoryBytes}`, `--nproc=${limits.maxProcesses}:${limits.maxProcesses}`, `--nofile=${limits.maxOpenFiles}:${limits.maxOpenFiles}`, `--fsize=${limits.maxFileSizeBytes}:${limits.maxFileSizeBytes}`, "--", "/usr/local/bin/forge", "test", "--color", "never", ...(request.matchTest ? ["--match-test", request.matchTest] : [])], cwd: workspace, timeoutMs: request.timeoutMs, maxOutputBytes: request.maxOutputBytes, env: environment, killProcessTree: true });
+  const environment: NodeJS.ProcessEnv = { NODE_ENV: "production", PATH: "/usr/local/bin:/usr/bin:/bin", HOME: "/home/contracthunter", TMPDIR: "/tmp", LANG: "C.UTF-8", LC_ALL: "C.UTF-8", NO_COLOR: "1", FOUNDRY_PROFILE: "default", FOUNDRY_OFFLINE: "true", FOUNDRY_AUTO_DETECT_SOLC: "false", FOUNDRY_SOLC: compiler.executablePath, FOUNDRY_FFI: "false", FOUNDRY_THREADS: "1", RAYON_NUM_THREADS: "1", TOKIO_WORKER_THREADS: "1" };
+  const observed = await runObservedProcess({ command: "/usr/bin/prlimit", args: [`--cpu=${cpuSeconds}:${cpuSeconds}`, `--as=${limits.maxVirtualMemoryBytes}:${limits.maxVirtualMemoryBytes}`, `--nofile=${limits.maxOpenFiles}:${limits.maxOpenFiles}`, `--fsize=${limits.maxFileSizeBytes}:${limits.maxFileSizeBytes}`, "--", "/usr/local/bin/forge", "test", "--color", "never", ...(request.matchTest ? ["--match-test", request.matchTest] : [])], cwd: workspace, timeoutMs: request.timeoutMs, maxOutputBytes: request.maxOutputBytes, env: environment, killProcessTree: true });
   const count = counts(`${observed.stdout}\n${observed.stderr}`);
   return { status: observed.timedOut || observed.exitCode !== 0 ? "failed" : "completed", exitCode: observed.exitCode, durationMs: observed.durationMs, timedOut: observed.timedOut,
     testCount: count?.testCount ?? null, passedCount: count?.passedCount ?? null, failedCount: count?.failedCount ?? null,
@@ -65,6 +69,43 @@ export async function executeVerification(request: VerificationWorkerRequest) {
     errorMessage: observed.timedOut ? "Forge exceeded its wall-clock limit." : observed.exitCode !== 0 ? "Forge exited unsuccessfully." : null,
     compilerIdentity: { version: compiler.version, executablePath: compiler.executablePath },
     isolation: { providerId: "docker-verification-worker-v1", isolationVersion: "1", networkAccess: "disabled", networkIsolated: true, processIsolated: true, workerUid: 10002, resourceLimitsApplied: { maxCpuTimeSeconds: cpuSeconds, ...limits }, wallClockTimeoutMs: request.timeoutMs, maxOutputBytes: request.maxOutputBytes, writableProjectPath: workspace } } as const;
+}
+
+export async function executeInvariant(request: ExecutableInvariantWorkerRequest) {
+  await isolationPreflight();
+  const workspace = path.join(WORKSPACE_ROOT, request.workspaceId);
+  const directory = await lstat(workspace);
+  if (!directory.isDirectory() || directory.isSymbolicLink() || await realpath(workspace) !== workspace) throw new Error("invariant_workspace_invalid");
+  const manifest = await validateExecutableInvariantWorkspaceIntegrity(workspace);
+  if (manifest.workspaceId !== request.runId || manifest.scanId !== request.scanId || manifest.hypothesisId !== request.hypothesisId || manifest.resolvedCommit !== request.resolvedCommit || manifest.compilerVersion !== request.compilerVersion || manifest.planHash !== request.planHash || manifest.mode !== request.mode) throw new Error("invariant_manifest_mismatch");
+  const compiler = await resolveTrustedVerificationCompiler({ toolHomeDir: TOOL_HOME, version: request.compilerVersion });
+  const cpuSeconds = Math.min(210, Math.ceil(request.timeoutMs / 1_000) + 1);
+  const environment: NodeJS.ProcessEnv = { NODE_ENV: "production", PATH: "/usr/local/bin:/usr/bin:/bin", HOME: "/home/contracthunter", TMPDIR: "/tmp", LANG: "C.UTF-8", LC_ALL: "C.UTF-8", NO_COLOR: "1", FOUNDRY_PROFILE: "default", FOUNDRY_OFFLINE: "true", FOUNDRY_AUTO_DETECT_SOLC: "false", FOUNDRY_SOLC: compiler.executablePath, FOUNDRY_FFI: "false", FOUNDRY_THREADS: "1", RAYON_NUM_THREADS: "1", TOKIO_WORKER_THREADS: "1" };
+  const observed = await runObservedProcess({ command: "/usr/bin/prlimit", args: [`--cpu=${cpuSeconds}:${cpuSeconds}`, `--as=${limits.maxVirtualMemoryBytes}:${limits.maxVirtualMemoryBytes}`, `--nofile=${limits.maxOpenFiles}:${limits.maxOpenFiles}`, `--fsize=${limits.maxFileSizeBytes}:${limits.maxFileSizeBytes}`, "--", "/usr/local/bin/forge", "test", "--json"], cwd: workspace, timeoutMs: request.timeoutMs, maxOutputBytes: request.maxOutputBytes, env: environment, killProcessTree: true });
+  const truncated = observed.stdoutTruncated || observed.stderrTruncated;
+  const rawParsed = observed.timedOut || truncated ? null : parseInvariantForgeJson(observed.stdout, manifest.plan);
+  const parsed = observed.timedOut ? null : parseTrustedInvariantForgeResult(observed.stdout, manifest.plan, observed.exitCode, truncated);
+  const errorCode = observed.timedOut ? "invariant_execution_timeout" : truncated || (rawParsed && !parsed) ? "invariant_result_unparseable" : !parsed ? observed.exitCode !== 0 ? "invariant_forge_failed" : "invariant_result_unparseable" : null;
+  return { status: errorCode ? "failed" : "completed", exitCode: observed.exitCode, durationMs: observed.durationMs, timedOut: observed.timedOut,
+    testCount: parsed?.testCount ?? null, passedCount: parsed?.passedCount ?? null, failedCount: parsed?.failedCount ?? null, runsExecuted: parsed?.runsExecuted ?? null, tests: parsed?.tests ?? [], mode: manifest.mode, planHash: manifest.planHash,
+    stdoutSummary: parsed ? `Forge JSON reported ${parsed.passedCount} passed and ${parsed.failedCount} failed generated properties.` : "Forge output was not a complete generated-test result.", stderrSummary: observed.stderr.slice(0, 4096), stdoutTruncated: observed.stdoutTruncated, stderrTruncated: observed.stderrTruncated || observed.stderr.length > 4096, outputTruncated: observed.stdoutTruncated || observed.stderrTruncated,
+    errorCode, errorMessage: errorCode ? "Invariant execution did not produce trustworthy complete test facts." : null,
+    compilerIdentity: { version: compiler.version, executablePath: compiler.executablePath },
+    isolation: { providerId: "docker-verification-worker-v1", isolationVersion: "1", networkAccess: "disabled", networkIsolated: true, processIsolated: true, workerUid: 10002, resourceLimitsApplied: { maxCpuTimeSeconds: cpuSeconds, ...limits }, wallClockTimeoutMs: request.timeoutMs, maxOutputBytes: request.maxOutputBytes, writableProjectPath: workspace } } as const;
+}
+
+export async function executeInvariantReplay(request: InvariantReplayWorkerRequest) {
+  await isolationPreflight();
+  const workspace = path.join(WORKSPACE_ROOT, request.workspaceId), directory = await lstat(workspace);
+  if (!directory.isDirectory() || directory.isSymbolicLink() || await realpath(workspace) !== workspace) throw new Error("replay_workspace_invalid");
+  const manifest = await validateInvariantReplayWorkspaceIntegrity(workspace);
+  if (manifest.hypothesisId !== request.hypothesisId || manifest.scanId !== request.scanId || manifest.resolvedCommit !== request.resolvedCommit || manifest.compilerVersion !== request.compilerVersion || manifest.replayPlan.invariantPlanHash !== request.invariantPlanHash || manifest.replayPlanHash !== request.replayPlanHash || manifest.replayPlan.counterexampleHash !== request.counterexampleHash) throw new Error("replay_manifest_mismatch");
+  const compiler = await resolveTrustedVerificationCompiler({ toolHomeDir: TOOL_HOME, version: request.compilerVersion }), cpuSeconds = Math.min(90, Math.ceil(request.timeoutMs / 1_000) + 1);
+  const environment: NodeJS.ProcessEnv = { NODE_ENV: "production", PATH: "/usr/local/bin:/usr/bin:/bin", HOME: "/home/contracthunter", TMPDIR: "/tmp", LANG: "C.UTF-8", LC_ALL: "C.UTF-8", NO_COLOR: "1", FOUNDRY_PROFILE: "default", FOUNDRY_OFFLINE: "true", FOUNDRY_AUTO_DETECT_SOLC: "false", FOUNDRY_SOLC: compiler.executablePath, FOUNDRY_FFI: "false", FOUNDRY_THREADS: "1", RAYON_NUM_THREADS: "1", TOKIO_WORKER_THREADS: "1" };
+  const observed = await runObservedProcess({ command: "/usr/bin/prlimit", args: [`--cpu=${cpuSeconds}:${cpuSeconds}`, `--as=${limits.maxVirtualMemoryBytes}:${limits.maxVirtualMemoryBytes}`, `--nofile=${limits.maxOpenFiles}:${limits.maxOpenFiles}`, `--fsize=${limits.maxFileSizeBytes}:${limits.maxFileSizeBytes}`, "--", "/usr/local/bin/forge", "test", "--json"], cwd: workspace, timeoutMs: request.timeoutMs, maxOutputBytes: request.maxOutputBytes, env: environment, killProcessTree: true });
+  const outcome = observed.timedOut ? null : parseTrustedInvariantReplayForgeResult(observed.stdout, manifest.replayPlan, observed.exitCode, observed.stdoutTruncated || observed.stderrTruncated);
+  const errorCode = observed.timedOut ? "replay_execution_timeout" : !outcome ? "replay_result_unparseable" : null;
+  return { status: errorCode ? "failed" : "completed", outcome: errorCode ? null : outcome, exitCode: observed.exitCode, durationMs: observed.durationMs, timedOut: observed.timedOut, outputTruncated: observed.stdoutTruncated || observed.stderrTruncated, errorCode, errorMessage: errorCode ? "Replay did not produce a trustworthy result." : null, replayPlanHash: manifest.replayPlanHash, counterexampleHash: manifest.replayPlan.counterexampleHash, compilerIdentity: { version: compiler.version, executablePath: compiler.executablePath }, isolation: { providerId: "docker-verification-worker-v1", isolationVersion: "1", networkAccess: "disabled", networkIsolated: true, processIsolated: true, workerUid: 10002, resourceLimitsApplied: { maxCpuTimeSeconds: cpuSeconds, ...limits }, wallClockTimeoutMs: request.timeoutMs, maxOutputBytes: request.maxOutputBytes, writableProjectPath: workspace } } as const;
 }
 
 async function main(): Promise<void> {
@@ -82,7 +123,7 @@ async function main(): Promise<void> {
     const decoder = new WorkerFrameDecoder(WORKER_REQUEST_MAX_BYTES);
     const timer = setTimeout(() => socket.destroy(), 5_000);
     socket.on("data", async (chunk) => {
-      let acquired = false;
+        let acquired = false; let invariantJob = false; let replayJob = false;
       try {
         const raw = decoder.push(chunk);
         if (raw === undefined) return;
@@ -90,12 +131,14 @@ async function main(): Promise<void> {
         socket.removeAllListeners("data");
         if (busy) { socket.end(encodeWorkerFrame({ errorCode: "verification_worker_unavailable", errorMessage: "Verification worker is busy." }, WORKER_RESPONSE_MAX_BYTES)); return; }
         busy = true; acquired = true;
-        const request = verificationWorkerRequestSchema.parse(raw);
-        const result = await executeVerification(request);
+        const request = workerRequestSchema.parse(raw);
+        invariantJob = request.command === "execute-invariant";
+        replayJob = request.command === "execute-invariant-replay";
+        const result = request.command === "verify" ? await executeVerification(request) : request.command === "execute-invariant" ? await executeInvariant(request) : await executeInvariantReplay(request);
         socket.end(encodeWorkerFrame({ result }, WORKER_RESPONSE_MAX_BYTES));
       } catch (error) {
         const reason = error instanceof Error ? error.message : "verification_worker_protocol_error";
-        const code = error instanceof WorkerIsolationError ? "verification_worker_isolation_unavailable" : error instanceof TrustedVerificationCompilerError ? "trusted_compiler_unavailable" : error instanceof VerificationWorkspaceIntegrityError ? "invalid_manifest" : ["invalid_workspace", "manifest_mismatch"].includes(reason) ? reason : "verification_worker_protocol_error";
+        const code = error instanceof WorkerIsolationError ? replayJob ? "replay_worker_isolation_unavailable" : invariantJob ? "invariant_worker_isolation_unavailable" : "verification_worker_isolation_unavailable" : error instanceof TrustedVerificationCompilerError ? "trusted_compiler_unavailable" : error instanceof VerificationWorkspaceIntegrityError ? "invalid_manifest" : error instanceof ExecutableInvariantWorkspaceIntegrityError ? "invariant_workspace_invalid" : error instanceof InvariantReplayWorkspaceIntegrityError ? "replay_workspace_invalid" : ["invalid_workspace", "manifest_mismatch", "invariant_workspace_invalid", "invariant_manifest_mismatch", "replay_workspace_invalid", "replay_manifest_mismatch"].includes(reason) ? reason : "verification_worker_protocol_error";
         socket.end(encodeWorkerFrame({ errorCode: code, errorMessage: "Verification worker refused the request." }, WORKER_RESPONSE_MAX_BYTES));
       } finally { if (acquired) busy = false; }
     });

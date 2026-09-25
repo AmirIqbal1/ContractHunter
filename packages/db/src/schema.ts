@@ -1,4 +1,4 @@
-import { integer, primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { integer, primaryKey, real, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { aiAnalysisStatuses, compilerStatuses, coverageStatuses, dependencyStatuses, findingStatuses, frameworks, hypothesisStatuses, invariantCategories, invariantStatuses, invariantTestabilities, investigationStatuses, reviewRunStatuses, reviewStageStatuses, scannerStatuses, scanDepths, scanStatuses, severities, verificationOutcomes, verificationRunStatuses, vulnerabilityCategories } from "@contracthunter/core";
 
 export const scans = sqliteTable("scans", {
@@ -152,6 +152,44 @@ export const hypothesisVerificationRuns = sqliteTable("hypothesis_verification_r
   durationMs: integer("duration_ms"),
 });
 
+export const executableInvariantRuns = sqliteTable("executable_invariant_runs", {
+  id: text("id").primaryKey(), hypothesisId: text("hypothesis_id").notNull().references(() => vulnerabilityHypotheses.id, { onDelete: "cascade" }), scanId: text("scan_id").notNull().references(() => scans.id, { onDelete: "cascade" }),
+  resolvedCommit: text("resolved_commit").notNull(), compilerVersion: text("compiler_version").notNull(), planHash: text("plan_hash").notNull(), mode: text("mode", { enum: ["fuzz-property", "stateful-invariant"] }).notNull(), plan: text("plan").notNull(),
+  status: text("status", { enum: ["queued", "running", "completed", "failed"] }).notNull(), outcome: text("outcome", { enum: ["held-within-bounds", "counterexample-found"] }),
+  configuredRuns: integer("configured_runs").notNull(), configuredDepth: integer("configured_depth"), testCount: integer("test_count").notNull(), passedCount: integer("passed_count").notNull(), failedCount: integer("failed_count").notNull(), runsExecuted: integer("runs_executed"),
+  stdoutSummary: text("stdout_summary").notNull(), stderrSummary: text("stderr_summary").notNull(), dynamicEvidence: text("dynamic_evidence").notNull(), contentFingerprint: text("content_fingerprint"), isolationMetadata: text("isolation_metadata"), executionExitCode: integer("execution_exit_code"), timedOut: integer("timed_out", { mode: "boolean" }).notNull(), errorCode: text("error_code"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(), startedAt: integer("started_at", { mode: "timestamp" }), completedAt: integer("completed_at", { mode: "timestamp" }), durationMs: integer("duration_ms"),
+});
+
+export const executableInvariantProposals = sqliteTable("executable_invariant_proposals", {
+  id: text("id").primaryKey(), hypothesisId: text("hypothesis_id").notNull().references(() => vulnerabilityHypotheses.id, { onDelete: "cascade" }), scanId: text("scan_id").notNull().references(() => scans.id, { onDelete: "cascade" }),
+  status: text("status", { enum: ["generated", "not_plannable", "failed"] }).notNull(), plan: text("plan"), planHash: text("plan_hash"), hypothesisExpectation: text("hypothesis_expectation", { enum: ["hypothesis-predicts-property-violation"] }), relationRationale: text("relation_rationale"), rationale: text("rationale"), limitations: text("limitations").notNull(), notPlannableReasons: text("not_plannable_reasons").notNull(), failureCode: text("failure_code"),
+  provider: text("provider").notNull(), requestedModel: text("requested_model").notNull(), actualModel: text("actual_model"), promptVersion: text("prompt_version").notNull(), contextManifest: text("context_manifest").notNull(),
+  inputTokens: integer("input_tokens"), outputTokens: integer("output_tokens"), totalTokens: integer("total_tokens"), estimatedCostUsd: real("estimated_cost_usd"), durationMs: integer("duration_ms").notNull(), requestId: text("request_id"), createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+});
+
+export const invariantReplayArtifacts = sqliteTable("invariant_replay_artifacts", {
+  id: text("id").primaryKey(), hypothesisId: text("hypothesis_id").notNull().references(() => vulnerabilityHypotheses.id, { onDelete: "cascade" }), proposalId: text("proposal_id").notNull().references(() => executableInvariantProposals.id, { onDelete: "cascade" }), invariantRunId: text("invariant_run_id").notNull().references(() => executableInvariantRuns.id, { onDelete: "cascade" }),
+  scanId: text("scan_id").notNull(), resolvedCommit: text("resolved_commit").notNull(), compilerVersion: text("compiler_version").notNull(), invariantPlanHash: text("invariant_plan_hash").notNull(), counterexampleHash: text("counterexample_hash").notNull(), replayPlan: text("replay_plan").notNull(), replayPlanHash: text("replay_plan_hash").notNull(), propertyName: text("property_name").notNull(), parserVersion: text("parser_version").notNull(), harnessHash: text("harness_hash").notNull(), contentFingerprint: text("content_fingerprint").notNull(), createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+});
+
+export const invariantReplayRuns = sqliteTable("invariant_replay_runs", {
+  id: text("id").primaryKey(), artifactId: text("artifact_id").notNull().references(() => invariantReplayArtifacts.id, { onDelete: "cascade" }), hypothesisId: text("hypothesis_id").notNull().references(() => vulnerabilityHypotheses.id, { onDelete: "cascade" }),
+  status: text("status", { enum: ["queued", "running", "completed", "failed", "refused"] }).notNull(), outcome: text("outcome", { enum: ["reproduced", "not-reproduced", "failed", "refused"] }), exitCode: integer("exit_code"), timedOut: integer("timed_out", { mode: "boolean" }).notNull(), errorCode: text("error_code"), isolationMetadata: text("isolation_metadata"), durationMs: integer("duration_ms"), createdAt: integer("created_at", { mode: "timestamp" }).notNull(), startedAt: integer("started_at", { mode: "timestamp" }), completedAt: integer("completed_at", { mode: "timestamp" }),
+});
+
+export const authoritativeInvariantEvidence = sqliteTable("authoritative_invariant_evidence", {
+  id: text("id").primaryKey(), hypothesisId: text("hypothesis_id").notNull().references(() => vulnerabilityHypotheses.id, { onDelete: "cascade" }), proposalId: text("proposal_id").notNull(), invariantRunId: text("invariant_run_id").notNull(), replayRunId: text("replay_run_id").notNull(), counterexampleHash: text("counterexample_hash").notNull(), propertyOutcome: text("property_outcome", { enum: ["counterexample-found"] }).notNull(), hypothesisRelation: text("hypothesis_relation", { enum: ["supports"] }).notNull(), provenance: text("provenance", { enum: ["local-system/manual-review"] }).notNull(), createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+});
+
+export const invariantEvidenceReviews = sqliteTable("invariant_evidence_reviews", {
+  id: text("id").primaryKey(), hypothesisId: text("hypothesis_id").notNull().references(() => vulnerabilityHypotheses.id, { onDelete: "cascade" }), proposalId: text("proposal_id").notNull(), invariantRunId: text("invariant_run_id").notNull(), replayRunId: text("replay_run_id").notNull(), counterexampleHash: text("counterexample_hash").notNull(), action: text("action", { enum: ["confirm-relevance"] }).notNull(), provenance: text("provenance", { enum: ["local-system/manual-review"] }).notNull(), evidenceId: text("evidence_id").notNull(), transitionId: text("transition_id"), createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+});
+
+export const hypothesisLifecycleTransitions = sqliteTable("hypothesis_lifecycle_transitions", {
+  id: text("id").primaryKey(), hypothesisId: text("hypothesis_id").notNull().references(() => vulnerabilityHypotheses.id, { onDelete: "cascade" }), sourceKind: text("source_kind", { enum: ["structured-verification", "reviewed-invariant-replay"] }).notNull(), sourceId: text("source_id").notNull(), fromStatus: text("from_status", { enum: hypothesisStatuses }).notNull(), toStatus: text("to_status", { enum: hypothesisStatuses }).notNull(), createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+});
+
 export const hypothesisGroups = sqliteTable("hypothesis_groups", {
   id: text("id").primaryKey(), planId: text("plan_id").notNull().references(() => securityReviewPlans.id, { onDelete: "cascade" }), scanId: text("scan_id").notNull().references(() => scans.id, { onDelete: "cascade" }), fingerprint: text("fingerprint").notNull(), priorityScore: integer("priority_score").notNull(), confidenceScore: integer("confidence_score").notNull(), evidenceClasses: text("evidence_classes").notNull(), reasons: text("reasons").notNull(), createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
@@ -171,3 +209,11 @@ export type SecurityReviewerRunRow = typeof securityReviewerRuns.$inferSelect;
 export type VulnerabilityHypothesisRow = typeof vulnerabilityHypotheses.$inferSelect;
 export type HypothesisVerificationRunRow = typeof hypothesisVerificationRuns.$inferSelect;
 export type HypothesisGroupRow = typeof hypothesisGroups.$inferSelect;
+
+export type ExecutableInvariantRunRow = typeof executableInvariantRuns.$inferSelect;
+export type ExecutableInvariantProposalRow = typeof executableInvariantProposals.$inferSelect;
+export type InvariantReplayArtifactRow = typeof invariantReplayArtifacts.$inferSelect;
+export type InvariantReplayRunRow = typeof invariantReplayRuns.$inferSelect;
+export type InvariantEvidenceReviewRow = typeof invariantEvidenceReviews.$inferSelect;
+export type AuthoritativeInvariantEvidenceRow = typeof authoritativeInvariantEvidence.$inferSelect;
+export type HypothesisLifecycleTransitionRow = typeof hypothesisLifecycleTransitions.$inferSelect;

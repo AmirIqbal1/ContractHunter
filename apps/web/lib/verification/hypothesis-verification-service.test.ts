@@ -2,17 +2,18 @@ import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { validAIOutput, verificationHarnessPlanSchema, type ProtocolAnalysisResult, type VerificationHarnessPlan } from "@contracthunter/core";
+import { executableInvariantPlanSchema, invariantPlanHash, validAIOutput, verificationHarnessPlanSchema, type ProtocolAnalysisResult, type VerificationHarnessPlan } from "@contracthunter/core";
 import {
   closeDatabase, createDatabase, createProtocolAnalysis, createScan, createSecurityReviewerRun, createSecurityReviewPlan,
-  getActiveHypothesisVerificationRun, getVulnerabilityHypothesis, insertVulnerabilityHypotheses, listHypothesisVerificationRuns,
+  getActiveHypothesisVerificationRun, getVulnerabilityHypothesis, insertVulnerabilityHypotheses, listExecutableInvariantRuns, listHypothesisVerificationRuns,
   updateVulnerabilityHypothesisStatus, type DatabaseClient,
 } from "@contracthunter/db";
 import {
   VerificationWorkspaceBuilder, interpretVerificationResult, validateVerificationWorkspaceIntegrity,
-  type FoundryVerificationResult, type VerificationIsolationMetadata,
+  type ExecutableInvariantWorkerResult, type FoundryVerificationResult, type VerificationIsolationMetadata,
 } from "@contracthunter/scanners";
 import { HypothesisVerificationRequestError, HypothesisVerificationService } from "./hypothesis-verification-service";
+import { ExecutableInvariantService } from "./executable-invariant-service";
 
 const commit = "a".repeat(40);
 const fingerprint = "b".repeat(64);
@@ -40,6 +41,46 @@ beforeEach(async () => {
   const reviewPlan = createSecurityReviewPlan(database, { scanId, protocolAnalysisId: analysis.id, plan: { selected: [], skipped: [], estimatedRequestCount: 0 }, estimatedSourceBytes: 0 });
   const reviewer = createSecurityReviewerRun(database, { planId: reviewPlan.id, scanId, protocolAnalysisId: analysis.id, reviewerId: "accounting", reviewerName: "Accounting", selectionReason: "Fixture", promptVersion: "security-review-accounting-v1", provider: "mock", requestedModel: "mock", contextManifest: {} });
   hypothesisId = insertVulnerabilityHypotheses(database, [{ scanId, protocolAnalysisId: analysis.id, reviewerId: "accounting", reviewerRunId: reviewer.id, title: "Counter transition hypothesis", category: "state-transition", severity: "low", severityJustification: "The fixture tests deterministic state semantics.", confidence: 60, summary: "A benign counter should move through its expected state.", rootCause: "The selected public function controls the counter transition under test.", preconditions: "[]", attackPath: "[]", impact: "This is a benign orchestration fixture.", affectedAssets: "[]", affectedContracts: JSON.stringify(["Counter"]), affectedFunctions: JSON.stringify(["increment", "count"]), evidence: JSON.stringify([{ filePath: "contracts/Counter.sol", contract: "Counter", functionName: "increment", startLine: 9, endLine: 11, explanation: "Fixture evidence.", valid: true, validationError: null }]), violatedInvariantIds: "[]", relatedInvestigationIds: "[]", falsePositiveRisks: "[]", verificationStrategy: JSON.stringify(["Deploy, increment, and read count."]) }])[0].id;
+});
+
+describe("executable invariant history without hypothesis status transitions", () => {
+  function invariantPlan() {
+    return executableInvariantPlanSchema.parse({ schemaVersion: "contracthunter-invariant-plan-v1", mode: "fuzz-property", scanId, hypothesisId, resolvedCommit: commit, compilerVersion: "0.8.24", primaryContract: "VulnerableAccounting", primarySourcePath: "contracts/VulnerableAccounting.sol", sourceFiles: ["contracts/VulnerableAccounting.sol"], actors: ["deployer", "attacker"], setup: [{ kind: "deploy", contractName: "VulnerableAccounting", instanceName: "target" }], fuzzAction: { instanceName: "target", functionName: "record", caller: "attacker", parameters: [{ name: "amount", type: "uint256" }], args: [{ kind: "parameter", name: "amount" }] }, property: { name: "accounting", observations: [{ kind: "read-uint", instanceName: "target", functionName: "totalRecordedBalance", resultName: "recorded" }, { kind: "read-balance", target: { kind: "instance", name: "target" }, resultName: "nativeBalance" }], assertions: [{ id: "conservation", kind: "uint-eq", actual: "recorded", expected: { kind: "result", name: "nativeBalance" } }] } });
+  }
+  function instance(run: (input: { planHash: string; mode: "fuzz-property" | "stateful-invariant" }) => Promise<ExecutableInvariantWorkerResult>) {
+    return new ExecutableInvariantService({ database, repositoryRoot, runner: { run }, workspaceBuilder: (compilers) => new VerificationWorkspaceBuilder({ verificationRoot, repositoryRoot, acceptedCompilerVersions: compilers, approvedSourceRoots: ["contracts"], generatorVersion: "0.2.0" }) });
+  }
+  async function fixture() { await writeFile(path.join(repository, "contracts/VulnerableAccounting.sol"), await readFile(path.resolve("packages/scanners/fixtures/invariants/contracts/VulnerableAccounting.sol"))); }
+  it("persists bounded support and counterexamples as immutable separate runs", async () => {
+    await fixture(); const plan = invariantPlan(), hash = invariantPlanHash(plan);
+    const pass = async (input: { planHash: string; mode: "fuzz-property" | "stateful-invariant" }): Promise<ExecutableInvariantWorkerResult> => ({ ...runnerResult(), compilerIdentity: { version: "0.8.24", executablePath: "/trusted/solc" }, mode: input.mode, planHash: input.planHash, runsExecuted: 128, tests: [{ propertyName: "accounting", testName: "testFuzz_accounting(uint256)", status: "passed", runsExecuted: 128, reason: null, counterexample: null }] });
+    const first = await instance(pass).run(hypothesisId, plan);
+    expect(first).toMatchObject({ status: "completed", run: { outcome: "held-within-bounds", planHash: hash, configuredRuns: 128, configuredDepth: null } });
+    expect(JSON.parse(first.run.dynamicEvidence)).toMatchObject([{ propertyOutcome: "held-within-bounds", hypothesisRelation: "neutral", summary: "No counterexample found within configured runs." }]);
+    expect(getVulnerabilityHypothesis(database, hypothesisId)?.status).toBe("candidate");
+    const fail = async (input: { planHash: string; mode: "fuzz-property" | "stateful-invariant" }): Promise<ExecutableInvariantWorkerResult> => ({ ...await pass(input), exitCode: 1, passedCount: 0, failedCount: 1, runsExecuted: 0, tests: [{ propertyName: "accounting", testName: "testFuzz_accounting(uint256)", status: "failed", runsExecuted: 0, reason: "CH_ASSERT_0", counterexample: { kind: "single", parserVersion: "foundry-1.7.1-json-v1", parameterValues: [{ name: "amount", type: "uint256", value: "436" }], summary: "436" } }] });
+    const second = await instance(fail).run(hypothesisId, plan);
+    expect(second).toMatchObject({ status: "completed", run: { outcome: "counterexample-found" } });
+    expect(JSON.parse(second.run.dynamicEvidence)).toMatchObject([{ propertyOutcome: "counterexample-found", hypothesisRelation: "unreviewed", counterexample: { parameterValues: [{ value: "436" }] } }]);
+    expect(listExecutableInvariantRuns(database, hypothesisId)).toHaveLength(2);
+    expect(listExecutableInvariantRuns(database, hypothesisId).find((item) => item.id === first.run.id)?.dynamicEvidence).toBe(first.run.dynamicEvidence);
+    expect(getVulnerabilityHypothesis(database, hypothesisId)?.status).toBe("candidate");
+  });
+  it("records worker refusal and never tries a web execution fallback", async () => {
+    await fixture(); const runner = vi.fn(async (input: { planHash: string; mode: "fuzz-property" | "stateful-invariant" }): Promise<ExecutableInvariantWorkerResult> => ({ ...runnerResult({ status: "refused", exitCode: null, testCount: null, passedCount: null, failedCount: null, isolation: null, errorCode: "invariant_worker_isolation_unavailable" }), mode: input.mode, planHash: input.planHash, runsExecuted: null, tests: [] }));
+    expect(await instance(runner).run(hypothesisId, invariantPlan())).toMatchObject({ status: "failed", run: { status: "failed", errorCode: "invariant_worker_isolation_unavailable" } });
+    expect(runner).toHaveBeenCalledTimes(1); expect(getVulnerabilityHypothesis(database, hypothesisId)?.status).toBe("candidate");
+  });
+  it("does not persist evidence from timed out or truncated worker output", async () => {
+    await fixture(); const plan = invariantPlan();
+    const timedOut = async (input: { planHash: string; mode: "fuzz-property" | "stateful-invariant" }): Promise<ExecutableInvariantWorkerResult> => ({ ...runnerResult({ status: "failed", exitCode: -1, timedOut: true, testCount: null, passedCount: null, failedCount: null, errorCode: "invariant_execution_timeout" }), mode: input.mode, planHash: input.planHash, runsExecuted: null, tests: [] });
+    const first = await instance(timedOut).run(hypothesisId, plan);
+    expect(first).toMatchObject({ status: "failed", run: { errorCode: "invariant_execution_timeout", timedOut: true, dynamicEvidence: "[]" } });
+    const truncated = async (input: { planHash: string; mode: "fuzz-property" | "stateful-invariant" }): Promise<ExecutableInvariantWorkerResult> => ({ ...runnerResult({ stdoutTruncated: true, outputTruncated: true }), mode: input.mode, planHash: input.planHash, runsExecuted: 128, tests: [{ propertyName: "accounting", testName: "testFuzz_accounting(uint256)", status: "passed", runsExecuted: 128, reason: null, counterexample: null }] });
+    const second = await instance(truncated).run(hypothesisId, plan);
+    expect(second).toMatchObject({ status: "failed", run: { errorCode: "invariant_result_unparseable", dynamicEvidence: "[]" } });
+    expect(listExecutableInvariantRuns(database, hypothesisId)).toHaveLength(2);
+  });
 });
 
 afterEach(async () => { closeDatabase(database); await rm(directory, { recursive: true, force: true }); });

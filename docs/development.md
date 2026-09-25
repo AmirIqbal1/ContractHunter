@@ -22,6 +22,19 @@ The `contracthunter-data` volume holds the database, repository clones, and trus
 
 The `verification-workspaces` volume stores generated harness workspaces, while `verification-ipc` stores only the worker socket. Neither contains the main database. Old verification history and plans remain in SQLite and are reusable; generating another AI plan is unnecessary for a rerun.
 
+Schema upgrades are explicit and transactional. `schema_migrations` records `0001_v0_2_0_release_schema`; an existing v0.1.9 database receives additive tables/columns/indexes in one transaction, followed by SQLite quick-integrity, foreign-key and required-table checks. Migration does not rewrite scan, hypothesis or verification statuses and never reconciles failed/active history by deletion or mutation. A migration/index conflict aborts startup and rolls back the migration. Release testing must use an SQLite backup/copy, never the user's live database.
+
+Every invariant retry uses a new run ID and workspace. Every replay retry regenerates source closure, harness, configuration and manifest from the persisted plan/replay identity into a new replay-run workspace; the normalized artifact fingerprint, harness hash, replay-plan hash and counterexample hash must still match before execution. Existing proposal, run, artifact and replay-attempt history is never overwritten.
+
+Workspace cleanup is operator-invoked and dry-run by default:
+
+```bash
+npm run workspace:retention -- --root /path/to/verifications --database /path/to/contracthunter.db
+npm run workspace:retention -- --root /path/to/verifications --database /path/to/contracthunter.db --apply
+```
+
+The default policy keeps completed workspaces for 7 days and failed/refused workspaces for 14 days; both windows are configurable from 1–3650 days. It considers only immediate UUID directories with matching immutable database history. Queued/running workspaces, replay artifacts with an active replay, unknown directories, symlinks and records without a terminal timestamp are always kept. `--apply` removes only entries listed as eligible by the same pass. Database evidence/history and canonical hashes are never removed. There is no automatic cleanup during v0.2.0.
+
 Use `docker compose exec -T verification-worker` to inspect `id`, `/proc/self/status`, `/proc/self/attr/current`, `/proc/net/route`, `/proc/net/ipv6_route`, `/sys/class/net`, and `/sys/fs/cgroup/pids.max`. The worker should have only `lo`, no usable default route, zero effective/bounding capabilities, `NoNewPrivs: 1`, `Seccomp: 2`, enforcing AppArmor, and a PID limit of 64. The socket should be mode 0660. The worker should not see `/data/contracthunter.db`, `/data/repositories`, `/var/run/docker.sock`, OpenAI/GitHub secrets, or proxy keys.
 
 A Docker run is also the release smoke test for production-only Next.js behavior. Check `/`, an existing hunt page, an existing hypothesis page, and a saved-plan verification where practical. `.env` must not be committed.
