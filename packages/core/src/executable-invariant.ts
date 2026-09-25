@@ -167,11 +167,21 @@ export const executableInvariantExecutionManifestSchema = executableInvariantMan
 export type ExecutableInvariantExecutionManifest = z.infer<typeof executableInvariantExecutionManifestSchema>;
 
 const invariantEvidenceText = z.string().max(2048);
-export const executableInvariantCounterexampleSchema = z.object({ kind: z.enum(["single", "sequence"]), fuzzArguments: z.array(invariantEvidenceText).max(8), actionSequence: z.array(z.object({ target: invariantEvidenceText, signature: invariantEvidenceText, arguments: z.array(invariantEvidenceText).max(8) }).strict()).max(32), summary: invariantEvidenceText }).strict();
+export const invariantPropertyOutcomes = ["held-within-bounds", "counterexample-found", "execution-failed", "inconclusive"] as const;
+export const invariantHypothesisRelations = ["supports", "contradicts", "neutral", "unreviewed"] as const;
+export const INVARIANT_COUNTEREXAMPLE_PARSER_VERSION = "foundry-1.7.1-json-v1" as const;
+const counterexampleValueSchema = z.discriminatedUnion("type", [
+  z.object({ name: identifier, type: z.literal("uint256"), value: uint }).strict(),
+  z.object({ name: identifier, type: z.literal("bool"), value: z.boolean() }).strict(),
+]);
+export const executableInvariantCounterexampleSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("single"), parserVersion: z.literal(INVARIANT_COUNTEREXAMPLE_PARSER_VERSION), parameterValues: z.array(counterexampleValueSchema).max(INVARIANT_LIMITS.parameters), summary: invariantEvidenceText }).strict(),
+  z.object({ kind: z.literal("sequence"), parserVersion: z.literal(INVARIANT_COUNTEREXAMPLE_PARSER_VERSION), actions: z.array(z.object({ actionName: identifier, parameterValues: z.array(counterexampleValueSchema).max(INVARIANT_LIMITS.parameters) }).strict()).min(1).max(32), summary: invariantEvidenceText }).strict(),
+]);
 export const executableInvariantEvidenceSchema = z.object({
   planHash: z.string().regex(/^[a-f0-9]{64}$/), mode: z.enum(["fuzz-property", "stateful-invariant"]), propertyName: z.string().regex(/^[A-Za-z][A-Za-z0-9_]{0,63}$/),
   configuredRuns: z.number().int().min(1).max(1_000), configuredDepth: z.number().int().min(1).max(1_000).nullable(), runsExecuted: z.number().int().nonnegative().max(1_000),
-  outcome: z.enum(["held-within-bounds", "counterexample-found"]), direction: z.enum(["supports", "contradicts"]), compilerVersion: stableCompilerVersionSchema,
+  propertyOutcome: z.enum(invariantPropertyOutcomes), hypothesisRelation: z.enum(invariantHypothesisRelations), compilerVersion: stableCompilerVersionSchema,
   isolationProvider: z.string().min(1).max(100), counterexample: executableInvariantCounterexampleSchema.nullable(), summary: invariantEvidenceText,
 }).strict();
 export type ExecutableInvariantEvidence = z.infer<typeof executableInvariantEvidenceSchema>;

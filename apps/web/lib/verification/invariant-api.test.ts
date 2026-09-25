@@ -4,7 +4,8 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { executableInvariantPlanSchema, invariantPlanHash, validAIOutput, type ProtocolAnalysisResult } from "@contracthunter/core";
 import { closeDatabase, createDatabase, createExecutableInvariantProposal, createExecutableInvariantRun, createProtocolAnalysis, createScan, createSecurityReviewerRun, createSecurityReviewPlan, getVulnerabilityHypothesis, insertVulnerabilityHypotheses, type DatabaseClient } from "@contracthunter/db";
-import { generateInvariantProposal, readInvariantHistory, runInvariantProposal, validateInvariantProposal } from "./invariant-api";
+import { generateInvariantProposal, generateInvariantReplay, readInvariantHistory, reviewInvariantReplay, runInvariantProposal, runInvariantReplay, validateInvariantProposal } from "./invariant-api";
+import { InvariantReplayRequestError } from "./invariant-replay-service";
 
 let directory: string, database: DatabaseClient, hypothesisId: string, scanId: string;
 const commit = "a".repeat(40);
@@ -19,9 +20,10 @@ beforeEach(() => {
 });
 afterEach(() => { closeDatabase(database); rmSync(directory, { recursive: true, force: true }); vi.unstubAllEnvs(); });
 const context = (proposalId?: string) => ({ params: Promise.resolve({ id: hypothesisId, ...(proposalId ? { proposalId } : {}) }) });
+const replayContext = (proposalId: string, runId: string, replayId?: string) => ({ params: Promise.resolve({ id: hypothesisId, proposalId, runId, ...(replayId ? { replayId } : {}) }) });
 const post = (body?: string, headers?: Record<string, string>) => new Request("http://localhost", { method: "POST", ...(body === undefined ? {} : { body }), headers });
 function plan() { return executableInvariantPlanSchema.parse({ schemaVersion: "contracthunter-invariant-plan-v1", mode: "fuzz-property", scanId, hypothesisId, resolvedCommit: commit, compilerVersion: "0.8.36", primaryContract: "VulnerableAccounting", primarySourcePath: "contracts/VulnerableAccounting.sol", sourceFiles: ["contracts/VulnerableAccounting.sol"], actors: ["deployer", "attacker"], setup: [{ kind: "deploy", contractName: "VulnerableAccounting", instanceName: "target" }], property: { name: "accounting", observations: [{ kind: "read-uint", instanceName: "target", functionName: "totalRecordedBalance", resultName: "recorded" }, { kind: "read-balance", target: { kind: "instance", name: "target" }, resultName: "balance" }], assertions: [{ id: "equal", kind: "uint-eq", actual: "recorded", expected: { kind: "result", name: "balance" } }] }, fuzzAction: { instanceName: "target", functionName: "record", caller: "attacker", parameters: [{ name: "amount", type: "uint256" }], args: [{ kind: "parameter", name: "amount" }] } }); }
-function proposalRow() { const value = plan(); return createExecutableInvariantProposal(database, { hypothesisId, scanId, result: { status: "generated", plan: value, planHash: invariantPlanHash(value), rationale: "Fixture", limitations: [], notPlannableReasons: [], failureCode: null, provenance: { provider: "mock", requestedModel: "model", actualModel: "model", promptVersion: "invariant-plan-v1", generatedAt: new Date().toISOString(), inputTokens: 1, outputTokens: 1, totalTokens: 2, estimatedCostUsd: 0.0001, durationMs: 1, sourceFileCount: 1, totalSourceBytes: 100, sourceContextTruncated: false } }, contextManifest: { files: [], totalSourceBytes: 0, truncated: false }, requestId: "request" }); }
+function proposalRow() { const value = plan(); return createExecutableInvariantProposal(database, { hypothesisId, scanId, result: { status: "generated", plan: value, planHash: invariantPlanHash(value), hypothesisExpectation: "hypothesis-predicts-property-violation", relationRationale: "The hypothesis predicts a property violation.", rationale: "Fixture", limitations: [], notPlannableReasons: [], failureCode: null, provenance: { provider: "mock", requestedModel: "model", actualModel: "model", promptVersion: "invariant-plan-v1", generatedAt: new Date().toISOString(), inputTokens: 1, outputTokens: 1, totalTokens: 2, estimatedCostUsd: 0.0001, durationMs: 1, sourceFileCount: 1, totalSourceBytes: 100, sourceContextTruncated: false } }, contextManifest: { files: [], totalSourceBytes: 0, truncated: false }, requestId: "request" }); }
 
 describe("manual invariant API", () => {
   it("accepts bodyless generation, including an empty stream, without starting execution", async () => {
@@ -58,5 +60,14 @@ describe("manual invariant API", () => {
     const response = await readInvariantHistory(new Request("http://localhost"), context(), database), body = await response.json();
     expect(response.status).toBe(200); expect(body.proposals).toHaveLength(1); expect(body.runs).toHaveLength(1);
     expect(JSON.stringify(body)).not.toMatch(/stdout|stderr|isolationMetadata|request-id/);
+  });
+  it("accepts bodyless replay/review actions and rejects unexpected or oversized bytes before service use", async () => {
+    const proposal = proposalRow(), run = createExecutableInvariantRun(database, { plan: plan() }), replayId = crypto.randomUUID();
+    const generate = { generate: vi.fn().mockRejectedValue(new InvariantReplayRequestError("replay_unavailable", "No replay.")) }, execute = { execute: vi.fn().mockRejectedValue(new InvariantReplayRequestError("unknown_replay", "Missing.")) }, review = { review: vi.fn().mockImplementation(() => { throw new InvariantReplayRequestError("unknown_replay", "Missing."); }) };
+    expect((await generateInvariantReplay(post(), replayContext(proposal.id, run.id), generate)).status).toBe(409); expect(generate.generate).toHaveBeenCalledTimes(1);
+    expect((await runInvariantReplay(post(), replayContext(proposal.id, run.id, replayId), execute)).status).toBe(404); expect(execute.execute).toHaveBeenCalledTimes(1);
+    expect((await reviewInvariantReplay(post(), replayContext(proposal.id, run.id, replayId), review)).status).toBe(404); expect(review.review).toHaveBeenCalledTimes(1);
+    expect((await generateInvariantReplay(post("{}"), replayContext(proposal.id, run.id), generate)).status).toBe(400); expect((await reviewInvariantReplay(post("x".repeat(1025)), replayContext(proposal.id, run.id, replayId), review)).status).toBe(413);
+    expect(generate.generate).toHaveBeenCalledTimes(1); expect(review.review).toHaveBeenCalledTimes(1);
   });
 });

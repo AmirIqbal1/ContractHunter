@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { invariantPlanHash, executableInvariantCounterexampleSchema, type ExecutableInvariantPlan, type ExecutableInvariantCounterexample, type ExecutableInvariantEvidence } from "@contracthunter/core";
+import { INVARIANT_COUNTEREXAMPLE_PARSER_VERSION, invariantPlanHash, executableInvariantCounterexampleSchema, type ExecutableInvariantPlan, type ExecutableInvariantCounterexample, type ExecutableInvariantEvidence } from "@contracthunter/core";
 
 const boundedText = z.string().max(2048);
 export const invariantCounterexampleSchema = executableInvariantCounterexampleSchema;
@@ -12,12 +12,25 @@ const small = (value: unknown, maximum = 2048) => typeof value === "string" ? va
 function counterexample(raw: unknown, plan: ExecutableInvariantPlan): InvariantCounterexample | null {
   const value = record(raw);
   if (!value) return null;
+  const parsedValue = (rawValue: unknown, parameter: { name: string; type: "uint256" | "bool" }) => {
+    if (parameter.type === "bool") {
+      const value = rawValue === true || rawValue === "true" ? true : rawValue === false || rawValue === "false" ? false : null;
+      return value === null ? null : { name: parameter.name, type: parameter.type, value };
+    }
+    const text = typeof rawValue === "number" && Number.isSafeInteger(rawValue) ? String(rawValue) : typeof rawValue === "string" ? rawValue.trim() : "";
+    return /^(?:0|[1-9]\d{0,77})$/.test(text) && BigInt(text) < (1n << 256n) ? { name: parameter.name, type: parameter.type, value: text } : null;
+  };
+  const values = (rawArgs: unknown, parameters: Array<{ name: string; type: "uint256" | "bool" }>) => {
+    const items = Array.isArray(rawArgs) ? rawArgs : parameters.length === 0 && (rawArgs === "" || rawArgs === null || rawArgs === undefined) ? [] : parameters.length === 1 ? [rawArgs] : null;
+    if (!items || items.length !== parameters.length) return null;
+    const parsed = items.map((item, index) => parsedValue(item, parameters[index]));
+    return parsed.every((item) => item !== null) ? parsed as Array<{ name: string; type: "uint256"; value: string } | { name: string; type: "bool"; value: boolean }> : null;
+  };
   if (plan.mode === "fuzz-property" && "Single" in value) {
     const single = record(value.Single);
-    const args = single?.raw_args ?? single?.args;
-    const fuzzArguments = Array.isArray(args) ? args.slice(0, 8).map((item) => small(item, 128)) : typeof args === "string" && args ? [small(args, 512)] : [];
-    if (!fuzzArguments.length) return null;
-    return invariantCounterexampleSchema.parse({ kind: "single", fuzzArguments, actionSequence: [], summary: "Foundry reported a shrunk fuzz counterexample." });
+    const parameterValues = values(single?.raw_args ?? single?.args, plan.fuzzAction.parameters);
+    if (!parameterValues) return null;
+    return invariantCounterexampleSchema.parse({ kind: "single", parserVersion: INVARIANT_COUNTEREXAMPLE_PARSER_VERSION, parameterValues, summary: "Foundry reported a bounded final fuzz counterexample." });
   }
   if (plan.mode === "stateful-invariant" && "Sequence" in value) {
     const sequence = value.Sequence;
@@ -25,11 +38,14 @@ function counterexample(raw: unknown, plan: ExecutableInvariantPlan): InvariantC
     if (!steps.length || steps.length > 32) return null;
     const expected = new Set(plan.handlerActions.map((action) => `action_${action.name}(${action.parameters.map((parameter) => parameter.type).join(",")})`));
     if (steps.some((item) => { const entry = record(item); return !entry || entry.contract_name !== "test/ContractHunterInvariant.t.sol:ContractHunterHandler" || !expected.has(String(entry.signature)); })) return null;
-    return invariantCounterexampleSchema.parse({ kind: "sequence", fuzzArguments: [], actionSequence: steps.map((item) => {
+    const actions = steps.map((item) => {
       const entry = record(item);
-      const args = entry?.args;
-      return { target: "ContractHunterHandler", signature: small(entry?.signature, 128), arguments: Array.isArray(args) ? args.slice(0, 8).map((arg) => small(arg, 128)) : typeof args === "string" && args ? [small(args, 512)] : [] };
-    }), summary: "Foundry reported a shrunk handler sequence." });
+      const signature = String(entry?.signature), action = plan.handlerActions.find((candidate) => signature === `action_${candidate.name}(${candidate.parameters.map((parameter) => parameter.type).join(",")})`);
+      const parameterValues = action ? values(entry?.args, action.parameters) : null;
+      return action && parameterValues ? { actionName: action.name, parameterValues } : null;
+    });
+    if (actions.some((action) => action === null)) return null;
+    return invariantCounterexampleSchema.parse({ kind: "sequence", parserVersion: INVARIANT_COUNTEREXAMPLE_PARSER_VERSION, actions, summary: "Foundry reported a bounded final handler sequence." });
   }
   return null;
 }
@@ -70,7 +86,7 @@ export function interpretInvariantFacts(plan: ExecutableInvariantPlan, facts: Pa
   const names = plan.mode === "fuzz-property" ? [plan.property.name] : plan.properties.map((property) => property.name);
   if (facts.testCount !== names.length || facts.tests.length !== names.length || facts.passedCount + facts.failedCount !== names.length || facts.tests.some((test) => !names.includes(test.propertyName) || test.runsExecuted > configuredRuns || (test.status === "failed" && !test.counterexample)) || new Set(facts.tests.map((test) => test.propertyName)).size !== names.length) throw new Error("invariant_result_unparseable");
   return facts.tests.map((test) => ({ planHash: invariantPlanHash(plan), mode: plan.mode, propertyName: test.propertyName, configuredRuns, configuredDepth: plan.mode === "stateful-invariant" ? 32 : null,
-    runsExecuted: test.runsExecuted, outcome: test.status === "passed" ? "held-within-bounds" : "counterexample-found", direction: test.status === "passed" ? "supports" : "contradicts",
+    runsExecuted: test.runsExecuted, propertyOutcome: test.status === "passed" ? "held-within-bounds" : "counterexample-found", hypothesisRelation: test.status === "passed" ? "neutral" : "unreviewed",
     compilerVersion: plan.compilerVersion, isolationProvider, counterexample: test.counterexample,
     summary: test.status === "passed" ? "No counterexample found within configured runs." : "Foundry found a bounded counterexample to the property." }));
 }

@@ -27,6 +27,6 @@ export class MockAIProvider implements AIProvider {
   }
   async generateInvariantProposal(input: InvariantProposalInput): Promise<InvariantProposalProviderResult> {
     this.invariantProposalCalls.push(input);
-    return { proposal: { status: "not_plannable", semantics: null, rationale: "The mock provider has no configured invariant proposal.", limitations: [], notPlannableReasons: ["insufficient_source_evidence"] }, actualModel: input.model, requestId: "mock-invariant-proposal", inputTokens: 50, outputTokens: 20, totalTokens: 70, durationMs: 5 };
+    return { proposal: { status: "not_plannable", semantics: null, hypothesisExpectation: null, relationRationale: null, rationale: "The mock provider has no configured invariant proposal.", limitations: [], notPlannableReasons: ["insufficient_source_evidence"] }, actualModel: input.model, requestId: "mock-invariant-proposal", inputTokens: 50, outputTokens: 20, totalTokens: 70, durationMs: 5 };
   }
 }

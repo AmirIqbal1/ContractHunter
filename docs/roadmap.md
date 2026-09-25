@@ -14,7 +14,9 @@ Milestone 2 executes those workspaces through the existing networkless verificat
 
 Milestone 3 adds manual, one-shot AI invariant proposals. A strict semantic schema excludes scan/hypothesis IDs, commit, compiler, paths and executable content. The server composes and validates a canonical plan from persisted evidence, records every proposal attempt, and requires separate user actions to validate and run it. The hypothesis page presents a reviewable plan and bounded execution evidence alongside the existing structured verification workflow. A passing bounded fuzz run is supporting evidence, not formal proof. Invariant proposals and results do not change hypothesis status.
 
-Automatic hypothesis status policy, broader invariant semantics, and any autonomous execution remain future work.
+Milestone 4 separates property outcomes from hypothesis relations. Counterexamples remain unreviewed observations until ContractHunter generates a fixed, non-fuzzing replay from persisted typed values, the networkless worker reproduces the expected property violation, and the user explicitly confirms its relevance. That review creates authoritative supporting dynamic evidence and the centralized lifecycle authority may move an eligible candidate to verified while recording an immutable transition. Held-within-bounds, unreplayed, failed, refused, and not-reproduced results never change status.
+
+Broader invariant semantics, inverse hypothesis relationships, multi-counterexample selection, release hardening, and any autonomous execution remain future work.
 
 ## v0.2.1
 

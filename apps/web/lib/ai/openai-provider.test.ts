@@ -52,7 +52,7 @@ describe("OpenAI Responses provider", () => {
     await expect(new OpenAIProvider("key", { responses: { parse: failed } } as unknown as OpenAI).generateVerificationPlan({ model: "model", promptVersion: "verification-plan-v4", systemPrompt: VERIFICATION_PLAN_SYSTEM_PROMPT, context: { content: input.context.content, manifest: { files: [], totalSourceBytes: 0, omittedFileCount: 0, truncated: false, approximateInputBytes: 10 } }, timeoutMs: 1000 })).rejects.toThrow("temporary"); expect(failed).toHaveBeenCalledTimes(1);
   });
   it("requests one tool-free semantic invariant proposal without authoritative identity or retry", async () => {
-    const proposal = { status: "not_plannable", semantics: null, rationale: "The function requires bytes.", limitations: [], notPlannableReasons: ["unsupported_function_type"] };
+    const proposal = { status: "not_plannable", semantics: null, hypothesisExpectation: null, relationRationale: null, rationale: "The function requires bytes.", limitations: [], notPlannableReasons: ["unsupported_function_type"] };
     const parse = vi.fn().mockResolvedValue({ output_parsed: proposal, model: "actual-model", usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 } });
     const provider = new OpenAIProvider("server-only-key", { responses: { parse } } as unknown as OpenAI);
     const context = { content: input.context.content, manifest: { files: [], totalSourceBytes: 0, omittedFileCount: 0, truncated: false, approximateInputBytes: 10 } };

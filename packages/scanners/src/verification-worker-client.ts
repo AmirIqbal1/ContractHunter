@@ -4,7 +4,7 @@ import path from "node:path";
 import { realpath } from "node:fs/promises";
 import { z } from "zod";
 import type { FoundryVerificationInput, FoundryVerificationResult } from "./foundry-verification-runner";
-import { encodeWorkerFrame, verificationWorkerRequestSchema, executableInvariantWorkerRequestSchema, INVARIANT_TIMEOUT_MS, INVARIANT_MAX_OUTPUT_BYTES, WorkerFrameDecoder, WORKER_REQUEST_MAX_BYTES, WORKER_RESPONSE_MAX_BYTES, WORKER_SOCKET_PATH } from "./verification-worker-protocol";
+import { encodeWorkerFrame, verificationWorkerRequestSchema, executableInvariantWorkerRequestSchema, invariantReplayWorkerRequestSchema, INVARIANT_TIMEOUT_MS, INVARIANT_MAX_OUTPUT_BYTES, REPLAY_TIMEOUT_MS, REPLAY_MAX_OUTPUT_BYTES, WorkerFrameDecoder, WORKER_REQUEST_MAX_BYTES, WORKER_RESPONSE_MAX_BYTES, WORKER_SOCKET_PATH } from "./verification-worker-protocol";
 
 const limits = z.object({ maxCpuTimeSeconds: z.number().int().min(1).max(300), maxVirtualMemoryBytes: z.literal(2_147_483_648), maxProcesses: z.literal(64), maxOpenFiles: z.literal(256), maxFileSizeBytes: z.literal(67_108_864) }).strict();
 const isolation = z.object({ providerId: z.literal("docker-verification-worker-v1"), isolationVersion: z.literal("1"), networkAccess: z.literal("disabled"), networkIsolated: z.literal(true), processIsolated: z.literal(true), resourceLimitsApplied: limits, wallClockTimeoutMs: z.number().int(), maxOutputBytes: z.number().int(), writableProjectPath: z.string(), workerUid: z.literal(10002) }).strict();
@@ -15,7 +15,7 @@ const resultSchema = z.object({
   errorCode: z.string().nullable(), errorMessage: z.string().nullable(), isolation: isolation.nullable(),
   compilerIdentity: z.object({ version: z.string(), executablePath: z.string() }).strict(),
 }).strict();
-const workerErrorCode = z.enum(["invalid_workspace", "invalid_manifest", "manifest_mismatch", "trusted_compiler_unavailable", "verification_worker_unavailable", "verification_worker_isolation_unavailable", "verification_worker_protocol_error", "invariant_workspace_invalid", "invariant_manifest_mismatch", "invariant_worker_unavailable", "invariant_worker_isolation_unavailable", "invariant_execution_timeout", "invariant_forge_failed", "invariant_result_unparseable"]);
+const workerErrorCode = z.enum(["invalid_workspace", "invalid_manifest", "manifest_mismatch", "trusted_compiler_unavailable", "verification_worker_unavailable", "verification_worker_isolation_unavailable", "verification_worker_protocol_error", "invariant_workspace_invalid", "invariant_manifest_mismatch", "invariant_worker_unavailable", "invariant_worker_isolation_unavailable", "invariant_execution_timeout", "invariant_forge_failed", "invariant_result_unparseable", "replay_workspace_invalid", "replay_manifest_mismatch", "replay_worker_unavailable", "replay_worker_isolation_unavailable", "replay_execution_timeout", "replay_forge_failed", "replay_result_unparseable"]);
 const responseSchema = z.union([z.object({ result: resultSchema }).strict(), z.object({ errorCode: workerErrorCode, errorMessage: z.string().max(256) }).strict()]);
 
 export function workerFailure(code: FoundryVerificationResult["errorCode"], message: string, startedAt = Date.now()): FoundryVerificationResult {
@@ -49,7 +49,7 @@ export class VerificationWorkerClient {
       });
       const parsed = responseSchema.safeParse(response);
       if (!parsed.success) return workerFailure("verification_worker_protocol_error", "Verification worker returned an invalid response.", startedAt);
-      if ("errorCode" in parsed.data) return workerFailure(parsed.data.errorCode, parsed.data.errorMessage, startedAt);
+      if ("errorCode" in parsed.data) return workerFailure(parsed.data.errorCode as FoundryVerificationResult["errorCode"], parsed.data.errorMessage, startedAt);
       const result = parsed.data.result;
       const observed = result.isolation;
       const expectedCompilerPath = `/data/tool-home/.solc-select/artifacts/solc-${request.compilerVersion}/solc-${request.compilerVersion}`;
@@ -94,7 +94,7 @@ export class ExecutableInvariantWorkerClient {
       });
       const parsed = invariantResponseSchema.safeParse(response);
       if (!parsed.success) return refused("verification_worker_protocol_error", "Invariant worker returned an invalid response.");
-      if ("errorCode" in parsed.data) return refused(parsed.data.errorCode, parsed.data.errorMessage);
+      if ("errorCode" in parsed.data) return refused(parsed.data.errorCode as FoundryVerificationResult["errorCode"], parsed.data.errorMessage);
       const result = parsed.data.result;
       const observed = result.isolation;
       const expectedCompilerPath = `/data/tool-home/.solc-select/artifacts/solc-${request.compilerVersion}/solc-${request.compilerVersion}`;
@@ -103,5 +103,25 @@ export class ExecutableInvariantWorkerClient {
     } catch (error) {
       return refused(error instanceof Error && error.message === "timeout" ? "invariant_execution_timeout" : error instanceof Error && error.message === "protocol" ? "verification_worker_protocol_error" : "invariant_worker_unavailable", "Invariant worker is unavailable or did not complete the bounded request.");
     }
+  }
+}
+
+export type InvariantReplayWorkerInput = { replayRunId: string; workspacePath: string; scanId: string; hypothesisId: string; resolvedCommit: string; compilerVersion: string; invariantPlanHash: string; replayPlanHash: string; counterexampleHash: string };
+export type InvariantReplayWorkerResult = { status: "completed" | "failed" | "refused"; outcome: "reproduced" | "not-reproduced" | null; exitCode: number | null; durationMs: number; timedOut: boolean; outputTruncated: boolean; errorCode: string | null; errorMessage: string | null; isolation: z.infer<typeof isolation> | null; compilerIdentity: { version: string; executablePath: string }; replayPlanHash: string; counterexampleHash: string };
+const replayResultSchema = z.object({ status: z.enum(["completed", "failed", "refused"]), outcome: z.enum(["reproduced", "not-reproduced"]).nullable(), exitCode: z.number().int().nullable(), durationMs: z.number().int().nonnegative(), timedOut: z.boolean(), outputTruncated: z.boolean(), errorCode: z.string().nullable(), errorMessage: z.string().nullable(), isolation: isolation.nullable(), compilerIdentity: z.object({ version: z.string(), executablePath: z.string() }).strict(), replayPlanHash: z.string().regex(/^[a-f0-9]{64}$/), counterexampleHash: z.string().regex(/^[a-f0-9]{64}$/) }).strict();
+const replayResponseSchema = z.union([z.object({ result: replayResultSchema }).strict(), z.object({ errorCode: workerErrorCode, errorMessage: z.string().max(256) }).strict()]);
+export class InvariantReplayWorkerClient {
+  constructor(private readonly verificationRoot: string, private readonly socketPath = WORKER_SOCKET_PATH) {}
+  async run(input: InvariantReplayWorkerInput): Promise<InvariantReplayWorkerResult> {
+    const started = Date.now(), refused = (code: string): InvariantReplayWorkerResult => ({ status: "refused", outcome: null, exitCode: null, durationMs: Date.now() - started, timedOut: false, outputTruncated: false, errorCode: code, errorMessage: "Replay worker refused the request.", isolation: null, compilerIdentity: { version: input.compilerVersion, executablePath: "" }, replayPlanHash: input.replayPlanHash, counterexampleHash: input.counterexampleHash });
+    let workspace: string, request: z.infer<typeof invariantReplayWorkerRequestSchema>;
+    try { const root = await realpath(this.verificationRoot); workspace = await realpath(input.workspacePath); if (path.dirname(workspace) !== root) throw new Error(); request = invariantReplayWorkerRequestSchema.parse({ command: "execute-invariant-replay", ...input, workspaceId: path.basename(workspace), timeoutMs: REPLAY_TIMEOUT_MS, maxOutputBytes: REPLAY_MAX_OUTPUT_BYTES }); } catch { return refused("replay_workspace_invalid"); }
+    try {
+      const response = await new Promise<unknown>((resolve, reject) => { const socket = net.createConnection(this.socketPath), decoder = new WorkerFrameDecoder(WORKER_RESPONSE_MAX_BYTES), timer = setTimeout(() => { socket.destroy(); reject(new Error("timeout")); }, REPLAY_TIMEOUT_MS + 20_000); let settled = false; const finish = (error?: Error, value?: unknown) => { if (settled) return; settled = true; clearTimeout(timer); socket.destroy(); if (error) reject(error); else resolve(value); }; socket.on("connect", () => { try { socket.write(encodeWorkerFrame(request, WORKER_REQUEST_MAX_BYTES)); } catch { finish(new Error("protocol")); } }); socket.on("data", (chunk: Buffer) => { try { const value = decoder.push(chunk); if (value !== undefined) finish(undefined, value); } catch { finish(new Error("protocol")); } }); socket.on("error", () => finish(new Error("unavailable"))); socket.on("end", () => finish(new Error("protocol"))); });
+      const parsed = replayResponseSchema.safeParse(response); if (!parsed.success) return refused("verification_worker_protocol_error"); if ("errorCode" in parsed.data) return refused(parsed.data.errorCode);
+      const result = parsed.data.result, expectedCompilerPath = `/data/tool-home/.solc-select/artifacts/solc-${input.compilerVersion}/solc-${input.compilerVersion}`;
+      if (!result.isolation || result.isolation.wallClockTimeoutMs !== REPLAY_TIMEOUT_MS || result.isolation.maxOutputBytes !== REPLAY_MAX_OUTPUT_BYTES || result.isolation.writableProjectPath !== workspace || result.compilerIdentity.version !== input.compilerVersion || result.compilerIdentity.executablePath !== expectedCompilerPath || result.replayPlanHash !== input.replayPlanHash || result.counterexampleHash !== input.counterexampleHash) return refused("verification_worker_protocol_error");
+      return result;
+    } catch (error) { return refused(error instanceof Error && error.message === "timeout" ? "replay_execution_timeout" : error instanceof Error && error.message === "protocol" ? "verification_worker_protocol_error" : "replay_worker_unavailable"); }
   }
 }

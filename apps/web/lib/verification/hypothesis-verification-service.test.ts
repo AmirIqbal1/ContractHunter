@@ -56,12 +56,12 @@ describe("executable invariant history without hypothesis status transitions", (
     const pass = async (input: { planHash: string; mode: "fuzz-property" | "stateful-invariant" }): Promise<ExecutableInvariantWorkerResult> => ({ ...runnerResult(), compilerIdentity: { version: "0.8.24", executablePath: "/trusted/solc" }, mode: input.mode, planHash: input.planHash, runsExecuted: 128, tests: [{ propertyName: "accounting", testName: "testFuzz_accounting(uint256)", status: "passed", runsExecuted: 128, reason: null, counterexample: null }] });
     const first = await instance(pass).run(hypothesisId, plan);
     expect(first).toMatchObject({ status: "completed", run: { outcome: "held-within-bounds", planHash: hash, configuredRuns: 128, configuredDepth: null } });
-    expect(JSON.parse(first.run.dynamicEvidence)).toMatchObject([{ direction: "supports", summary: "No counterexample found within configured runs." }]);
+    expect(JSON.parse(first.run.dynamicEvidence)).toMatchObject([{ propertyOutcome: "held-within-bounds", hypothesisRelation: "neutral", summary: "No counterexample found within configured runs." }]);
     expect(getVulnerabilityHypothesis(database, hypothesisId)?.status).toBe("candidate");
-    const fail = async (input: { planHash: string; mode: "fuzz-property" | "stateful-invariant" }): Promise<ExecutableInvariantWorkerResult> => ({ ...await pass(input), exitCode: 1, passedCount: 0, failedCount: 1, runsExecuted: 0, tests: [{ propertyName: "accounting", testName: "testFuzz_accounting(uint256)", status: "failed", runsExecuted: 0, reason: "CH_ASSERT_0", counterexample: { kind: "single", fuzzArguments: ["436"], actionSequence: [], summary: "436" } }] });
+    const fail = async (input: { planHash: string; mode: "fuzz-property" | "stateful-invariant" }): Promise<ExecutableInvariantWorkerResult> => ({ ...await pass(input), exitCode: 1, passedCount: 0, failedCount: 1, runsExecuted: 0, tests: [{ propertyName: "accounting", testName: "testFuzz_accounting(uint256)", status: "failed", runsExecuted: 0, reason: "CH_ASSERT_0", counterexample: { kind: "single", parserVersion: "foundry-1.7.1-json-v1", parameterValues: [{ name: "amount", type: "uint256", value: "436" }], summary: "436" } }] });
     const second = await instance(fail).run(hypothesisId, plan);
     expect(second).toMatchObject({ status: "completed", run: { outcome: "counterexample-found" } });
-    expect(JSON.parse(second.run.dynamicEvidence)).toMatchObject([{ direction: "contradicts", counterexample: { fuzzArguments: ["436"] } }]);
+    expect(JSON.parse(second.run.dynamicEvidence)).toMatchObject([{ propertyOutcome: "counterexample-found", hypothesisRelation: "unreviewed", counterexample: { parameterValues: [{ value: "436" }] } }]);
     expect(listExecutableInvariantRuns(database, hypothesisId)).toHaveLength(2);
     expect(listExecutableInvariantRuns(database, hypothesisId).find((item) => item.id === first.run.id)?.dynamicEvidence).toBe(first.run.dynamicEvidence);
     expect(getVulnerabilityHypothesis(database, hypothesisId)?.status).toBe("candidate");

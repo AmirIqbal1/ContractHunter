@@ -85,7 +85,7 @@ export class InvariantProposalService {
     const scan = getScan(this.options.database, hypothesis.scanId), started = Date.now();
     if (!scan || scan.status !== "completed" || !scan.resolvedCommit || !["ready", "cached"].includes(scan.compilerStatus)) throw new InvariantProposalRequestError("invalid_state", "A completed scan with trusted compiler state is required.");
     let context: InvariantProposalContext = { content: "", manifest: emptyManifest }; let response: InvariantProposalProviderResult | null = null; let sourceHashes: Record<string, string> = {};
-    const result = (status: InvariantProposalGenerationResult["status"], code: InvariantProposalFailureCode | null, plan: ExecutableInvariantPlan | null = null, rationale: string | null = null, limitations: string[] = [], reasons: string[] = []): InvariantProposalGenerationResult => ({ status, plan, planHash: plan ? invariantPlanHash(plan) : null, rationale, limitations, notPlannableReasons: reasons, failureCode: code,
+    const result = (status: InvariantProposalGenerationResult["status"], code: InvariantProposalFailureCode | null, plan: ExecutableInvariantPlan | null = null, rationale: string | null = null, limitations: string[] = [], reasons: string[] = [], hypothesisExpectation: "hypothesis-predicts-property-violation" | null = null, relationRationale: string | null = null): InvariantProposalGenerationResult => ({ status, plan, planHash: plan ? invariantPlanHash(plan) : null, hypothesisExpectation, relationRationale, rationale, limitations, notPlannableReasons: reasons, failureCode: code,
       provenance: { provider: this.options.provider.id, requestedModel: this.options.requestedModel, actualModel: response?.actualModel ?? null, promptVersion: INVARIANT_PROPOSAL_PROMPT_VERSION, generatedAt: new Date().toISOString(), inputTokens: response?.inputTokens ?? null, outputTokens: response?.outputTokens ?? null, totalTokens: response?.totalTokens ?? null, estimatedCostUsd: this.options.pricing ? calculateAICost(response?.inputTokens ?? null, response?.outputTokens ?? null, this.options.pricing) : null, durationMs: response?.durationMs ?? Date.now() - started, sourceFileCount: context.manifest.files.length, totalSourceBytes: context.manifest.totalSourceBytes, sourceContextTruncated: context.manifest.truncated } });
     let writing = false;
     const finish = (value: InvariantProposalGenerationResult) => { writing = true; return { proposal: this.record(hypothesisId, scan.id, value, { ...context.manifest, sourceHashes }, response?.requestId ?? null), result: value }; };
@@ -121,7 +121,7 @@ export class InvariantProposalService {
       if (!plan.success) return finish(result("failed", "invalid_invariant_plan"));
       try { new ExecutableInvariantGenerator().generate(plan.data, sources); }
       catch (error) { return finish(result("failed", error instanceof SolidityFunctionValidationError ? "invalid_invariant_function_signature" : "invalid_invariant_plan")); }
-      return finish(result("generated", null, plan.data, parsed.data.rationale, parsed.data.limitations));
+      return finish(result("generated", null, plan.data, parsed.data.rationale, parsed.data.limitations, [], parsed.data.hypothesisExpectation, parsed.data.relationRationale));
     } catch (error) { if (writing) throw error; return finish(result("failed", "invalid_invariant_source")); }
   }
   async validate(hypothesisId: string, proposalId: string): Promise<{ plan: ExecutableInvariantPlan; planHash: string }> {

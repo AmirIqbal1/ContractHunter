@@ -46,20 +46,20 @@ describe("pinned Forge 1.7.1 JSON interpretation", () => {
   it("classifies a complete fuzz pass as bounded support", () => {
     const plan = fuzz(), parsed = parseInvariantForgeJson(forgeJson("ContractHunterFuzzTest", "testFuzz_accounting(uint256)", "Success", "Fuzz", 128), plan);
     expect(parsed).toMatchObject({ testCount: 1, passedCount: 1, failedCount: 0, runsExecuted: 128 });
-    expect(interpretInvariantFacts(plan, parsed!, "docker-verification-worker-v1")).toMatchObject([{ outcome: "held-within-bounds", direction: "supports", configuredRuns: 128, configuredDepth: null }]);
+    expect(interpretInvariantFacts(plan, parsed!, "docker-verification-worker-v1")).toMatchObject([{ propertyOutcome: "held-within-bounds", hypothesisRelation: "neutral", configuredRuns: 128, configuredDepth: null }]);
   });
   it("extracts bounded fuzz counterexamples without treating the Forge failure as an infrastructure failure", () => {
     const plan = fuzz(), parsed = parseInvariantForgeJson(forgeJson("ContractHunterFuzzTest", "testFuzz_accounting(uint256)", "Failure", "Fuzz", 0, { Single: { args: "436", calldata: "0x1234" } }), plan);
-    expect(parsed?.tests[0]).toMatchObject({ status: "failed", reason: "CH_ASSERT_0", counterexample: { kind: "single", fuzzArguments: ["436"] } });
-    expect(interpretInvariantFacts(plan, parsed!, "docker-verification-worker-v1")).toMatchObject([{ outcome: "counterexample-found", direction: "contradicts" }]);
+    expect(parsed?.tests[0]).toMatchObject({ status: "failed", reason: "CH_ASSERT_0", counterexample: { kind: "single", parameterValues: [{ name: "amount", value: "436" }] } });
+    expect(interpretInvariantFacts(plan, parsed!, "docker-verification-worker-v1")).toMatchObject([{ propertyOutcome: "counterexample-found", hypothesisRelation: "unreviewed" }]);
   });
   it("parses stateful pass and a bounded failing handler sequence", () => {
     const plan = stateful();
     const passed = parseInvariantForgeJson(forgeJson("ContractHunterInvariantTest", "invariant_ownerStable()", "Success", "Invariant", 64), plan);
-    expect(interpretInvariantFacts(plan, passed!, "docker-verification-worker-v1")).toMatchObject([{ configuredRuns: 64, configuredDepth: 32, direction: "supports" }]);
+    expect(interpretInvariantFacts(plan, passed!, "docker-verification-worker-v1")).toMatchObject([{ configuredRuns: 64, configuredDepth: 32, hypothesisRelation: "neutral" }]);
     const failed = parseInvariantForgeJson(forgeJson("ContractHunterInvariantTest", "invariant_ownerStable()", "Failure", "Invariant", 0, { Sequence: [1, [{ contract_name: "test/ContractHunterInvariant.t.sol:ContractHunterHandler", signature: "action_takeOwnership()", args: "" }]] }), plan);
-    expect(failed?.tests[0].counterexample).toMatchObject({ kind: "sequence", actionSequence: [{ signature: "action_takeOwnership()" }] });
-    expect(interpretInvariantFacts(plan, failed!, "docker-verification-worker-v1")).toMatchObject([{ direction: "contradicts" }]);
+    expect(failed?.tests[0].counterexample).toMatchObject({ kind: "sequence", actions: [{ actionName: "takeOwnership" }] });
+    expect(interpretInvariantFacts(plan, failed!, "docker-verification-worker-v1")).toMatchObject([{ hypothesisRelation: "unreviewed" }]);
   });
   it("fails closed on unrelated, incomplete, malformed, or oversized Forge output", () => {
     const plan = fuzz();

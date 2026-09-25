@@ -33,6 +33,11 @@
 - `POST /api/hypotheses/:id/invariant-proposals` — manually request one AI semantic proposal; bodyless, no execution
 - `POST /api/hypotheses/:id/invariant-proposals/:proposalId/validate` — bodyless revalidation of a persisted plan and source
 - `POST /api/hypotheses/:id/invariant-proposals/:proposalId/run` — bodyless explicit local run of that validated proposal through the worker
+- `POST /api/hypotheses/:id/invariant-proposals/:proposalId/runs/:runId/replays` — generate a deterministic replay artifact from the persisted counterexample; bodyless and does not execute
+- `POST /api/hypotheses/:id/invariant-proposals/:proposalId/runs/:runId/replays/:replayId/run` — explicitly execute the persisted replay artifact in the networkless worker
+- `POST /api/hypotheses/:id/invariant-proposals/:proposalId/runs/:runId/replays/:replayRunId/reviews` — confirm relevance of a successfully reproduced replay and invoke centralized lifecycle evaluation
+
+Replay endpoints never accept counterexample values, handler actions, plans, compilers, commands, environment, or Forge arguments. All POSTs read at most 1,024 actual body bytes and require an empty body.
 
 Invariant routes accept no plan, command, Forge argument or configuration in request bodies. The application is a single-user local service without application authentication; expose it only on a trusted local interface. Invariant evidence does not change hypothesis status.
 
