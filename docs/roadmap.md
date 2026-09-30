@@ -18,9 +18,11 @@ Milestone 4 separates property outcomes from hypothesis relations. Counterexampl
 
 Release hardening completed transactional v0.1.9 migration, fresh-install and upgrade probes, UI component plus SSR/API workflow QA, fresh retry workspaces, conservative workspace-retention tooling, malformed Forge-output regression coverage, real replay/lifecycle probes, legacy structured-verification regression, and final worker/API trust-boundary review. Broader invariant semantics, inverse hypothesis relationships, multi-counterexample selection, and autonomous execution remain out of scope.
 
-## v0.2.1 — next target
+## v0.2.1 — in development
 
-Echidna integration.
+Milestone 1 is implemented as an internal Echidna execution branch in the existing networkless worker. It uses the pinned, locally patched Echidna 2.3.3 compatibility build, strict terminal JSON, a deterministic stateful-plan subset, a separate version 3 manifest, the existing trusted solc resolver, and canonical action-sequence mapping to the existing Foundry replay format. Foundry remains available. No AI prompt, public engine selector, automatic dual execution, or lifecycle policy changes are part of this milestone.
+
+Milestone 2 should persist and expose explicitly selected Echidna runs through the existing manual review flow, then expand caller and setup semantics only after exact EVM equivalence and replay proofs. Fuzz-property translation remains unsupported until its semantics are defined explicitly.
 
 ## v0.2.2
 

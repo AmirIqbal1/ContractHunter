@@ -1,0 +1,474 @@
+--- a/lib/Echidna/Output/JSON.hs
++++ b/lib/Echidna/Output/JSON.hs
+@@ -1,160 +1,167 @@
+-{-# LANGUAGE RecordWildCards #-}
++module Echidna.Output.JSON (encodeCampaign) where
+ 
+-module Echidna.Output.JSON where
+-
+-import Data.Aeson hiding (Error)
++import Data.Aeson (ToJSON(..), Value, encode, object, toJSON, (.=))
+ import Data.ByteString.Base16 qualified as BS16
+ import Data.ByteString.Lazy qualified as L
+ import Data.IORef (readIORef)
+-import Data.Map (Map)
+-import Data.Map qualified as Map
+-import Data.Text
++import Data.Text (Text)
+ import Data.Text.Encoding (decodeUtf8)
+-import Data.Vector.Unboxed qualified as VU
+-import Numeric (showHex)
+-
+-import EVM.Dapp (DappInfo)
+ 
+ import Echidna.ABI (ppAbiValue, GenDict(..))
+-import Echidna.Events (Events, extractEvents)
+-import Echidna.Types.Campaign (WorkerState(..))
+-import Echidna.Types.Config (Env(..))
+-import Echidna.Types.Coverage (CoverageInfo, mergeCoverageMaps)
++import Echidna.Types.Campaign (WorkerState(..), CampaignConf(..))
++import Echidna.Types.Config (Env(..), EConfig(..))
+ import Echidna.Types.Test (EchidnaTest(..))
+ import Echidna.Types.Test qualified as T
+-import Echidna.Types.Tx (Tx(..), TxCall(..), TxResult)
++import Echidna.Types.Tx (Tx(..), TxCall(..))
++import Echidna.Types.Worker (WorkerStopReason(..))
+ 
++-- ContractHunter compatibility output. Only typed property tests are accepted.
++-- No live Echidna test state is serialized as a terminal outcome.
+ data Campaign = Campaign
+-  { _success :: Bool
+-  , _error :: Maybe String
+-  , _tests :: [Test]
+-  , seed :: Int
+-  , coverage :: Map String [CoverageInfo]
++  { seed :: Int
++  , configuredTestLimit :: Int
++  , executedCalls :: Int
++  , workerStopReasons :: [String]
++  , tests :: [Test]
++  , campaignError :: Maybe String
+   }
+ 
+ instance ToJSON Campaign where
+-  toJSON Campaign{..} = object
+-    [ "success" .= _success
+-    , "error" .= _error
+-    , "tests" .= _tests
+-    , "seed" .= seed
+-    , "coverage" .= coverage
++  toJSON campaign = object
++    [ "schema" .= ("contracthunter-echidna-result-v1" :: String)
++    , "echidnaVersion" .= ("2.3.3+contracthunter.1" :: String)
++    , "seed" .= campaign.seed
++    , "configuredTestLimit" .= campaign.configuredTestLimit
++    , "executedCalls" .= campaign.executedCalls
++    , "workerStopReasons" .= campaign.workerStopReasons
++    , "tests" .= campaign.tests
++    , "error" .= campaign.campaignError
+     ]
+ 
+ data Test = Test
+-  { contract :: Text
+-  , name :: Text
+-  , status :: TestStatus
+-  , _error :: Maybe String
+-  , reason :: Maybe TxResult
+-  , events :: Events
+-  , testType :: TestType
++  { name :: Text
++  , outcome :: String
+   , transactions :: Maybe [Transaction]
+   }
+ 
+ instance ToJSON Test where
+-  toJSON Test{..} = object
+-    [ "contract" .= contract
+-    , "name" .= name
+-    , "status" .= status
+-    , "error" .= _error
+-    , "reason" .= reason
+-    , "events" .= events
+-    , "type" .= testType
+-    , "transactions" .= transactions
++  toJSON test = object
++    [ "name" .= test.name
++    , "type" .= ("property" :: String)
++    , "outcome" .= test.outcome
++    , "transactions" .= test.transactions
+     ]
+ 
+-data TestType = Property | Assertion
+-
+-instance ToJSON TestType where
+-  toJSON Property = "property"
+-  toJSON Assertion = "assertion"
+-
+-data TestStatus = Fuzzing | Shrinking | Solved | Verified | Passed | Error
+-
+-instance ToJSON TestStatus where
+-  toJSON Fuzzing = "fuzzing"
+-  toJSON Verified = "verified"
+-  toJSON Shrinking = "shrinking"
+-  toJSON Solved = "solved"
+-  toJSON Passed = "passed"
+-  toJSON Error = "error"
+-
+-
++-- Sender, destination and delays are retained so a consumer can reject a
++-- sequence that cannot be mapped exactly to its deterministic replay model.
+ data Transaction = Transaction
+-  { contract :: Text
+-  , function :: Text
++  { function :: Text
+   , arguments :: Maybe [String]
+-  , gas :: String
+-  , gasprice :: String
++  , sender :: Value
++  , destination :: Value
++  , timeDelay :: String
++  , blockDelay :: String
+   , value :: String
+   }
+ 
+ instance ToJSON Transaction where
+-  toJSON Transaction{..} = object
+-    [ "contract" .= contract
+-    , "function" .= function
+-    , "arguments" .= arguments
+-    , "gas" .= gas
+-    , "gasprice" .= gasprice
+-    , "value" .= value
++  toJSON tx = object
++    [ "function" .= tx.function
++    , "arguments" .= tx.arguments
++    , "sender" .= tx.sender
++    , "destination" .= tx.destination
++    , "timeDelay" .= tx.timeDelay
++    , "blockDelay" .= tx.blockDelay
++    , "value" .= tx.value
+     ]
+ 
+-encodeCampaign :: Env -> [WorkerState] -> IO L.ByteString
+-encodeCampaign env workerStates = do
+-  tests <- traverse readIORef env.testRefs
+-  frozenCov <- mergeCoverageMaps env.dapp env.coverageRefInit env.coverageRefRuntime
+-  -- TODO: this is ugly, refactor seed to live in Env
+-  let workerSeed [] = 0
++-- Exit 0: all properties held within a completed budget; exit 1: a concrete
++-- counterexample and no ambiguous property; exit 2: incomplete or failed.
++encodeCampaign :: Env -> [(Maybe WorkerStopReason, WorkerState)] -> IO (L.ByteString, Int)
++encodeCampaign env workers = do
++  observedTests <- traverse readIORef env.testRefs
++  let reasons = fst <$> workers
++      states = snd <$> workers
++      calls = sum $ (.ncalls) <$> states
++      budget = env.cfg.campaignConf.testLimit
++      cleanTests = all (\test -> case test.state of
++        T.Large _ -> False
++        T.Failed _ -> False
++        _ -> True) observedTests
++      completed = budget > 0 && not (null reasons) && all isTestLimit reasons
++        && calls >= budget && cleanTests
++      normallyStopped = not (null reasons) && all isNormalStop reasons
++      mapped = traverse (mapTest completed normallyStopped) observedTests
++      errorMessage = case mapped of
++        Nothing -> Just "unsupported-test-type"
++        Just [] -> Just "no-property-tests"
++        Just _ -> Nothing
++      workerSeed [] = 0
+       workerSeed (state:_) = state.genDict.defSeed
+-  let seed = workerSeed workerStates
+-  pure $ encode Campaign
+-    { _success = True
+-    , _error = Nothing
+-    , _tests = mapTest env.dapp <$> tests
+-    , seed = seed
+-    , coverage = Map.mapKeys (("0x" ++) . (`showHex` "")) $ VU.toList <$> frozenCov
++      exitCode = case (errorMessage, mapped) of
++        (Nothing, Just mappedTests)
++          | any (\test -> test.outcome == "inconclusive" || test.outcome == "execution-failed") mappedTests -> 2
++          | any (\test -> test.outcome == "counterexample-found") mappedTests -> 1
++          | all (\test -> test.outcome == "held-within-bounds") mappedTests -> 0
++        _ -> 2
++  pure (encode Campaign
++    { seed = workerSeed states
++    , configuredTestLimit = budget
++    , executedCalls = calls
++    , workerStopReasons = reasonCode <$> reasons
++    , tests = maybe [] id mapped
++    , campaignError = errorMessage
++    }, exitCode)
++
++isTestLimit :: Maybe WorkerStopReason -> Bool
++isTestLimit (Just TestLimitReached) = True
++isTestLimit _ = False
++
++isNormalStop :: Maybe WorkerStopReason -> Bool
++isNormalStop (Just TestLimitReached) = True
++isNormalStop (Just FastFailed) = True
++isNormalStop _ = False
++
++reasonCode :: Maybe WorkerStopReason -> String
++reasonCode (Just TestLimitReached) = "test-limit-reached"
++reasonCode (Just SymbolicExplorationDone) = "symbolic-exploration-done"
++reasonCode (Just SymbolicVerificationDone) = "symbolic-verification-done"
++reasonCode (Just TimeLimitReached) = "time-limit-reached"
++reasonCode (Just FastFailed) = "fast-failed"
++reasonCode (Just (Killed _)) = "killed"
++reasonCode (Just (Crashed _)) = "crashed"
++reasonCode Nothing = "missing-stop-reason"
++
++mapTest :: Bool -> Bool -> EchidnaTest -> Maybe Test
++mapTest completed normallyStopped test = case test.testType of
++  T.PropertyTest propertyName _ -> Just Test
++    { name = propertyName
++    , outcome = outcome
++    , transactions = if outcome == "counterexample-found"
++                     then Just (mapTx <$> test.reproducer)
++                     else Nothing
+     }
++  _ -> Nothing
++  where
++    outcome = case test.state of
++      T.Open | completed -> "held-within-bounds"
++      T.Solved | normallyStopped && not (null test.reproducer) -> "counterexample-found"
++      T.Failed _ -> "execution-failed"
++      _ -> "inconclusive"
+ 
+-mapTest :: DappInfo -> EchidnaTest -> Test
+-mapTest dappInfo test =
+-  let (status, transactions, err) = mapTestState test.state test.reproducer
+-  in Test
+-    { contract = "" -- TODO add when mapping is available https://github.com/crytic/echidna/issues/415
+-    , name = "name" -- TODO add a proper name here
+-    , status = status
+-    , _error = err
+-    , reason = mapReason test.state
+-    , events = maybe [] (extractEvents False dappInfo) test.vm
+-    , testType = Property
+-    , transactions = transactions
+-    }
++mapTx :: Tx -> Transaction
++mapTx tx = Transaction
++  { function = functionName
++  , arguments = args
++  , sender = toJSON tx.src
++  , destination = toJSON tx.dst
++  , timeDelay = show $ fst tx.delay
++  , blockDelay = show $ snd tx.delay
++  , value = show tx.value
++  }
+   where
+-  mapTestState T.Open _ = (Fuzzing, Nothing, Nothing)
+-  mapTestState T.Passed _ = (Passed, Nothing, Nothing)
+-  mapTestState T.Solved txs = (Solved, Just $ mapTx <$> txs, Nothing)
+-  mapTestState T.Unsolvable _ = (Verified, Nothing, Nothing)
+-  mapTestState (T.Large _) txs = (Shrinking, Just $ mapTx <$> txs, Nothing)
+-  mapTestState (T.Failed e) _ = (Error, Nothing, Just $ Prelude.show e) -- TODO add (show e)
+-
+-  -- The reason a test failed is only meaningful for falsified tests.
+-  mapReason T.Solved    = Just test.result
+-  mapReason (T.Large _) = Just test.result
+-  mapReason _           = Nothing
+-
+-  mapTx tx =
+-    let (function, args) = mapCall tx.call
+-    in Transaction
+-      { contract = "" -- TODO add when mapping is available https://github.com/crytic/echidna/issues/415
+-      , function = function
+-      , arguments = args
+-      , gas = Prelude.show tx.gas
+-      , gasprice = Prelude.show tx.gasprice
+-      , value = Prelude.show tx.value
+-      }
+-
+-  mapCall = \case
+-    SolCreate _          -> ("<CREATE>", Nothing)
+-    SolCall (name, args) -> (name, Just $ ppAbiValue mempty <$> args)
+-    NoCall               -> ("*wait*", Nothing)
+-    SolCalldata x        -> (decodeUtf8 $ "0x" <> BS16.encode x, Nothing)
++    (functionName, args) = case tx.call of
++      SolCall (name, values) -> (name, Just $ ppAbiValue mempty <$> values)
++      SolCreate _ -> ("<CREATE>", Nothing)
++      NoCall -> ("*wait*", Nothing)
++      SolCalldata bytes -> (decodeUtf8 $ "0x" <> BS16.encode bytes, Nothing)
+--- a/lib/Echidna/Campaign.hs
++++ b/lib/Echidna/Campaign.hs
+@@ -364,7 +364,9 @@
+           -- we shrink only tests which were solved on this
+           -- worker, see 'updateOpenTest'
+           Large n | test.workerId == Just workerId ->
+-            n < shrinkLimit
++            -- At the limit, shrinkTest closes Large as Solved without
++            -- evaluating another candidate. Do not leave it unfinished.
++            n <= shrinkLimit
+           _       -> False
+ 
+       final test =
+--- a/lib/Echidna/UI.hs
++++ b/lib/Echidna/UI.hs
+@@ -15,6 +15,7 @@
+ import Data.ByteString.Lazy qualified as BS
+ import Data.List.Split (splitPlaces)
+ import Data.Map (Map)
++import Data.Map qualified as Map
+ import Data.Maybe (isJust, mapMaybe)
+ import Data.Sequence ((|>))
+ import Data.Text (Text)
+@@ -24,9 +25,10 @@
+ import Graphics.Vty.CrossPlatform (mkVty)
+ import Graphics.Vty.Input.Events
+ import System.Console.ANSI (hNowSupportsANSI)
++import System.IO (Handle, hPutStrLn, stderr)
+ import System.Signal
+ import UnliftIO
+-  ( MonadUnliftIO, IORef, newIORef, readIORef, hFlush, stdout , writeIORef, timeout)
++  ( MonadUnliftIO, IORef, newIORef, readIORef, atomicModifyIORef', hFlush, stdout , writeIORef, timeout)
+ import UnliftIO.Concurrent hiding (killThread, threadDelay)
+ 
+ import EVM.Fetch qualified
+@@ -50,6 +52,9 @@
+ import Echidna.Utility (timePrefix, getTimestamp)
+ import Echidna.Worker (getNWorkers, workerIDToType)
+ 
++writeJSONResult :: Handle -> BS.ByteString -> IO ()
++writeJSONResult = BS.hPut
++
+ data UIEvent =
+   CampaignUpdated LocalTime [EchidnaTest] [WorkerState]
+   | FetchCacheUpdated (Map Addr (Maybe Contract))
+@@ -70,7 +75,7 @@
+   -> GenDict
+   -> [(FilePath, [Tx])]
+   -> Maybe Text
+-  -> m [WorkerState]
++  -> m ([WorkerState], Maybe (BS.ByteString, Int))
+ ui vm dict initialCorpus cliSelectedContract = do
+   env <- ask
+   conf <- asks (.cfg)
+@@ -179,12 +184,19 @@
+       states <- workerStates workers
+       liftIO . putStrLn =<< ppCampaign states
+ 
+-      pure states
++      pure (states, Nothing)
+ 
+     NonInteractive outputFormat -> do
+       serverStopVar <- newEmptyMVar
+-
+-      let forwardEvent ev = putStrLn =<< runReaderT (ppLogLine vm ev) env
++      stopReasonsRef <- liftIO $ newIORef Map.empty
++
++      let forwardEvent ev@(_, event) = do
++            case event of
++              WorkerEvent workerId _ (WorkerStopped reason) ->
++                atomicModifyIORef' stopReasonsRef (\reasons -> (Map.insert workerId reason reasons, ()))
++              _ -> pure ()
++            line <- runReaderT (ppLogLine vm ev) env
++            if outputFormat == JSON then hPutStrLn stderr line else putStrLn line
+       -- Attach the log/event forwarder before workers start so early worker
+       -- events (like startup logs) are not lost by dupChan.
+       uiEventsForwarderStopVar <- spawnListener forwardEvent
+@@ -201,7 +213,7 @@
+       startTime <- liftIO getTimestamp
+       lastUpdateRef <- liftIO $ newIORef $ GasTracker startTime 0
+ 
+-      let printStatus = do
++      let printStatus = unless (outputFormat == JSON) $ do
+             states <- liftIO $ workerStates workers
+             time <- timePrefix <$> getTimestamp
+             line <- statusLine env states lastUpdateRef
+@@ -226,19 +238,24 @@
+ 
+       when (isJust conf.campaignConf.serverPort) $ do
+         -- wait until we send all SSE events
+-        liftIO $ putStrLn "Waiting until all SSE are received..."
++        liftIO $ if outputFormat == JSON
++          then hPutStrLn stderr "Waiting until all SSE are received..."
++          else putStrLn "Waiting until all SSE are received..."
+         liftIO $ Control.Concurrent.MVar.readMVar serverStopVar
+ 
+       states <- liftIO $ workerStates workers
+-
+-      case outputFormat of
++      stopReasons <- liftIO $ readIORef stopReasonsRef
++
++      result <- case outputFormat of
+         JSON ->
+-          liftIO $ BS.putStr =<< Echidna.Output.JSON.encodeCampaign env states
++          liftIO $ Just <$> Echidna.Output.JSON.encodeCampaign env
++            [(Map.lookup state.workerId stopReasons, state) | state <- states]
+         Text -> do
+           liftIO . putStrLn =<< ppCampaign  states
++          pure Nothing
+         None ->
+-          pure ()
+-      pure states
++          pure Nothing
++      pure (states, result)
+ 
+   where
+ 
+--- a/src/Main.hs
++++ b/src/Main.hs
+@@ -22,6 +22,7 @@
+ import Data.Time.Clock.System (getSystemTime, systemSeconds)
+ import Data.Version (showVersion)
+ import Data.Word (Word8, Word16, Word64)
++import GHC.IO.Handle (hDuplicate, hDuplicateTo)
+ import Main.Utf8 (withUtf8)
+ import Options.Applicative
+ import Paths_echidna (version)
+@@ -29,7 +30,7 @@
+ import System.Directory (createDirectoryIfMissing)
+ import System.Exit (exitWith, exitSuccess, ExitCode(..), exitFailure)
+ import System.FilePath ((</>), (<.>))
+-import System.IO (hPutStrLn, stderr)
++import System.IO (hClose, hFlush, hPutStrLn, stderr, stdout)
+ import System.IO.CodePage (withCP65001)
+ 
+ import EVM.Dapp (DappInfo(..))
+@@ -75,6 +76,16 @@
+     maybe (pure (EConfigWithUsage defaultConfig mempty mempty)) parseConfig cliConfigFilepath
+   cfg <- overrideConfig loadedCfg opts
+ 
++  -- Preserve the original stdout exclusively for the final JSON document.
++  -- Existing diagnostics throughout compilation and reporting may use stdout.
++  jsonOutput <- case cfg.uiConf.operationMode of
++    NonInteractive JSON -> do
++      hFlush stdout
++      saved <- hDuplicate stdout
++      hDuplicateTo stderr stdout
++      pure (Just saved)
++    _ -> pure Nothing
++
+   printProjectName cfg.projectName
+ 
+   unless cfg.solConf.quiet $
+@@ -88,7 +99,7 @@
+ 
+   initialCorpus <- loadInitialCorpus env
+   -- start ui and run tests
+-  _campaign <- runReaderT (ui vm dict initialCorpus cliSelectedContract) env
++  (_campaign, result) <- runReaderT (ui vm dict initialCorpus cliSelectedContract) env
+ 
+   tests <- traverse readIORef env.testRefs
+ 
+@@ -145,7 +156,15 @@
+       let contracts = Map.elems env.dapp.solcByName
+       saveCoverages env runId dir buildOutput.sources contracts
+ 
+-  if isSuccessful tests then exitSuccess else exitWith (ExitFailure 1)
++  case (jsonOutput, result) of
++    (Just output, Just (document, code)) -> do
++      writeJSONResult output document
++      hFlush output
++      hClose output
++      if code == 0 then exitSuccess else exitWith (ExitFailure code)
++    (Nothing, Nothing) ->
++      if isSuccessful tests then exitSuccess else exitWith (ExitFailure 1)
++    _ -> exitFailure
+ 
+ data Options = Options
+   { cliFilePath         :: NE.NonEmpty FilePath

@@ -1,4 +1,5 @@
 import { chmod, lstat, readFile, realpath, unlink } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { networkInterfaces } from "node:os";
 import net from "node:net";
 import path from "node:path";
@@ -7,15 +8,42 @@ import { runObservedProcess } from "../packages/scanners/src/process-runner";
 import { validateVerificationWorkspaceIntegrity, VerificationWorkspaceIntegrityError } from "../packages/scanners/src/verification-workspace-integrity";
 import { validateExecutableInvariantWorkspaceIntegrity, ExecutableInvariantWorkspaceIntegrityError } from "../packages/scanners/src/executable-invariant-workspace-integrity";
 import { validateInvariantReplayWorkspaceIntegrity, InvariantReplayWorkspaceIntegrityError } from "../packages/scanners/src/invariant-replay-workspace-integrity";
+import { validateEchidnaInvariantWorkspaceIntegrity, EchidnaWorkspaceIntegrityError } from "../packages/scanners/src/echidna-invariant-workspace-integrity";
+import { parseTrustedEchidnaResult } from "../packages/scanners/src/echidna-invariant-result";
+import { ECHIDNA_BINARY_SHA256, ECHIDNA_BUILD_ID, ECHIDNA_COMPAT_VERSION, ECHIDNA_CONFIG_FILE, ECHIDNA_HARNESS_FILE, ECHIDNA_LIMITS, ECHIDNA_UPSTREAM_VERSION } from "../packages/core/src/echidna-invariant";
 import { parseInvariantForgeJson, parseTrustedInvariantForgeResult } from "../packages/scanners/src/executable-invariant-result";
 import { parseTrustedInvariantReplayForgeResult } from "../packages/scanners/src/invariant-replay-result";
-import { encodeWorkerFrame, workerRequestSchema, WorkerFrameDecoder, WORKER_REQUEST_MAX_BYTES, WORKER_RESPONSE_MAX_BYTES, WORKER_SOCKET_PATH, type VerificationWorkerRequest, type ExecutableInvariantWorkerRequest, type InvariantReplayWorkerRequest } from "../packages/scanners/src/verification-worker-protocol";
+import { encodeWorkerFrame, workerRequestSchema, WorkerFrameDecoder, WORKER_REQUEST_MAX_BYTES, WORKER_RESPONSE_MAX_BYTES, WORKER_SOCKET_PATH, type VerificationWorkerRequest, type ExecutableInvariantWorkerRequest, type InvariantReplayWorkerRequest, type EchidnaInvariantWorkerRequest } from "../packages/scanners/src/verification-worker-protocol";
 
 const WORKSPACE_ROOT = "/verification";
 const TOOL_HOME = "/data/tool-home";
+const ECHIDNA_EXECUTABLE = "/opt/contracthunter/echidna/echidna";
+const ECHIDNA_BUILD_MANIFEST = "/opt/contracthunter/echidna/build-manifest.json";
 const forbiddenEnvironment = /(?:^|_)(?:OPENAI|GITHUB|GH_TOKEN|RPC_URL|ETH_RPC_URL|PRIVATE_KEY|MNEMONIC|PROXY|ETHERSCAN|NPM_TOKEN|AWS_|AZURE_|GOOGLE_)/i;
 const limits = { maxVirtualMemoryBytes: 2_147_483_648, maxProcesses: 64, maxOpenFiles: 256, maxFileSizeBytes: 67_108_864 } as const;
 class WorkerIsolationError extends Error {}
+class EchidnaToolError extends Error {}
+
+export async function echidnaToolPreflight(): Promise<void> {
+  for (const absolute of [ECHIDNA_EXECUTABLE, ECHIDNA_BUILD_MANIFEST]) {
+    const info = await lstat(absolute).catch(() => { throw new EchidnaToolError("echidna tool file is unavailable"); });
+    if (!info.isFile() || info.isSymbolicLink() || info.uid !== 0 || await realpath(absolute) !== absolute) throw new EchidnaToolError("echidna tool file is unsafe");
+    if (absolute === ECHIDNA_EXECUTABLE && !(info.mode & 0o111)) throw new EchidnaToolError("echidna tool is not executable");
+    if (absolute === ECHIDNA_BUILD_MANIFEST && info.size > 4096) throw new EchidnaToolError("echidna manifest is oversized");
+  }
+  const binary = await readFile(ECHIDNA_EXECUTABLE);
+  if (createHash("sha256").update(binary).digest("hex") !== ECHIDNA_BINARY_SHA256) throw new EchidnaToolError("echidna binary hash differs");
+  let manifest: Record<string, unknown>;
+  try { manifest = JSON.parse(await readFile(ECHIDNA_BUILD_MANIFEST, "utf8")) as Record<string, unknown>; }
+  catch { throw new EchidnaToolError("echidna build manifest is malformed"); }
+  if (manifest.schema !== "contracthunter-echidna-build-v1" || manifest.buildId !== ECHIDNA_BUILD_ID || manifest.upstreamVersion !== ECHIDNA_UPSTREAM_VERSION || manifest.compatibilityVersion !== ECHIDNA_COMPAT_VERSION || manifest.binarySha256 !== ECHIDNA_BINARY_SHA256) throw new EchidnaToolError("echidna build manifest differs");
+  const version = await runObservedProcess({ command: ECHIDNA_EXECUTABLE, args: ["--version"], timeoutMs: 5_000, maxOutputBytes: 1024, env: { NODE_ENV: "production", PATH: "/usr/bin:/bin", HOME: "/home/contracthunter", LANG: "C.UTF-8" } });
+  if (version.exitCode !== 0 || version.timedOut || version.stdoutTruncated || version.stderrTruncated || version.stdout.trim() !== `Echidna ${ECHIDNA_UPSTREAM_VERSION}`) throw new EchidnaToolError("echidna reported version differs");
+  const crytic = await lstat("/usr/local/bin/crytic-compile").catch(() => { throw new EchidnaToolError("crytic-compile frontend is unavailable"); });
+  if (!crytic.isFile() || crytic.isSymbolicLink() || crytic.uid !== 0 || !(crytic.mode & 0o111) || await realpath("/usr/local/bin/crytic-compile") !== "/usr/local/bin/crytic-compile") throw new EchidnaToolError("crytic-compile frontend is unsafe");
+  const frontend = await runObservedProcess({ command: "/usr/local/bin/crytic-compile", args: ["--version"], timeoutMs: 5_000, maxOutputBytes: 1024, env: { NODE_ENV: "production", PATH: "/usr/local/bin:/usr/bin:/bin", HOME: "/home/contracthunter", TMPDIR: "/tmp", LANG: "C.UTF-8", PYTHONDONTWRITEBYTECODE: "1" } });
+  if (frontend.exitCode !== 0 || frontend.timedOut || frontend.stdoutTruncated || frontend.stderrTruncated || frontend.stdout.trim() !== "0.3.11") throw new EchidnaToolError("crytic-compile frontend version differs");
+}
 
 export async function isolationPreflight(): Promise<void> {
   try {
@@ -94,6 +122,33 @@ export async function executeInvariant(request: ExecutableInvariantWorkerRequest
     isolation: { providerId: "docker-verification-worker-v1", isolationVersion: "1", networkAccess: "disabled", networkIsolated: true, processIsolated: true, workerUid: 10002, resourceLimitsApplied: { maxCpuTimeSeconds: cpuSeconds, ...limits }, wallClockTimeoutMs: request.timeoutMs, maxOutputBytes: request.maxOutputBytes, writableProjectPath: workspace } } as const;
 }
 
+export async function executeEchidnaInvariant(request: EchidnaInvariantWorkerRequest) {
+  await isolationPreflight();
+  const workspace = path.join(WORKSPACE_ROOT, request.workspaceId);
+  const directory = await lstat(workspace);
+  if (!directory.isDirectory() || directory.isSymbolicLink() || await realpath(workspace) !== workspace) throw new Error("echidna_workspace_invalid");
+  const manifest = await validateEchidnaInvariantWorkspaceIntegrity(workspace);
+  if (manifest.workspaceId !== request.runId || manifest.scanId !== request.scanId || manifest.hypothesisId !== request.hypothesisId || manifest.resolvedCommit !== request.resolvedCommit || manifest.compilerVersion !== request.compilerVersion || manifest.planHash !== request.planHash) throw new Error("echidna_manifest_mismatch");
+  const compiler = await resolveTrustedVerificationCompiler({ toolHomeDir: TOOL_HOME, version: request.compilerVersion });
+  const cpuSeconds = 181;
+  const environment: NodeJS.ProcessEnv = { NODE_ENV: "production", PATH: "/usr/local/bin:/usr/bin:/bin", HOME: "/home/contracthunter", TMPDIR: "/tmp", LANG: "C.UTF-8", LC_ALL: "C.UTF-8", NO_COLOR: "1", PYTHONDONTWRITEBYTECODE: "1" };
+  const observed = await runObservedProcess({ command: "/usr/bin/prlimit", args: [`--cpu=${cpuSeconds}:${cpuSeconds}`, `--as=${limits.maxVirtualMemoryBytes}:${limits.maxVirtualMemoryBytes}`, `--nofile=${limits.maxOpenFiles}:${limits.maxOpenFiles}`, `--fsize=${limits.maxFileSizeBytes}:${limits.maxFileSizeBytes}`, "--", ECHIDNA_EXECUTABLE,
+    ECHIDNA_HARNESS_FILE, "--contract", "ContractHunterEchidnaHarness", "--config", ECHIDNA_CONFIG_FILE,
+    "--disable-slither", "--disable-onchain-sources", "--crytic-args", `--solc ${compiler.executablePath}`],
+    cwd: workspace, timeoutMs: ECHIDNA_LIMITS.wallClockTimeoutMs, maxOutputBytes: ECHIDNA_LIMITS.maxOutputBytes, env: environment, killProcessTree: true });
+  const truncated = observed.stdoutTruncated || observed.stderrTruncated;
+  const parsed = observed.timedOut ? null : parseTrustedEchidnaResult(observed.stdout, manifest.plan, observed.exitCode, truncated);
+  const errorCode = observed.timedOut ? "echidna_execution_timeout" : truncated ? "echidna_output_oversized" : !parsed ? "echidna_result_unparseable" : null;
+  return { engine: "echidna" as const, status: errorCode ? "failed" as const : "completed" as const, planHash: manifest.planHash,
+    exitCode: observed.exitCode, durationMs: observed.durationMs, timedOut: observed.timedOut, outputTruncated: truncated,
+    errorCode, errorMessage: errorCode ? "Echidna did not produce a trustworthy bounded result." : null,
+    seed: parsed?.seed ?? null, executedCalls: parsed?.executedCalls ?? null, campaignStopReason: parsed?.campaignStopReason ?? null, tests: parsed?.tests ?? [],
+    stdoutSummary: observed.stdout.slice(0, 2_048), stderrSummary: observed.stderr.slice(0, 2_048),
+    binaryHash: ECHIDNA_BINARY_SHA256, echidnaVersion: ECHIDNA_UPSTREAM_VERSION, compatibilityVersion: ECHIDNA_COMPAT_VERSION, buildId: ECHIDNA_BUILD_ID,
+    compilerIdentity: { version: compiler.version, executablePath: compiler.executablePath },
+    isolation: { providerId: "docker-verification-worker-v1", isolationVersion: "1", networkAccess: "disabled", networkIsolated: true, processIsolated: true, workerUid: 10002, resourceLimitsApplied: { maxCpuTimeSeconds: cpuSeconds, ...limits }, wallClockTimeoutMs: ECHIDNA_LIMITS.wallClockTimeoutMs, maxOutputBytes: ECHIDNA_LIMITS.maxOutputBytes, writableProjectPath: workspace } };
+}
+
 export async function executeInvariantReplay(request: InvariantReplayWorkerRequest) {
   await isolationPreflight();
   const workspace = path.join(WORKSPACE_ROOT, request.workspaceId), directory = await lstat(workspace);
@@ -110,6 +165,7 @@ export async function executeInvariantReplay(request: InvariantReplayWorkerReque
 
 async function main(): Promise<void> {
   await isolationPreflight();
+  await echidnaToolPreflight();
   const socketDirectory = path.dirname(WORKER_SOCKET_PATH);
   const info = await lstat(socketDirectory);
   if (!info.isDirectory() || info.isSymbolicLink() || await realpath(socketDirectory) !== socketDirectory || (info.mode & 0o007) !== 0 || info.gid !== 10001) throw new Error("worker IPC directory is unsafe");
@@ -123,7 +179,7 @@ async function main(): Promise<void> {
     const decoder = new WorkerFrameDecoder(WORKER_REQUEST_MAX_BYTES);
     const timer = setTimeout(() => socket.destroy(), 5_000);
     socket.on("data", async (chunk) => {
-        let acquired = false; let invariantJob = false; let replayJob = false;
+        let acquired = false; let invariantJob = false; let replayJob = false; let echidnaJob = false;
       try {
         const raw = decoder.push(chunk);
         if (raw === undefined) return;
@@ -134,11 +190,12 @@ async function main(): Promise<void> {
         const request = workerRequestSchema.parse(raw);
         invariantJob = request.command === "execute-invariant";
         replayJob = request.command === "execute-invariant-replay";
-        const result = request.command === "verify" ? await executeVerification(request) : request.command === "execute-invariant" ? await executeInvariant(request) : await executeInvariantReplay(request);
+        echidnaJob = request.command === "execute-echidna-invariant";
+        const result = request.command === "verify" ? await executeVerification(request) : request.command === "execute-invariant" ? await executeInvariant(request) : request.command === "execute-invariant-replay" ? await executeInvariantReplay(request) : await executeEchidnaInvariant(request);
         socket.end(encodeWorkerFrame({ result }, WORKER_RESPONSE_MAX_BYTES));
       } catch (error) {
         const reason = error instanceof Error ? error.message : "verification_worker_protocol_error";
-        const code = error instanceof WorkerIsolationError ? replayJob ? "replay_worker_isolation_unavailable" : invariantJob ? "invariant_worker_isolation_unavailable" : "verification_worker_isolation_unavailable" : error instanceof TrustedVerificationCompilerError ? "trusted_compiler_unavailable" : error instanceof VerificationWorkspaceIntegrityError ? "invalid_manifest" : error instanceof ExecutableInvariantWorkspaceIntegrityError ? "invariant_workspace_invalid" : error instanceof InvariantReplayWorkspaceIntegrityError ? "replay_workspace_invalid" : ["invalid_workspace", "manifest_mismatch", "invariant_workspace_invalid", "invariant_manifest_mismatch", "replay_workspace_invalid", "replay_manifest_mismatch"].includes(reason) ? reason : "verification_worker_protocol_error";
+        const code = error instanceof WorkerIsolationError ? replayJob ? "replay_worker_isolation_unavailable" : invariantJob ? "invariant_worker_isolation_unavailable" : echidnaJob ? "echidna_worker_isolation_unavailable" : "verification_worker_isolation_unavailable" : error instanceof TrustedVerificationCompilerError ? "trusted_compiler_unavailable" : error instanceof EchidnaWorkspaceIntegrityError ? "echidna_workspace_invalid" : error instanceof VerificationWorkspaceIntegrityError ? "invalid_manifest" : error instanceof ExecutableInvariantWorkspaceIntegrityError ? "invariant_workspace_invalid" : error instanceof InvariantReplayWorkspaceIntegrityError ? "replay_workspace_invalid" : ["invalid_workspace", "manifest_mismatch", "invariant_workspace_invalid", "invariant_manifest_mismatch", "replay_workspace_invalid", "replay_manifest_mismatch", "echidna_workspace_invalid", "echidna_manifest_mismatch"].includes(reason) ? reason : "verification_worker_protocol_error";
         socket.end(encodeWorkerFrame({ errorCode: code, errorMessage: "Verification worker refused the request." }, WORKER_RESPONSE_MAX_BYTES));
       } finally { if (acquired) busy = false; }
     });

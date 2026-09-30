@@ -1,0 +1,16 @@
+{
+  "schema": "contracthunter-echidna-build-v1",
+  "buildId": "contracthunter-echidna-compat-v1",
+  "upstreamVersion": "2.3.3",
+  "compatibilityVersion": "2.3.3+contracthunter.1",
+  "upstreamCommit": "4454f3a337ed58e89a3be488b8eac03e83cd40f2",
+  "sourceArchiveSha256": "fab7817640a613856365766031518a8bde5471a9fb14618dfb0b77e3820a7cba",
+  "compatibilityPatchSha256": "03fd0c880d555108525f0c0e78812c794bdfe9a4a37f568946b7b862cb4b0e2e",
+  "flakeLockSha256": "2257be1d516bbcc315f2d14bb374757e6a75b626b5205b74fafee840b0c64de2",
+  "builderImage": "docker.io/nixos/nix:2.24.14@sha256:4411619b45575be9fb47063c0878e2d9ef86988678b23c01bf3dd1b967d753fc",
+  "pythonRuntimeImage": "docker.io/library/python:3.11-slim-bookworm@sha256:a36c24f9cbdf4fd0f52d67f0823eeac19c2028c637cecc392d97f980d4fec56b",
+  "cryticRequirementsLockSha256": "75f6742785d9a2b70a3a54dd087ed9d008fb6496d1b550794b2b8debbe8a4583",
+  "patchedSourceNarHash": "sha256-29jP6+U6k4H60+foTc37Vl7Mbd/dRSDowUHq10jc19Y=",
+  "binarySha256": "b6f84d8d48fcffe4d48b9be0378e65f37a36c304c3325d72aa868fcfac204ff1",
+  "runtimeSharedLibraries": []
+}

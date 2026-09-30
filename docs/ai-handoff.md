@@ -8,9 +8,11 @@ ContractHunter is a locally hosted smart-contract security analysis workstation 
 
 ## Current version state
 
-Prepared release target: `v0.2.0`. The prior published release is `v0.1.9`; Git commit/tag/push and publication remain manual operations outside AI/Codex.
+Current released version: `v0.2.0`. `v0.2.1` is in development; Git commit/tag/push and publication remain manual operations outside AI/Codex.
 
 v0.2.0 includes executable invariant plan v1, bounded fuzz/stateful worker execution, manual AI semantic proposals, deterministic counterexample replay, explicit relevance review, authoritative invariant evidence, centralized lifecycle transitions, transactional v0.1.9 migration, retry workspaces and release regression probes.
+
+v0.2.1 Milestone 1 adds a guarded internal Echidna stateful invariant engine beside Foundry. The patched Echidna 2.3.3 build, source archive, compatibility patch, lock information, and checksums live under `third_party/echidna`; the Docker build uses a digest-pinned Nix stage and hash-checks the static ELF. This development milestone does not add AI prompts, UI selection, automatic dual execution, or lifecycle changes.
 
 ## Current stack
 
@@ -112,3 +114,11 @@ Forge 1.7.1 output is accepted only for the exact expected suite/tests, assertio
 The worker boundary remains: `network_mode: none`, read-only root, UID/GID `10002:10001`, zero effective/bounding capabilities, `no-new-privileges`, `pids_limit: 64`, one CPU, `FOUNDRY_THREADS=1`, default enforcing seccomp/AppArmor, no Docker socket/database/general repository/API secrets/proxy keys, and read-only trusted compiler cache. Process count is enforced by the checked container cgroup; per-UID `RLIMIT_NPROC` was removed because it is host-global and caused separate Compose projects using UID 10002 to interfere. CPU, address space, file descriptors and file size remain under `prlimit`, with controller wall/output bounds.
 
 Release probes cover vulnerable accounting → reproduced, stateful access control → reproduced, safe accounting → held-within-bounds/no replay, deliberate non-reproduction → no evidence, reviewed reproduction → authoritative evidence/centralized verified transition, plus the independent v0.1.9 structured-verification branch. Production advisory review pinned Next.js 16.3.3 and sharp 0.35.4; `npm audit --omit=dev` was clean. No real OpenAI request is part of automated validation.
+
+## v0.2.1 Milestone 1 Echidna handoff
+
+Stock Echidna 2.3.3 JSON could not identify properties or terminal outcomes reliably. A four-file compatibility patch against official tag `v2.3.3` (commit `4454f3a337ed58e89a3be488b8eac03e83cd40f2`) emits one pure, versioned JSON document with exact typed property names, explicit bounded terminal outcomes, seed, stop reason, and transactions. Two clean serial Nix builds produced the same static ELF SHA-256 `b6f84d8d48fcffe4d48b9be0378e65f37a36c304c3325d72aa868fcfac204ff1`; the exact Docker stage checks this hash. `libsecp256k1` is linked statically. `crytic-compile==0.3.11` and its Python wheels are hash locked in the separate digest-pinned Python stage.
+
+`EchidnaInvariantGenerator` and its compatibility validator accept a narrow stateful subset: one deployment, no actors/callers/setup calls/funding, generated uint256/bool actions, uint/balance observations and uint equality checks, and no caller or environment sensitive source. Unsupported plans return explicit bounded reasons. The generated harness exposes uniquely named `echidna_ch_*` properties. The first 48 bits of the canonical plan hash form the numeric seed. A strict version 3 manifest and regenerated source/config bytes bind execution. The worker has a separate bounded `execute-echidna-invariant` operation, tool preflight, fixed argv, exact trusted solc selection, and compatibility JSON parser. Exact ordered action transactions can feed the existing canonical replay plan and Foundry replay worker; unrepresentable failures retain their property outcome with replay unavailable. Foundry's version 2 manifests and execution path remain valid.
+
+Milestone 1 is an internal engine path. No AI prompts, public engine selector, automatic dual execution, persistence migration, or hypothesis lifecycle policy change was added. Future UI/persistence work must preserve the existing deterministic replay → reproduced → explicit relevance confirmation → centralized lifecycle authority route.

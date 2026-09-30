@@ -6,9 +6,12 @@ import {
   VERIFICATION_HARNESS_MANIFEST, INVARIANT_HARNESS_MANIFEST, INVARIANT_REPLAY_MANIFEST, executableInvariantExecutionManifestSchema, executableInvariantPlanSchema, invariantManifestFingerprint, invariantReplayManifestFingerprint, invariantReplayManifestSchema, invariantReplayPlanSchema, repositorySolidityPathSchema, verificationHarnessManifestSchema, verificationHarnessPlanSchema,
   type VerificationHarnessManifest, type VerificationHarnessPlan, type VerificationSourceManifestEntry, type ExecutableInvariantPlan, type ExecutableInvariantExecutionManifest, type InvariantReplayPlan, type InvariantReplayManifest,
 } from "@contracthunter/core";
+import { ECHIDNA_BINARY_SHA256, ECHIDNA_BUILD_ID, ECHIDNA_COMPAT_VERSION, ECHIDNA_CONFIG_FILE, ECHIDNA_HARNESS_FILE, ECHIDNA_LIMITS, ECHIDNA_MANIFEST_FILE, ECHIDNA_UPSTREAM_VERSION, echidnaInvariantManifestSchema, type EchidnaInvariantManifest } from "@contracthunter/core";
 import { createContractHunterFoundryConfig } from "./verification-foundry-config";
 import { VerificationHarnessGenerator } from "./verification-harness-generator";
 import { ExecutableInvariantGenerator } from "./executable-invariant-generator";
+import { EchidnaInvariantGenerator } from "./echidna-invariant-generator";
+import { validateEchidnaInvariantWorkspaceIntegrity } from "./echidna-invariant-workspace-integrity";
 import { InvariantReplayGenerator } from "./invariant-replay-generator";
 import { sha256Bytes, validateVerificationWorkspaceIntegrity, verificationContentFingerprint } from "./verification-workspace-integrity";
 
@@ -191,6 +194,44 @@ export class VerificationWorkspaceBuilder {
       if (error instanceof VerificationWorkspaceBuildError) throw error;
       throw new VerificationWorkspaceBuildError(error instanceof Error ? error.message : "Invariant workspace generation failed safely.");
     } finally { await rm(lockPath, { force: true }); }
+  }
+
+  async buildEchidnaInvariant(input: { workspaceId: string; repositoryPath: string; plan: ExecutableInvariantPlan }): Promise<{ workspacePath: string; manifest: EchidnaInvariantManifest; harnessSource: string }> {
+    if (!SAFE_RUN_ID.test(input.workspaceId)) throw new VerificationWorkspaceBuildError("Echidna workspace identifier is invalid.");
+    const plan = executableInvariantPlanSchema.parse(input.plan);
+    if (!this.options.acceptedCompilerVersions.includes(plan.compilerVersion) || !semver.valid(plan.compilerVersion) || semver.prerelease(plan.compilerVersion)) throw new VerificationWorkspaceBuildError("Echidna compiler version was not accepted.");
+    let workspaceRoot: string, repositoryRoot: string, repository: string;
+    try { await mkdir(this.options.verificationRoot, { recursive: true }); [workspaceRoot, repositoryRoot, repository] = await Promise.all([realpath(this.options.verificationRoot), realpath(this.options.repositoryRoot), realpath(input.repositoryPath)]); }
+    catch { throw new VerificationWorkspaceBuildError("Echidna roots are unavailable."); }
+    if (repository === repositoryRoot || !repository.startsWith(`${repositoryRoot}${path.sep}`) || workspaceRoot === repositoryRoot || workspaceRoot.startsWith(`${repositoryRoot}${path.sep}`) || repositoryRoot.startsWith(`${workspaceRoot}${path.sep}`)) throw new VerificationWorkspaceBuildError("Echidna roots are unsafe.");
+    const finalPath = path.join(workspaceRoot, input.workspaceId), temporaryPath = path.join(workspaceRoot, `.tmp-${input.workspaceId}-${randomUUID()}`), lockPath = path.join(workspaceRoot, `.lock-${input.workspaceId}`);
+    try { await lstat(finalPath); throw new VerificationWorkspaceBuildError("Echidna workspace already exists."); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+    try {
+      await writeFile(lockPath, input.workspaceId, { flag: "wx", mode: 0o600 });
+      const closure = await this.sourceClosure(repository, plan.sourceFiles), sourceMap = new Map(closure.map((entry) => [entry.relativePath, entry.bytes.toString("utf8")]));
+      const generated = new EchidnaInvariantGenerator().generate(plan, sourceMap);
+      await sharedDirectory(temporaryPath); await sharedDirectory(path.join(temporaryPath, "src"));
+      const sourceManifest: VerificationSourceManifestEntry[] = [];
+      for (const source of closure) {
+        const workspacePath = `src/${source.relativePath}`, destination = path.join(temporaryPath, ...workspacePath.split("/"));
+        await sharedDirectory(path.dirname(destination), true); await writeFile(destination, source.bytes, { flag: "wx", mode: 0o640 });
+        sourceManifest.push({ originalPath: source.relativePath, workspacePath, byteLength: source.bytes.length, sha256: sha256Bytes(source.bytes) });
+      }
+      await writeFile(path.join(temporaryPath, ECHIDNA_HARNESS_FILE), generated.source, { flag: "wx", mode: 0o640 });
+      await writeFile(path.join(temporaryPath, ECHIDNA_CONFIG_FILE), generated.config, { flag: "wx", mode: 0o640 });
+      const base = { formatVersion: 3 as const, engine: "echidna" as const, planKind: "executable-invariant" as const, workspaceId: input.workspaceId, schemaVersion: plan.schemaVersion, plan, planHash: generated.planHash,
+        hypothesisId: plan.hypothesisId, scanId: plan.scanId, resolvedCommit: plan.resolvedCommit, compilerVersion: plan.compilerVersion, generatorVersion: this.options.generatorVersion, generatedBy: "contracthunter" as const,
+        sourceManifest, harnessPath: ECHIDNA_HARNESS_FILE, harnessHash: generated.harnessHash, configPath: ECHIDNA_CONFIG_FILE, configHash: generated.configHash,
+        echidnaVersion: ECHIDNA_UPSTREAM_VERSION, compatibilityVersion: ECHIDNA_COMPAT_VERSION, buildId: ECHIDNA_BUILD_ID, binaryHash: ECHIDNA_BINARY_SHA256,
+        settings: generated.settings, executionLimits: { wallClockTimeoutMs: ECHIDNA_LIMITS.wallClockTimeoutMs, maxOutputBytes: ECHIDNA_LIMITS.maxOutputBytes, maxVirtualMemoryBytes: ECHIDNA_LIMITS.maxVirtualMemoryBytes, maxProcesses: ECHIDNA_LIMITS.maxProcesses, maxOpenFiles: ECHIDNA_LIMITS.maxOpenFiles, maxFileSizeBytes: ECHIDNA_LIMITS.maxFileSizeBytes } };
+      const manifest = echidnaInvariantManifestSchema.parse({ ...base, contentFingerprint: invariantManifestFingerprint(base) });
+      await writeFile(path.join(temporaryPath, ECHIDNA_MANIFEST_FILE), `${JSON.stringify(manifest, null, 2)}\n`, { flag: "wx", mode: 0o640 });
+      await validateEchidnaInvariantWorkspaceIntegrity(temporaryPath, { allowTemporaryBuildPath: true });
+      try { await lstat(finalPath); throw new VerificationWorkspaceBuildError("Echidna workspace already exists."); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+      await rename(temporaryPath, finalPath);
+      return { workspacePath: finalPath, manifest, harnessSource: generated.source };
+    } catch (error) { await rm(temporaryPath, { recursive: true, force: true }); if (error instanceof VerificationWorkspaceBuildError) throw error; throw new VerificationWorkspaceBuildError(error instanceof Error ? error.message : "Echidna workspace generation failed safely."); }
+    finally { await rm(lockPath, { force: true }); }
   }
 
   async buildInvariantReplay(input: { workspaceId: string; repositoryPath: string; replayPlan: InvariantReplayPlan; invariantPlan: ExecutableInvariantPlan }): Promise<{ workspacePath: string; manifest: InvariantReplayManifest; harnessSource: string }> {

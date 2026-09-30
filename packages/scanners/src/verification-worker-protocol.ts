@@ -59,7 +59,12 @@ export const invariantReplayWorkerRequestSchema = z.object({
   resolvedCommit: z.string().regex(/^[a-f0-9]{40}$/), compilerVersion: z.string().regex(/^\d+\.\d+\.\d+$/), invariantPlanHash: z.string().regex(/^[a-f0-9]{64}$/), replayPlanHash: z.string().regex(/^[a-f0-9]{64}$/), counterexampleHash: z.string().regex(/^[a-f0-9]{64}$/),
   timeoutMs: z.literal(REPLAY_TIMEOUT_MS), maxOutputBytes: z.literal(REPLAY_MAX_OUTPUT_BYTES),
 }).strict();
-export const workerRequestSchema = z.union([verificationWorkerRequestSchema, executableInvariantWorkerRequestSchema, invariantReplayWorkerRequestSchema]);
+export const echidnaInvariantWorkerRequestSchema = z.object({
+  command: z.literal("execute-echidna-invariant"), runId: uuid, workspaceId: uuid, scanId: uuid, hypothesisId: uuid,
+  resolvedCommit: z.string().regex(/^[a-f0-9]{40}$/), compilerVersion: z.string().regex(/^\d+\.\d+\.\d+$/), planHash: z.string().regex(/^[a-f0-9]{64}$/),
+}).strict().refine((request) => request.runId === request.workspaceId, "Workspace must match the Echidna run.");
+export const workerRequestSchema = z.union([verificationWorkerRequestSchema, executableInvariantWorkerRequestSchema, invariantReplayWorkerRequestSchema, echidnaInvariantWorkerRequestSchema]);
 export type ExecutableInvariantWorkerRequest = z.infer<typeof executableInvariantWorkerRequestSchema>;
 export type InvariantReplayWorkerRequest = z.infer<typeof invariantReplayWorkerRequestSchema>;
+export type EchidnaInvariantWorkerRequest = z.infer<typeof echidnaInvariantWorkerRequestSchema>;
 export type WorkerRequest = z.infer<typeof workerRequestSchema>;
