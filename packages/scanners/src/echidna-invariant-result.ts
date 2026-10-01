@@ -18,22 +18,22 @@ export type EchidnaPropertyFact = { propertyName: string; outcome: "held-within-
 export type ParsedEchidnaResult = { seed: number; executedCalls: number; campaignStopReason: string; tests: EchidnaPropertyFact[] };
 const allowedSenders = new Set(["0000000000000000000000000000000000010000", "0000000000000000000000000000000000020000", "0000000000000000000000000000000000030000"]);
 const harnessAddress = "00a329c0648769a73afac7f9381e08fb43dbea72";
-function mapTransactions(transactions: z.infer<typeof tx>[], plan: Extract<ExecutableInvariantPlan, { mode: "stateful-invariant" }>): ExecutableInvariantCounterexample | null {
+function mapTransactions(transactions: z.infer<typeof tx>[], plan: Extract<ExecutableInvariantPlan, { mode: "stateful-invariant" }>): ExecutableInvariantCounterexample | null | undefined {
   const actions: Array<{ actionName: string; parameterValues: Array<{ name: string; type: "uint256"; value: string } | { name: string; type: "bool"; value: boolean }> }> = [];
   for (const transaction of transactions) {
-    if (transaction.destination.slice(2).toLowerCase() !== harnessAddress || !allowedSenders.has(transaction.sender.slice(2).toLowerCase()) || transaction.value !== "0x0" || transaction.timeDelay !== "0x0" || transaction.blockDelay !== "0x0" || transaction.arguments === null) return null;
     const action = plan.handlerActions.find((candidate) => transaction.function === `action_${candidate.name}`);
-    if (!action || transaction.arguments.length !== action.parameters.length) return null;
+    if (!action || (transaction.arguments !== null && transaction.arguments.length !== action.parameters.length)) return undefined;
+    if (transaction.destination.slice(2).toLowerCase() !== harnessAddress || !allowedSenders.has(transaction.sender.slice(2).toLowerCase()) || transaction.value !== "0x0" || transaction.timeDelay !== "0x0" || transaction.blockDelay !== "0x0" || transaction.arguments === null) return null;
     const values = action.parameters.map((parameter, index) => {
       const raw = transaction.arguments![index];
       if (parameter.type === "bool") return raw === "true" || raw === "false" ? { name: parameter.name, type: "bool" as const, value: raw === "true" } : null;
       return /^(?:0|[1-9]\d{0,77})$/.test(raw) && BigInt(raw) < (1n << 256n) ? { name: parameter.name, type: "uint256" as const, value: raw } : null;
     });
-    if (values.some((value) => value === null)) return null;
+    if (values.some((value) => value === null)) return undefined;
     actions.push({ actionName: action.name, parameterValues: values as typeof actions[number]["parameterValues"] });
   }
   const parsed = executableInvariantCounterexampleSchema.safeParse({ kind: "sequence", parserVersion: ECHIDNA_COUNTEREXAMPLE_PARSER_VERSION, actions, summary: "Echidna emitted a terminal bounded action sequence." });
-  return parsed.success ? parsed.data : null;
+  return parsed.success ? parsed.data : undefined;
 }
 export function parseTrustedEchidnaResult(stdout: string, plan: ExecutableInvariantPlan, exitCode: number | null, outputTruncated: boolean): ParsedEchidnaResult | null {
   if (outputTruncated || Buffer.byteLength(stdout) > ECHIDNA_LIMITS.maxOutputBytes || plan.mode !== "stateful-invariant") return null;
@@ -47,9 +47,11 @@ export function parseTrustedEchidnaResult(stdout: string, plan: ExecutableInvari
   if (campaign.tests.some((test) => test.outcome === "held-within-bounds" && (reason !== "test-limit-reached" || test.transactions !== null)) || campaign.tests.some((test) => test.outcome === "counterexample-found" && (!["test-limit-reached", "fast-failed"].includes(reason) || !test.transactions?.length)) || campaign.tests.some((test) => ["inconclusive", "execution-failed"].includes(test.outcome) && test.transactions !== null)) return null;
   const expectedExit = campaign.tests.some((test) => test.outcome === "inconclusive" || test.outcome === "execution-failed") ? 2 : campaign.tests.some((test) => test.outcome === "counterexample-found") ? 1 : 0;
   if (exitCode !== expectedExit) return null;
+  const mapped = campaign.tests.map((test) => test.outcome === "counterexample-found" && test.transactions ? mapTransactions(test.transactions, plan) : null);
+  if (mapped.some((item) => item === undefined)) return null;
   return { seed: campaign.seed, executedCalls: campaign.executedCalls, campaignStopReason: reason,
-    tests: campaign.tests.map((test) => {
-      const counterexample = test.outcome === "counterexample-found" && test.transactions ? mapTransactions(test.transactions, plan) : null;
+    tests: campaign.tests.map((test, index) => {
+      const counterexample = mapped[index] ?? null;
       return { propertyName: test.name.slice("echidna_ch_".length), outcome: test.outcome, counterexample, replayAvailable: counterexample !== null };
     }) };
 }

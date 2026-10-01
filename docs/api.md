@@ -43,6 +43,8 @@ Every invariant identifier is UUID-validated and the service verifies the comple
 
 Run history returns an authoritative persisted `engine` (`foundry` or `echidna`) and normalized `propertyOutcome`/`hypothesisRelation` evidence. New runs also persist their proposal ID. Echidna replay artifacts record `sourceEngine`, source invariant run ID, and canonical counterexample hash. Historical Foundry rows resolve as Foundry after migration; their proposal association remains hash based if the old row did not store an ID. The app has no engine enum body, execution configuration body, or combined-engine action.
 
+Public history refuses contradictory persisted run engine, canonical plan, compiler, evidence, or Echidna seed. A historical run is associated with a proposal by plan hash only when exactly one proposal matches; ambiguous associations remain unset. Replay history refuses mismatched source engine, source run, proposal, replay-plan hash, or counterexample hash. These checks do not rewrite stored records.
+
 Invalid state transitions fail without rewriting prior history. Proposal generation, validation, invariant execution, replay generation, failed/refused/not-reproduced replay, and counterexample discovery alone never set a hypothesis to `verified`. Only authoritative supporting evidence created by explicit relevance review enters the centralized lifecycle authority. The application is a single-user local service without application authentication; expose it only on a trusted local interface.
 
 ## Health

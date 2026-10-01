@@ -17,6 +17,8 @@ export function createDatabase(databasePath: string) {
   const sqlite = new Database(databasePath);
   sqlite.pragma("journal_mode = WAL");
   sqlite.pragma("foreign_keys = ON");
+  sqlite.exec("BEGIN IMMEDIATE");
+  try {
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
       id TEXT PRIMARY KEY,
@@ -195,7 +197,6 @@ export function createDatabase(databasePath: string) {
   if (!applied) {
     try { migrateV020(); }
     catch (error) {
-      sqlite.close();
       throw new Error(`Database migration 0001_v0_2_0_release_schema failed without committing changes: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
@@ -207,7 +208,7 @@ export function createDatabase(databasePath: string) {
   });
   if (!sqlite.prepare("SELECT 1 FROM schema_migrations WHERE id = ?").get("0002_v0_2_1_echidna_public")) {
     try { migrateV021(); }
-    catch (error) { sqlite.close(); throw new Error(`Database migration 0002_v0_2_1_echidna_public failed without committing changes: ${error instanceof Error ? error.message : String(error)}`); }
+    catch (error) { throw new Error(`Database migration 0002_v0_2_1_echidna_public failed without committing changes: ${error instanceof Error ? error.message : String(error)}`); }
   }
   const migrateV021ProposalBinding = sqlite.transaction(() => {
     sqlite.exec("ALTER TABLE executable_invariant_runs ADD COLUMN proposal_id TEXT");
@@ -216,7 +217,7 @@ export function createDatabase(databasePath: string) {
   });
   if (!sqlite.prepare("SELECT 1 FROM schema_migrations WHERE id = ?").get("0003_v0_2_1_run_proposal_binding")) {
     try { migrateV021ProposalBinding(); }
-    catch (error) { sqlite.close(); throw new Error(`Database migration 0003_v0_2_1_run_proposal_binding failed without committing changes: ${error instanceof Error ? error.message : String(error)}`); }
+    catch (error) { throw new Error(`Database migration 0003_v0_2_1_run_proposal_binding failed without committing changes: ${error instanceof Error ? error.message : String(error)}`); }
   }
   const integrity = sqlite.pragma("quick_check") as Array<{ quick_check: string }>;
   const foreignKeyViolations = sqlite.pragma("foreign_key_check") as unknown[];
@@ -227,11 +228,16 @@ export function createDatabase(databasePath: string) {
   const invalidEngine = sqlite.prepare("SELECT 1 FROM executable_invariant_runs WHERE engine NOT IN ('foundry', 'echidna') LIMIT 1").get();
   const invalidReplayEngine = sqlite.prepare("SELECT 1 FROM invariant_replay_artifacts WHERE source_engine NOT IN ('foundry', 'echidna') LIMIT 1").get();
   if (integrity.length !== 1 || integrity[0]?.quick_check !== "ok" || foreignKeyViolations.length || requiredTables.some((table) => !presentTables.has(table)) || !runColumns.has("engine") || !runColumns.has("engine_metadata") || !runColumns.has("proposal_id") || !replayColumns.has("source_engine") || invalidEngine || invalidReplayEngine || sqlite.prepare("SELECT 1 FROM executable_invariant_runs r LEFT JOIN executable_invariant_proposals p ON p.id=r.proposal_id WHERE r.proposal_id IS NOT NULL AND (p.id IS NULL OR p.hypothesis_id<>r.hypothesis_id OR p.scan_id<>r.scan_id OR p.plan_hash<>r.plan_hash) LIMIT 1").get()) {
-    sqlite.close();
     throw new Error("Database validation failed after migration; no application access was started.");
   }
+  sqlite.exec("COMMIT");
   const orm = drizzle(sqlite, { schema: { scans, findings, scanScanners, investigations, investigationFindings, protocolAnalyses, invariants, securityReviewPlans, securityReviewerRuns, vulnerabilityHypotheses, hypothesisVerificationRuns, executableInvariantRuns, executableInvariantProposals, invariantReplayArtifacts, invariantReplayRuns, invariantEvidenceReviews, authoritativeInvariantEvidence, hypothesisLifecycleTransitions, hypothesisGroups, hypothesisGroupMembers } });
   return { sqlite, orm };
+  } catch (error) {
+    if (sqlite.inTransaction) sqlite.exec("ROLLBACK");
+    sqlite.close();
+    throw error;
+  }
 }
 
 let singleton: DatabaseClient | undefined;

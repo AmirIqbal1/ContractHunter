@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { executableInvariantPlanSchema, invariantPlanHash, validAIOutput, type ProtocolAnalysisResult } from "@contracthunter/core";
-import { closeDatabase, createDatabase, createExecutableInvariantProposal, createExecutableInvariantRun, createProtocolAnalysis, createScan, createSecurityReviewerRun, createSecurityReviewPlan, getVulnerabilityHypothesis, insertVulnerabilityHypotheses, type DatabaseClient } from "@contracthunter/db";
+import { closeDatabase, completeExecutableInvariantRun, createDatabase, createExecutableInvariantProposal, createExecutableInvariantRun, createProtocolAnalysis, createScan, createSecurityReviewerRun, createSecurityReviewPlan, getVulnerabilityHypothesis, insertVulnerabilityHypotheses, markExecutableInvariantRunRunning, type DatabaseClient } from "@contracthunter/db";
 import { generateInvariantProposal, generateInvariantReplay, readInvariantHistory, reviewInvariantReplay, runInvariantProposal, runEchidnaInvariantProposal, runInvariantReplay, validateInvariantProposal } from "./invariant-api";
 import { InvariantReplayRequestError } from "./invariant-replay-service";
 
@@ -61,12 +61,14 @@ describe("manual invariant API", () => {
     const validation = await validateInvariantProposal(post(), context(proposal.id), validated as never);
     expect(await validation.json()).toMatchObject({ status: "validated", compatibility });
     const echidna = { run: vi.fn() }, foundry = { run: vi.fn() };
-    for (const field of ["executable", "argv", "seed", "testLimit", "timeout", "config", "compiler", "commit", "sourcePaths", "manifest", "planHash", "counterexample"]) {
+    for (const field of ["executable", "argv", "seed", "testLimit", "timeout", "config", "echidnaConfig", "forgeConfig", "compiler", "commit", "sourcePath", "sourcePaths", "manifest", "plan", "planHash", "counterexample"]) {
       const data = JSON.stringify({ [field]: "attacker" });
       expect((await runInvariantProposal(post(data), context(proposal.id), validated as never, foundry as never)).status).toBe(400);
       expect((await runEchidnaInvariantProposal(post(data), context(proposal.id), echidna as never)).status).toBe(400);
     }
     expect((await runEchidnaInvariantProposal(post("x".repeat(1025)), context(proposal.id), echidna as never)).status).toBe(413);
+    expect((await validateInvariantProposal(post("{}"), context(proposal.id), validated as never)).status).toBe(400);
+    expect((await validateInvariantProposal(post("x".repeat(1025)), context(proposal.id), validated as never)).status).toBe(413);
     expect(echidna.run).not.toHaveBeenCalled(); expect(foundry.run).not.toHaveBeenCalled();
   });
   it("runs Echidna only on its explicit route and exposes the persisted engine in history", async () => {
@@ -84,6 +86,14 @@ describe("manual invariant API", () => {
     expect(response.status).toBe(200); expect(body.proposals).toHaveLength(1); expect(body.runs).toHaveLength(1);
     expect(JSON.stringify(body)).not.toMatch(/stdout|stderr|isolationMetadata|request-id/);
   });
+  it("refuses a persisted engine change and contradictory completed evidence in public history", async () => {
+    const proposal = proposalRow(), value = plan(), run = createExecutableInvariantRun(database, { plan: value, proposalId: proposal.id, engine: "foundry" }); markExecutableInvariantRunRunning(database, run.id);
+    completeExecutableInvariantRun(database, run.id, { evidence: [{ engine: "foundry", planHash: invariantPlanHash(value), mode: "fuzz-property", propertyName: "accounting", configuredRuns: 128, configuredDepth: null, runsExecuted: 128, propertyOutcome: "held-within-bounds", hypothesisRelation: "neutral", compilerVersion: "0.8.36", isolationProvider: "mock-worker", counterexample: null, summary: "No counterexample within budget." }], testCount: 1, passedCount: 1, failedCount: 0, runsExecuted: 128, stdoutSummary: "", stderrSummary: "", contentFingerprint: "a".repeat(64), isolationMetadata: "{}", exitCode: 0, durationMs: 1 });
+    database.sqlite.prepare("UPDATE executable_invariant_runs SET engine='echidna' WHERE id=?").run(run.id);
+    await expect(readInvariantHistory(new Request("http://localhost"), context(), database)).rejects.toThrow("Persisted invariant provenance is invalid");
+    database.sqlite.prepare("UPDATE executable_invariant_runs SET engine='foundry', dynamic_evidence='[]' WHERE id=?").run(run.id);
+    await expect(readInvariantHistory(new Request("http://localhost"), context(), database)).rejects.toThrow("Persisted invariant provenance is invalid");
+  });
   it("accepts bodyless replay/review actions and rejects unexpected or oversized bytes before service use", async () => {
     const proposal = proposalRow(), run = createExecutableInvariantRun(database, { plan: plan() }), replayId = crypto.randomUUID();
     const generate = { generate: vi.fn().mockRejectedValue(new InvariantReplayRequestError("replay_unavailable", "No replay.")) }, execute = { execute: vi.fn().mockRejectedValue(new InvariantReplayRequestError("unknown_replay", "Missing.")) }, review = { review: vi.fn().mockImplementation(() => { throw new InvariantReplayRequestError("unknown_replay", "Missing."); }) };
@@ -91,6 +101,8 @@ describe("manual invariant API", () => {
     expect((await runInvariantReplay(post(), replayContext(proposal.id, run.id, replayId), execute)).status).toBe(404); expect(execute.execute).toHaveBeenCalledTimes(1);
     expect((await reviewInvariantReplay(post(), replayContext(proposal.id, run.id, replayId), review)).status).toBe(404); expect(review.review).toHaveBeenCalledTimes(1);
     expect((await generateInvariantReplay(post("{}"), replayContext(proposal.id, run.id), generate)).status).toBe(400); expect((await reviewInvariantReplay(post("x".repeat(1025)), replayContext(proposal.id, run.id, replayId), review)).status).toBe(413);
-    expect(generate.generate).toHaveBeenCalledTimes(1); expect(review.review).toHaveBeenCalledTimes(1);
+    expect((await runInvariantReplay(post("{}"), replayContext(proposal.id, run.id, replayId), execute)).status).toBe(400);
+    expect((await runInvariantReplay(post("x".repeat(1025)), replayContext(proposal.id, run.id, replayId), execute)).status).toBe(413);
+    expect(generate.generate).toHaveBeenCalledTimes(1); expect(execute.execute).toHaveBeenCalledTimes(1); expect(review.review).toHaveBeenCalledTimes(1);
   });
 });

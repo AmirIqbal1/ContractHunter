@@ -68,12 +68,39 @@ describe("strict patched Echidna result", () => {
   });
   it("retains terminal failure while denying replay for unknown actions, typed values, and delays", () => {
     const input = plan();
-    for (const step of [{ ...transaction, function: "action_unknown" }, { ...transaction, arguments: ["-1"] }, { ...transaction, arguments: ["maybe"] }, { ...transaction, timeDelay: "0x1" }, { ...transaction, destination: sender }]) {
+    for (const step of [{ ...transaction, timeDelay: "0x1" }, { ...transaction, destination: sender }]) {
       const parsed = parseTrustedEchidnaResult(output(input, [held("safe"), failed("vulnerable", [step])]), input, 1, false);
       expect(parsed?.tests[1]).toMatchObject({ outcome: "counterexample-found", replayAvailable: false, counterexample: null });
     }
+    for (const step of [{ ...transaction, function: "action_unknown" }, { ...transaction, function: "credit" }, { ...transaction, arguments: ["-1"] }, { ...transaction, arguments: ["maybe"] }, { ...transaction, arguments: ["true"] }, { ...transaction, arguments: ["1", "2"] }])
+      expect(parseTrustedEchidnaResult(output(input, [held("safe"), failed("vulnerable", [step])]), input, 1, false)).toBeNull();
     expect(parseTrustedEchidnaResult(output(input, [held("safe"), failed("vulnerable", Array.from({ length: 33 }, () => transaction))]), input, 1, false)).toBeNull();
     expect(parseTrustedEchidnaResult(output(input, [{ ...held("safe"), outcome: "inconclusive" }, { ...held("vulnerable"), outcome: "inconclusive" }], "time-limit-reached"), input, 2, false)?.tests.every((item) => item.outcome === "inconclusive")).toBe(true);
+  });
+  it("rejects malformed bool values but maps an exact bool action", () => {
+    const original = plan(); if (original.mode !== "stateful-invariant") throw new Error("Stateful fixture required.");
+    const input = executableInvariantPlanSchema.parse({ ...original, handlerActions: [{ name: "flag", instanceName: "target", functionName: "flag", parameters: [{ name: "enabled", type: "bool" }], args: [{ kind: "parameter", name: "enabled" }] }] });
+    const step = { ...transaction, function: "action_flag", arguments: ["true"] };
+    expect(parseTrustedEchidnaResult(output(input, [held("safe"), failed("vulnerable", [step])]), input, 1, false)?.tests[1].counterexample).toMatchObject({ actions: [{ actionName: "flag", parameterValues: [{ name: "enabled", type: "bool", value: true }] }] });
+    expect(parseTrustedEchidnaResult(output(input, [held("safe"), failed("vulnerable", [{ ...step, arguments: ["maybe"] }])]), input, 1, false)).toBeNull();
+  });
+  it("rejects every ambiguous envelope and terminal combination", () => {
+    const input = plan(), good = JSON.parse(output(input, [held("safe"), failed("vulnerable")])) as Record<string, unknown>;
+    const bad: Record<string, unknown>[] = [
+      { ...good, schema: "other" }, { ...good, buildId: "wrong" }, { ...good, seed: Number(good.seed) + 1 },
+      { ...good, tests: [held("safe")] }, { ...good, tests: [held("safe"), failed("unknown")] },
+      { ...good, tests: [held("safe"), held("safe")] },
+      { ...good, tests: [{ ...held("safe"), outcome: "shrinking" }, failed("vulnerable")] },
+      { ...good, workerStopReasons: ["killed"] },
+      { ...good, tests: [held("safe"), failed("vulnerable", [{ ...transaction, arguments: ["not-a-uint"] }])] },
+      { ...good, tests: [held("safe"), failed("vulnerable", [{ ...transaction, function: "action_missing" }])] },
+      { ...good, tests: [held("safe"), failed("vulnerable", Array.from({ length: 33 }, () => transaction))] },
+    ];
+    for (const value of bad) expect(parseTrustedEchidnaResult(JSON.stringify(value), input, 1, false)).toBeNull();
+    expect(parseTrustedEchidnaResult(JSON.stringify({ ...good, tests: [held("safe"), held("vulnerable")] }), input, 1, false)).toBeNull();
+    expect(parseTrustedEchidnaResult(JSON.stringify({ ...good, tests: [held("safe"), failed("vulnerable")] }), input, 0, false)).toBeNull();
+    expect(parseTrustedEchidnaResult(JSON.stringify({ ...good, tests: [held("safe"), failed("vulnerable")] }), input, 2, false)).toBeNull();
+    expect(parseTrustedEchidnaResult(JSON.stringify(good), input, 1, true)).toBeNull();
   });
   it("feeds an exact Echidna sequence into the existing deterministic Foundry replay generator", async () => {
     const input = plan(), parsed = parseTrustedEchidnaResult(output(input, [held("safe"), failed("vulnerable", [{ ...transaction, function: "action_credit" }, transaction])]), input, 1, false);

@@ -1,4 +1,4 @@
-import { cpSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -108,9 +108,17 @@ describe("reviewed invariant proposal boundary", () => {
     const echidnaRun = (await echidna.run(hypothesisId, output.proposal.id)).run;
     expect(echidnaRun).toMatchObject({ engine: "echidna", proposalId: output.proposal.id, status: "completed", outcome: "held-within-bounds", configuredRuns: 128 });
     expect(JSON.parse(echidnaRun.engineMetadata ?? "null")).toMatchObject({ binarySha256: ECHIDNA_BINARY_SHA256, compatibilityBuildId: ECHIDNA_BUILD_ID, seed: echidnaSeed(echidnaRun.planHash) });
-    expect((await foundry.run(hypothesisId, validated.plan, output.proposal.id)).run.engine).toBe("foundry");
-    expect(listExecutableInvariantRuns(database, hypothesisId).map((run) => run.engine)).toEqual(["foundry", "echidna", "foundry"]);
-    expect(foundryRunner).toHaveBeenCalledTimes(2); expect(echidnaRunner).toHaveBeenCalledTimes(1);
+    writeFileSync(path.join(verificationRoot, foundryRun.id, "out", "mutable-cache-output"), "poison");
+    writeFileSync(path.join(verificationRoot, echidnaRun.id, "echidna.yaml"), "poison");
+    const foundryRetry = (await foundry.run(hypothesisId, validated.plan, output.proposal.id)).run;
+    const echidnaRetry = (await echidna.run(hypothesisId, output.proposal.id)).run;
+    expect(foundryRetry).toMatchObject({ engine: "foundry", outcome: "held-within-bounds", planHash: foundryRun.planHash });
+    expect(echidnaRetry).toMatchObject({ engine: "echidna", outcome: "held-within-bounds", planHash: echidnaRun.planHash });
+    expect(new Set([foundryRun.id, echidnaRun.id, foundryRetry.id, echidnaRetry.id]).size).toBe(4);
+    expect(existsSync(path.join(verificationRoot, foundryRetry.id, "out", "mutable-cache-output"))).toBe(false);
+    expect(readFileSync(path.join(verificationRoot, echidnaRetry.id, "echidna.yaml"), "utf8")).not.toContain("poison");
+    expect(listExecutableInvariantRuns(database, hypothesisId).map((run) => run.engine).sort()).toEqual(["echidna", "echidna", "foundry", "foundry"]);
+    expect(foundryRunner).toHaveBeenCalledTimes(2); expect(echidnaRunner).toHaveBeenCalledTimes(2);
     expect(getVulnerabilityHypothesis(database, hypothesisId)?.status).toBe("candidate");
   });
   it("keeps Foundry available while refusing explicit caller semantics before Echidna workspace or worker use", async () => {

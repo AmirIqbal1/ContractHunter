@@ -45,4 +45,29 @@ describe("reviewed invariant replay lifecycle", () => {
     expect(retry).toMatchObject({ status: "failed", outcome: "failed", errorCode: "replay_manifest_mismatch" });
     expect(getVulnerabilityHypothesis(database, hypothesisId)?.status).toBe("candidate");
   });
+  it("refuses tampered engine, run, proposal, compiler, commit, and plan identities before worker use", async () => {
+    const proposalRow = proposal(), run = invariantRun(), replayService = service("reproduced"), artifact = await replayService.generate(hypothesisId, proposalRow.id, run.id);
+    const original = database.sqlite.prepare("SELECT * FROM executable_invariant_runs WHERE id=?").get(run.id) as Record<string, unknown>;
+    const cases: Array<[string, unknown]> = [
+      ["engine", "echidna"], ["plan_hash", "0".repeat(64)], ["compiler_version", "0.8.35"], ["resolved_commit", "b".repeat(40)], ["plan", JSON.stringify({ ...plan(), compilerVersion: "0.8.35" })],
+    ];
+    for (const [column, value] of cases) {
+      database.sqlite.prepare(`UPDATE executable_invariant_runs SET ${column}=? WHERE id=?`).run(value, run.id);
+      await expect(replayService.execute(hypothesisId, artifact.id), column).rejects.toMatchObject({ code: "invalid_state" });
+      database.sqlite.prepare(`UPDATE executable_invariant_runs SET ${column}=? WHERE id=?`).run(original[column], run.id);
+    }
+    database.sqlite.prepare("UPDATE executable_invariant_proposals SET plan_hash=? WHERE id=?").run("0".repeat(64), proposalRow.id);
+    await expect(replayService.execute(hypothesisId, artifact.id)).rejects.toMatchObject({ code: "invalid_state" });
+    database.sqlite.prepare("UPDATE executable_invariant_proposals SET plan_hash=? WHERE id=?").run(proposalRow.planHash, proposalRow.id);
+    database.sqlite.prepare("UPDATE invariant_replay_artifacts SET source_engine='echidna' WHERE id=?").run(artifact.id);
+    await expect(replayService.execute(hypothesisId, artifact.id)).rejects.toMatchObject({ code: "invalid_state" });
+    database.sqlite.prepare("UPDATE invariant_replay_artifacts SET source_engine='foundry' WHERE id=?").run(artifact.id);
+    const otherProposal = proposal(); database.sqlite.prepare("UPDATE invariant_replay_artifacts SET proposal_id=? WHERE id=?").run(otherProposal.id, artifact.id);
+    await expect(replayService.execute(hypothesisId, artifact.id)).rejects.toMatchObject({ code: "invalid_state" });
+    database.sqlite.prepare("UPDATE invariant_replay_artifacts SET proposal_id=? WHERE id=?").run(proposalRow.id, artifact.id);
+    const otherRun = invariantRun(); database.sqlite.prepare("UPDATE invariant_replay_artifacts SET invariant_run_id=? WHERE id=?").run(otherRun.id, artifact.id);
+    await expect(replayService.execute(hypothesisId, artifact.id)).rejects.toMatchObject({ code: "invalid_state" });
+    expect(listHypothesisInvariantReplayRuns(database, hypothesisId)).toHaveLength(0);
+    expect(getVulnerabilityHypothesis(database, hypothesisId)?.status).toBe("candidate");
+  });
 });

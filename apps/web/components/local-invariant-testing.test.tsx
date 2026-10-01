@@ -17,6 +17,7 @@ describe("manual invariant workflow UI", () => {
     const notPlannable: PublicInvariantProposal = { ...proposal, id: crypto.randomUUID(), status: "not_plannable", plan: null, planHash: null, rationale: "Current semantics cannot express this property.", notPlannableReasons: ["unsupported observation"] };
     expect(render([notPlannable], [])).toContain("Not plannable");
     expect(render([proposal], [{ ...baseRun, status: "running", outcome: null, runsExecuted: null, durationMs: null, dynamicEvidence: [] }])).toContain("RUNNING");
+    const echidnaRunning = render([proposal], [{ ...baseRun, engine: "echidna", status: "running", outcome: null, runsExecuted: null, durationMs: null, dynamicEvidence: [] }]); expect(echidnaRunning).toContain("Echidna"); expect(echidnaRunning).toContain("RUNNING");
     expect(render([{ ...proposal, status: "failed", plan: null, planHash: null, failureCode: "invalid_invariant_source" }], [])).toContain("invalid_invariant_source");
   });
   it("renders replay available, not reproduced with fresh-workspace retry, reproduced review, and accepted evidence", () => {
@@ -24,8 +25,9 @@ describe("manual invariant workflow UI", () => {
     const failed: PublicInvariantRun = { ...baseRun, outcome: "counterexample-found", passedCount: 0, failedCount: 1, runsExecuted: 1, dynamicEvidence: [{ ...baseRun.dynamicEvidence[0], propertyOutcome: "counterexample-found", hypothesisRelation: "unreviewed", runsExecuted: 1, counterexample }] };
     const replayPlan = invariantReplayPlanSchema.parse({ schemaVersion: "contracthunter-invariant-replay-v1", scanId: plan.scanId, hypothesisId, resolvedCommit: plan.resolvedCommit, compilerVersion: plan.compilerVersion, proposalId: proposal.id, invariantRunId: failed.id, invariantPlanHash: invariantPlanHash(plan), propertyName: "accounting", hypothesisExpectation: "hypothesis-predicts-property-violation", counterexample, counterexampleHash: counterexampleHash(counterexample) });
     const replay: PublicInvariantReplayArtifact = { id: crypto.randomUUID(), proposalId: proposal.id, invariantRunId: failed.id, replayPlan, replayPlanHash: invariantReplayPlanHash(replayPlan), counterexampleHash: replayPlan.counterexampleHash, harnessHash: "c".repeat(64), createdAt: baseRun.createdAt };
-    expect(render([proposal], [failed], [replay])).toContain("Replay available");
+    const available = render([proposal], [failed], [replay]); expect(available).toContain("Replay available"); expect(available).toContain(failed.id); expect(available).toContain(proposal.id); expect(available).toContain(replay.counterexampleHash); expect(available).toContain("Source engine:");
     const notReproduced: PublicInvariantReplayRun = { id: crypto.randomUUID(), artifactId: replay.id, status: "completed", outcome: "not-reproduced", durationMs: 3, failureCode: null, createdAt: baseRun.createdAt };
+    expect(render([proposal], [failed], [replay], [{ ...notReproduced, status: "running", outcome: null }])).toContain("Replay running");
     const notHtml = render([proposal], [failed], [replay], [notReproduced]); expect(notHtml).toContain("Not reproduced"); expect(notHtml).toContain("Retry replay in fresh workspace");
     const reproduced: PublicInvariantReplayRun = { ...notReproduced, id: crypto.randomUUID(), outcome: "reproduced" };
     expect(render([proposal], [failed], [replay], [reproduced])).toContain("Confirm relevance");
@@ -33,8 +35,8 @@ describe("manual invariant workflow UI", () => {
     const accepted = render([proposal], [failed], [replay], [reproduced], [review]); expect(accepted).toContain("Evidence accepted"); expect(accepted).toContain("Authoritative supporting dynamic evidence");
   });
   it("keeps an unmappable Echidna counterexample visible without a replay action", () => {
-    const run: PublicInvariantRun = { ...baseRun, engine: "echidna", outcome: "counterexample-found", passedCount: 0, failedCount: 1, dynamicEvidence: [{ ...baseRun.dynamicEvidence[0], engine: "echidna", propertyOutcome: "counterexample-found", hypothesisRelation: "unreviewed", replayAvailable: false, replayUnavailableReason: "sequence-not-exactly-mappable", counterexample: null }] };
+    const run: PublicInvariantRun = { ...baseRun, engine: "echidna", seed: 12345, outcome: "counterexample-found", passedCount: 0, failedCount: 1, dynamicEvidence: [{ ...baseRun.dynamicEvidence[0], engine: "echidna", propertyOutcome: "counterexample-found", hypothesisRelation: "unreviewed", replayAvailable: false, replayUnavailableReason: "sequence-not-exactly-mappable", counterexample: null }] };
     const html = render([proposal], [run]);
-    expect(html).toContain("Echidna"); expect(html).toContain("Replay unavailable: the Echidna sequence could not be mapped exactly."); expect(html).not.toContain("Generate deterministic replay");
+    expect(html).toContain("Echidna"); expect(html).toContain("seed 12345"); expect(html).toContain("Replay unavailable: the Echidna sequence could not be mapped exactly."); expect(html).not.toContain("Generate deterministic replay");
   });
 });

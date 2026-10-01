@@ -3,7 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { executableInvariantPlanSchema, invariantPlanHash, validAIOutput, type ProtocolAnalysisResult } from "../packages/core/src";
-import { closeDatabase, createDatabase, createExecutableInvariantProposal, createProtocolAnalysis, createScan, createSecurityReviewerRun, createSecurityReviewPlan, getVulnerabilityHypothesis, insertVulnerabilityHypotheses, listExecutableInvariantRuns } from "../packages/db/src";
+import { closeDatabase, completeExecutableInvariantRun, createDatabase, createExecutableInvariantProposal, createExecutableInvariantRun, createProtocolAnalysis, createScan, createSecurityReviewerRun, createSecurityReviewPlan, getVulnerabilityHypothesis, insertVulnerabilityHypotheses, listExecutableInvariantRuns, markExecutableInvariantRunRunning } from "../packages/db/src";
 import { EchidnaInvariantWorkerClient, ExecutableInvariantWorkerClient, InvariantReplayWorkerClient, VerificationWorkspaceBuilder } from "../packages/scanners/src";
 import { EchidnaInvariantService } from "../apps/web/lib/verification/echidna-invariant-service";
 import { ExecutableInvariantService } from "../apps/web/lib/verification/executable-invariant-service";
@@ -27,7 +27,7 @@ async function main() {
   const database = createDatabase("/data/contracthunter.db");
   try {
     if (process.env.CONTRACTHUNTER_PROBE_APPEND_FOUNDRY_REPLAY === "1") {
-      const fixture = database.sqlite.prepare("SELECT h.id AS hypothesisId, p.id AS proposalId, r.id AS runId FROM vulnerability_hypotheses h JOIN executable_invariant_proposals p ON p.hypothesis_id=h.id JOIN executable_invariant_runs r ON r.hypothesis_id=h.id AND r.plan_hash=p.plan_hash WHERE h.title='VulnerableAccounting probe' AND r.engine='foundry' LIMIT 1").get() as { hypothesisId: string; proposalId: string; runId: string } | undefined;
+      const fixture = database.sqlite.prepare("SELECT h.id AS hypothesisId, p.id AS proposalId, r.id AS runId FROM vulnerability_hypotheses h JOIN executable_invariant_proposals p ON p.hypothesis_id=h.id JOIN executable_invariant_runs r ON r.hypothesis_id=h.id AND r.plan_hash=p.plan_hash WHERE h.title='VulnerableAccounting probe' AND r.engine='foundry' AND r.outcome='counterexample-found' ORDER BY r.created_at DESC LIMIT 1").get() as { hypothesisId: string; proposalId: string; runId: string } | undefined;
       requireFact(fixture, "Foundry replay source is missing.");
       const builder = (compilers: string[]) => new VerificationWorkspaceBuilder({ verificationRoot, repositoryRoot, acceptedCompilerVersions: compilers, approvedSourceRoots: ["contracts"], generatorVersion: "0.2.1" });
       const replay = new InvariantReplayService({ database, repositoryRoot, verificationRoot, workspaceBuilder: builder, runner: new InvariantReplayWorkerClient(verificationRoot) });
@@ -59,6 +59,69 @@ async function main() {
       const replay = new InvariantReplayService({ database, repositoryRoot, verificationRoot, workspaceBuilder: builder, runner: new InvariantReplayWorkerClient(verificationRoot) });
       const result = await replay.execute(fixture.hypothesisId, fixture.artifactId);
       process.stdout.write(JSON.stringify({ historicalFoundryReplayAfterUpgrade: result.outcome, errorCode: result.errorCode, historicalReviewCount: (database.sqlite.prepare("SELECT count(*) AS count FROM invariant_evidence_reviews").get() as { count: number }).count }) + "\n");
+      return;
+    }
+    if (process.env.CONTRACTHUNTER_PROBE_NONREPRODUCTION === "1") {
+      const fixture = database.sqlite.prepare("SELECT h.id AS hypothesisId, p.id AS proposalId FROM vulnerability_hypotheses h JOIN executable_invariant_proposals p ON p.hypothesis_id=h.id WHERE h.title='SafeAccounting probe' LIMIT 1").get() as { hypothesisId: string; proposalId: string } | undefined;
+      requireFact(fixture, "SafeAccounting proposal missing.");
+      const proposals = new InvariantProposalService({ database, repositoryRoot, provider: { id: "mock", async generateInvariantProposal() { throw new Error("AI must not run in non-reproduction probe."); } }, requestedModel: "mock", timeoutMs: 1000, maxSourceBytes: 10000, maxFiles: 3, maxFileBytes: 10000 });
+      const plan = (await proposals.validate(fixture.hypothesisId, fixture.proposalId)).plan;
+      requireFact(plan.mode === "stateful-invariant", "Stateful fixture required.");
+      const run = createExecutableInvariantRun(database, { plan, proposalId: fixture.proposalId, engine: "echidna" }); markExecutableInvariantRunRunning(database, run.id);
+      const counterexample = { kind: "sequence" as const, parserVersion: "contracthunter-echidna-result-v1" as const, actions: [{ actionName: "credit", parameterValues: [{ name: "amount", type: "uint256" as const, value: "1" }] }], summary: "Deliberate non-reproducing isolated replay probe." };
+      completeExecutableInvariantRun(database, run.id, { evidence: [{ engine: "echidna", planHash: invariantPlanHash(plan), mode: "stateful-invariant", propertyName: "balanced", configuredRuns: 128, configuredDepth: 32, runsExecuted: 1, propertyOutcome: "counterexample-found", hypothesisRelation: "unreviewed", compilerVersion, isolationProvider: "isolated-probe", counterexample, replayAvailable: true, summary: "Synthetic non-reproduction probe." }], testCount: 1, passedCount: 0, failedCount: 1, runsExecuted: 1, stdoutSummary: "", stderrSummary: "", contentFingerprint: "a".repeat(64), isolationMetadata: "{}", exitCode: 1, durationMs: 1 });
+      const builder = (compilers: string[]) => new VerificationWorkspaceBuilder({ verificationRoot, repositoryRoot, acceptedCompilerVersions: compilers, approvedSourceRoots: ["contracts"], generatorVersion: "0.2.1" });
+      const replay = new InvariantReplayService({ database, repositoryRoot, verificationRoot, workspaceBuilder: builder, runner: new InvariantReplayWorkerClient(verificationRoot) });
+      const before = (database.sqlite.prepare("SELECT count(*) AS count FROM authoritative_invariant_evidence WHERE hypothesis_id=?").get(fixture.hypothesisId) as { count: number }).count;
+      const artifact = await replay.generate(fixture.hypothesisId, fixture.proposalId, run.id), attempt = await replay.execute(fixture.hypothesisId, artifact.id);
+      const after = (database.sqlite.prepare("SELECT count(*) AS count FROM authoritative_invariant_evidence WHERE hypothesis_id=?").get(fixture.hypothesisId) as { count: number }).count;
+      requireFact(attempt.outcome === "not-reproduced" && before === after && getVulnerabilityHypothesis(database, fixture.hypothesisId)?.status === "candidate", "Non-reproduction authority boundary failed.");
+      process.stdout.write(JSON.stringify({ deliberateNonReproduction: attempt.outcome, sourceEngine: artifact.sourceEngine, evidenceBefore: before, evidenceAfter: after, hypothesisStatus: getVulnerabilityHypothesis(database, fixture.hypothesisId)?.status }) + "\n");
+      return;
+    }
+    if (process.env.CONTRACTHUNTER_PROBE_FOUNDRY_FUZZ === "1") {
+      const fixture = database.sqlite.prepare("SELECT h.id AS hypothesisId, p.id AS proposalId FROM vulnerability_hypotheses h JOIN executable_invariant_proposals p ON p.hypothesis_id=h.id WHERE h.title='SafeAccounting probe' LIMIT 1").get() as { hypothesisId: string; proposalId: string } | undefined;
+      requireFact(fixture, "SafeAccounting proposal missing.");
+      const proposals = new InvariantProposalService({ database, repositoryRoot, provider: { id: "mock", async generateInvariantProposal() { throw new Error("AI must not run in fuzz probe."); } }, requestedModel: "mock", timeoutMs: 1000, maxSourceBytes: 10000, maxFiles: 3, maxFileBytes: 10000 });
+      const original = (await proposals.validate(fixture.hypothesisId, fixture.proposalId)).plan; requireFact(original.mode === "stateful-invariant", "Stateful fixture required.");
+      const { name: _actionName, ...fuzzAction } = original.handlerActions[0]; void _actionName;
+      const fuzzPlan = executableInvariantPlanSchema.parse({ schemaVersion: "contracthunter-invariant-plan-v1", mode: "fuzz-property", scanId: original.scanId, hypothesisId: original.hypothesisId, resolvedCommit: original.resolvedCommit, compilerVersion: original.compilerVersion, primaryContract: original.primaryContract, primarySourcePath: original.primarySourcePath, sourceFiles: original.sourceFiles, actors: [], setup: original.setup, fuzzAction, property: original.properties[0] });
+      const builder = (compilers: string[]) => new VerificationWorkspaceBuilder({ verificationRoot, repositoryRoot, acceptedCompilerVersions: compilers, approvedSourceRoots: ["contracts"], generatorVersion: "0.2.1" });
+      const foundry = new ExecutableInvariantService({ database, repositoryRoot, workspaceBuilder: builder, runner: new ExecutableInvariantWorkerClient(verificationRoot) });
+      const result = await foundry.run(fixture.hypothesisId, fuzzPlan);
+      requireFact(result.run.outcome === "held-within-bounds" && getVulnerabilityHypothesis(database, fixture.hypothesisId)?.status === "candidate", "Foundry fuzz regression failed.");
+      process.stdout.write(JSON.stringify({ foundryFuzz: result.run.outcome, engine: result.run.engine, runId: result.run.id, hypothesisStatus: getVulnerabilityHypothesis(database, fixture.hypothesisId)?.status }) + "\n");
+      return;
+    }
+    if (process.env.CONTRACTHUNTER_PROBE_RETRY_EXISTING === "1") {
+      const proposals = new InvariantProposalService({ database, repositoryRoot, provider: { id: "mock", async generateInvariantProposal() { throw new Error("AI must not run in retry probe."); } }, requestedModel: "mock", timeoutMs: 1000, maxSourceBytes: 10000, maxFiles: 3, maxFileBytes: 10000 });
+      const builder = (compilers: string[]) => new VerificationWorkspaceBuilder({ verificationRoot, repositoryRoot, acceptedCompilerVersions: compilers, approvedSourceRoots: ["contracts"], generatorVersion: "0.2.1" });
+      const foundry = new ExecutableInvariantService({ database, repositoryRoot, workspaceBuilder: builder, runner: new ExecutableInvariantWorkerClient(verificationRoot) });
+      const echidna = new EchidnaInvariantService({ database, repositoryRoot, proposals, workspaceBuilder: builder, runner: new EchidnaInvariantWorkerClient(verificationRoot) });
+      const replay = new InvariantReplayService({ database, repositoryRoot, verificationRoot, workspaceBuilder: builder, runner: new InvariantReplayWorkerClient(verificationRoot) });
+      for (const name of Object.keys(sources)) {
+        const fixture = database.sqlite.prepare("SELECT h.id AS hypothesisId, p.id AS proposalId FROM vulnerability_hypotheses h JOIN executable_invariant_proposals p ON p.hypothesis_id=h.id WHERE h.title=? LIMIT 1").get(name + " probe") as { hypothesisId: string; proposalId: string } | undefined;
+        requireFact(fixture, `${name} proposal missing.`);
+        const validated = await proposals.validate(fixture.hypothesisId, fixture.proposalId);
+        const foundryRun = (await foundry.run(fixture.hypothesisId, validated.plan, fixture.proposalId)).run;
+        const output: Record<string, unknown> = { name, foundry: { id: foundryRun.id, status: foundryRun.status, outcome: foundryRun.outcome, errorCode: foundryRun.errorCode }, compatibility: validated.compatibility };
+        if (process.env.CONTRACTHUNTER_PROBE_RETRY_FOUNDRY_ONLY === "1") { process.stdout.write(JSON.stringify(output) + "\n"); continue; }
+        if (validated.compatibility.echidna.compatible) {
+          const echidnaRun = (await echidna.run(fixture.hypothesisId, fixture.proposalId)).run;
+          output.echidna = { id: echidnaRun.id, status: echidnaRun.status, outcome: echidnaRun.outcome, errorCode: echidnaRun.errorCode, evidence: JSON.parse(echidnaRun.dynamicEvidence) };
+          output.statusBeforeReview = getVulnerabilityHypothesis(database, fixture.hypothesisId)?.status;
+          if (name === "VulnerableAccounting" && echidnaRun.outcome === "counterexample-found") {
+            const artifact = await replay.generate(fixture.hypothesisId, fixture.proposalId, echidnaRun.id);
+            const replayRun = await replay.execute(fixture.hypothesisId, artifact.id);
+            output.replay = { sourceEngine: artifact.sourceEngine, sourceInvariantRunId: artifact.invariantRunId, counterexampleHash: artifact.counterexampleHash, outcome: replayRun.outcome, errorCode: replayRun.errorCode };
+            if (replayRun.outcome === "reproduced") { const reviewed = replay.review(fixture.hypothesisId, fixture.proposalId, echidnaRun.id, replayRun.id); output.review = { evidenceId: reviewed.evidenceId, hypothesisStatus: getVulnerabilityHypothesis(database, fixture.hypothesisId)?.status }; }
+          }
+        } else {
+          try { await echidna.run(fixture.hypothesisId, fixture.proposalId); throw new Error("Incompatible Echidna run accepted."); } catch (error) { requireFact(error instanceof Error && error.message.includes("explicit-caller-unsupported"), "Wrong incompatibility response."); }
+          output.echidnaRunCount = listExecutableInvariantRuns(database, fixture.hypothesisId).filter((run) => run.engine === "echidna").length;
+        }
+        process.stdout.write(JSON.stringify(output) + "\n");
+      }
       return;
     }
     requireFact((database.sqlite.prepare("SELECT count(*) AS count FROM scans").get() as { count: number }).count === 0, "Probe requires empty isolated database.");

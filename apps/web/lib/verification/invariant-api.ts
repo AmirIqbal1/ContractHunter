@@ -38,7 +38,10 @@ export async function readInvariantHistory(_request: Request, context: RouteCont
   const proposals = listExecutableInvariantProposals(database, values.id).slice(0, 50);
   const runs = listExecutableInvariantRuns(database, values.id).slice(0, 50);
   const replays = listHypothesisInvariantReplayArtifacts(database, values.id).slice(0, 50).map(toPublicInvariantReplayArtifact).filter((item) => item !== null), replayRuns = listHypothesisInvariantReplayRuns(database, values.id).slice(0, 50).map(toPublicInvariantReplayRun), reviews = listInvariantEvidenceReviews(database, values.id).slice(0, 50).map(toPublicInvariantReview);
-  return NextResponse.json({ proposals: proposals.map(toPublicInvariantProposal), runs: runs.map((run) => toPublicInvariantRun(run, run.proposalId ?? proposals.find((item) => item.planHash === run.planHash)?.id ?? null)), replays, replayRuns, reviews });
+  return NextResponse.json({ proposals: proposals.map(toPublicInvariantProposal), runs: runs.map((run) => {
+    const historicalMatches = run.proposalId === null ? proposals.filter((item) => item.planHash === run.planHash && item.scanId === run.scanId) : [];
+    return toPublicInvariantRun(run, run.proposalId ?? (historicalMatches.length === 1 ? historicalMatches[0].id : null));
+  }), replays, replayRuns, reviews });
 }
 export async function generateInvariantReplay(request: Request, context: RouteContext, service?: Pick<InvariantReplayService, "generate">) {
   const values = await ids(context); if (!values?.proposalId || !values.runId) return NextResponse.json({ error: "Invalid invariant replay identity." }, { status: 400 });
