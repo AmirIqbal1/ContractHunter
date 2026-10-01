@@ -59,6 +59,6 @@ export function interpretEchidnaFacts(plan: ExecutableInvariantPlan, parsed: Par
   return parsed.tests.map((test) => ({ engine: "echidna", planHash: invariantPlanHash(plan), mode: plan.mode, propertyName: test.propertyName,
     configuredRuns: ECHIDNA_LIMITS.testLimit, configuredDepth: ECHIDNA_LIMITS.seqLen, runsExecuted: completedRuns, campaignCalls: parsed.executedCalls,
     propertyOutcome: test.outcome, hypothesisRelation: test.outcome === "counterexample-found" ? "unreviewed" : "neutral", compilerVersion: plan.compilerVersion, isolationProvider,
-    counterexample: test.counterexample, replayAvailable: test.replayAvailable,
-    summary: test.outcome === "held-within-bounds" ? "No counterexample found within Echidna's configured budget." : test.outcome === "counterexample-found" ? "Echidna found a bounded counterexample." : "Echidna campaign did not produce a decisive property result." }));
+    counterexample: test.counterexample, replayAvailable: test.replayAvailable, ...(test.outcome === "counterexample-found" && !test.replayAvailable ? { replayUnavailableReason: "sequence-not-exactly-mappable" as const } : {}),
+    summary: test.outcome === "held-within-bounds" ? "No counterexample was found within the configured Echidna campaign budget." : test.outcome === "counterexample-found" ? "Echidna found a bounded counterexample." : "Echidna campaign did not produce a decisive property result." }));
 }

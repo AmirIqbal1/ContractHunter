@@ -3,6 +3,7 @@ import { getDatabase, getVulnerabilityHypothesis, listExecutableInvariantProposa
 import { NextResponse } from "next/server";
 import { idSchema } from "@/lib/api";
 import { createLocalExecutableInvariantService, ExecutableInvariantRequestError, type ExecutableInvariantService } from "./executable-invariant-service";
+import { createEchidnaInvariantService, EchidnaInvariantRequestError, type EchidnaInvariantService } from "./echidna-invariant-service";
 import { createInvariantProposalService, InvariantProposalRequestError, type InvariantProposalService } from "./invariant-proposal-service";
 import { createInvariantReplayService, InvariantReplayRequestError, type InvariantReplayService } from "./invariant-replay-service";
 import { toPublicInvariantProposal, toPublicInvariantReplayArtifact, toPublicInvariantReplayRun, toPublicInvariantReview, toPublicInvariantRun } from "./public-invariants";
@@ -28,7 +29,7 @@ async function ids(context: RouteContext): Promise<{ id: string; proposalId?: st
   return id.success && (!proposal || proposal.success) && (!run || run.success) && (!replay || replay.success) ? { id: id.data, ...(proposal?.success ? { proposalId: proposal.data } : {}), ...(run?.success ? { runId: run.data } : {}), ...(replay?.success ? { replayId: replay.data } : {}) } : null;
 }
 function errorResponse(error: unknown): NextResponse {
-  if (error instanceof InvariantProposalRequestError || error instanceof ExecutableInvariantRequestError || error instanceof InvariantReplayRequestError) return NextResponse.json({ error: error.message }, { status: error.code.startsWith("unknown") ? 404 : 409 });
+  if (error instanceof InvariantProposalRequestError || error instanceof ExecutableInvariantRequestError || error instanceof InvariantReplayRequestError || error instanceof EchidnaInvariantRequestError) return NextResponse.json({ error: error.message, code: error.code }, { status: error.code.startsWith("unknown") ? 404 : 409 });
   return NextResponse.json({ error: "Invariant action failed safely." }, { status: 500 });
 }
 export async function readInvariantHistory(_request: Request, context: RouteContext, database: DatabaseClient = getDatabase()) {
@@ -37,7 +38,7 @@ export async function readInvariantHistory(_request: Request, context: RouteCont
   const proposals = listExecutableInvariantProposals(database, values.id).slice(0, 50);
   const runs = listExecutableInvariantRuns(database, values.id).slice(0, 50);
   const replays = listHypothesisInvariantReplayArtifacts(database, values.id).slice(0, 50).map(toPublicInvariantReplayArtifact).filter((item) => item !== null), replayRuns = listHypothesisInvariantReplayRuns(database, values.id).slice(0, 50).map(toPublicInvariantReplayRun), reviews = listInvariantEvidenceReviews(database, values.id).slice(0, 50).map(toPublicInvariantReview);
-  return NextResponse.json({ proposals: proposals.map(toPublicInvariantProposal), runs: runs.map((run) => toPublicInvariantRun(run, proposals.find((item) => item.planHash === run.planHash)?.id ?? null)), replays, replayRuns, reviews });
+  return NextResponse.json({ proposals: proposals.map(toPublicInvariantProposal), runs: runs.map((run) => toPublicInvariantRun(run, run.proposalId ?? proposals.find((item) => item.planHash === run.planHash)?.id ?? null)), replays, replayRuns, reviews });
 }
 export async function generateInvariantReplay(request: Request, context: RouteContext, service?: Pick<InvariantReplayService, "generate">) {
   const values = await ids(context); if (!values?.proposalId || !values.runId) return NextResponse.json({ error: "Invalid invariant replay identity." }, { status: 400 });
@@ -70,7 +71,7 @@ export async function generateInvariantProposal(request: Request, context: Route
 export async function validateInvariantProposal(request: Request, context: RouteContext, service?: Pick<InvariantProposalService, "validate">) {
   const values = await ids(context); if (!values?.proposalId) return NextResponse.json({ error: "Invalid invariant proposal identifier." }, { status: 400 });
   const invalidBody = await bodyless(request).catch(() => NextResponse.json({ error: "Invalid invariant request body." }, { status: 400 })); if (invalidBody) return invalidBody;
-  try { const result = await (service ?? createInvariantProposalService()).validate(values.id, values.proposalId); return NextResponse.json({ status: "validated", planHash: result.planHash }); }
+  try { const result = await (service ?? createInvariantProposalService()).validate(values.id, values.proposalId); return NextResponse.json({ status: "validated", planHash: result.planHash, compatibility: result.compatibility }); }
   catch (error) { return errorResponse(error); }
 }
 export async function runInvariantProposal(request: Request, context: RouteContext, proposalService?: Pick<InvariantProposalService, "validate">, executionService?: Pick<ExecutableInvariantService, "run">) {
@@ -78,7 +79,16 @@ export async function runInvariantProposal(request: Request, context: RouteConte
   const invalidBody = await bodyless(request).catch(() => NextResponse.json({ error: "Invalid invariant request body." }, { status: 400 })); if (invalidBody) return invalidBody;
   try {
     const validated = await (proposalService ?? createInvariantProposalService()).validate(values.id, values.proposalId);
-    const result = await (executionService ?? createLocalExecutableInvariantService()).run(values.id, validated.plan);
+    const result = await (executionService ?? createLocalExecutableInvariantService()).run(values.id, validated.plan, values.proposalId);
+    if (result.status === "conflict") return NextResponse.json({ error: "An invariant run is already active.", run: toPublicInvariantRun(result.run, values.proposalId) }, { status: 409 });
+    return NextResponse.json({ run: toPublicInvariantRun(result.run, values.proposalId) });
+  } catch (error) { return errorResponse(error); }
+}
+export async function runEchidnaInvariantProposal(request: Request, context: RouteContext, service?: Pick<EchidnaInvariantService, "run">) {
+  const values = await ids(context); if (!values?.proposalId) return NextResponse.json({ error: "Invalid invariant proposal identifier." }, { status: 400 });
+  const invalidBody = await bodyless(request).catch(() => NextResponse.json({ error: "Invalid invariant request body." }, { status: 400 })); if (invalidBody) return invalidBody;
+  try {
+    const result = await (service ?? createEchidnaInvariantService()).run(values.id, values.proposalId);
     if (result.status === "conflict") return NextResponse.json({ error: "An invariant run is already active.", run: toPublicInvariantRun(result.run, values.proposalId) }, { status: 409 });
     return NextResponse.json({ run: toPublicInvariantRun(result.run, values.proposalId) });
   } catch (error) { return errorResponse(error); }

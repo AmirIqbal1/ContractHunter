@@ -180,7 +180,7 @@ export const executableInvariantCounterexampleSchema = z.discriminatedUnion("kin
   z.object({ kind: z.literal("sequence"), parserVersion: z.enum([INVARIANT_COUNTEREXAMPLE_PARSER_VERSION, ECHIDNA_COUNTEREXAMPLE_PARSER_VERSION]), actions: z.array(z.object({ actionName: identifier, parameterValues: z.array(counterexampleValueSchema).max(INVARIANT_LIMITS.parameters) }).strict()).min(1).max(32), summary: invariantEvidenceText }).strict(),
 ]);
 export const executableInvariantEvidenceSchema = z.object({
-  engine: z.enum(["foundry", "echidna"]).optional(), replayAvailable: z.boolean().optional(), campaignCalls: z.number().int().nonnegative().max(100_000).optional(),
+  engine: z.enum(["foundry", "echidna"]).optional(), replayAvailable: z.boolean().optional(), replayUnavailableReason: z.enum(["sequence-not-exactly-mappable"]).optional(), campaignCalls: z.number().int().nonnegative().max(100_000).optional(),
   planHash: z.string().regex(/^[a-f0-9]{64}$/), mode: z.enum(["fuzz-property", "stateful-invariant"]), propertyName: z.string().regex(/^[A-Za-z][A-Za-z0-9_]{0,63}$/),
   configuredRuns: z.number().int().min(1).max(1_000), configuredDepth: z.number().int().min(1).max(1_000).nullable(), runsExecuted: z.number().int().nonnegative().max(1_000),
   propertyOutcome: z.enum(invariantPropertyOutcomes), hypothesisRelation: z.enum(invariantHypothesisRelations), compilerVersion: stableCompilerVersionSchema,

@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { executableInvariantPlanSchema, invariantPlanHash, validAIOutput, type ProtocolAnalysisResult } from "@contracthunter/core";
 import { closeDatabase, createDatabase, createExecutableInvariantProposal, createExecutableInvariantRun, createProtocolAnalysis, createScan, createSecurityReviewerRun, createSecurityReviewPlan, getVulnerabilityHypothesis, insertVulnerabilityHypotheses, type DatabaseClient } from "@contracthunter/db";
-import { generateInvariantProposal, generateInvariantReplay, readInvariantHistory, reviewInvariantReplay, runInvariantProposal, runInvariantReplay, validateInvariantProposal } from "./invariant-api";
+import { generateInvariantProposal, generateInvariantReplay, readInvariantHistory, reviewInvariantReplay, runInvariantProposal, runEchidnaInvariantProposal, runInvariantReplay, validateInvariantProposal } from "./invariant-api";
 import { InvariantReplayRequestError } from "./invariant-replay-service";
 
 let directory: string, database: DatabaseClient, hypothesisId: string, scanId: string;
@@ -53,7 +53,30 @@ describe("manual invariant API", () => {
     expect((await runInvariantProposal(post("{}"), context(proposal.id), validated as never, execution as never)).status).toBe(400);
     expect(execution.run).not.toHaveBeenCalled();
     expect((await runInvariantProposal(post(), context(proposal.id), validated as never, execution as never)).status).toBe(200);
-    expect(execution.run).toHaveBeenCalledWith(hypothesisId, plan()); expect(getVulnerabilityHypothesis(database, hypothesisId)?.status).toBe("candidate");
+    expect(execution.run).toHaveBeenCalledWith(hypothesisId, plan(), proposal.id); expect(getVulnerabilityHypothesis(database, hypothesisId)?.status).toBe("candidate");
+  });
+  it("returns bounded compatibility and rejects browser execution options for either engine", async () => {
+    const proposal = proposalRow(), compatibility = { foundry: { compatible: true, reasons: [] }, echidna: { compatible: false, reasons: ["explicit-caller-unsupported"] } };
+    const validated = { validate: vi.fn().mockResolvedValue({ plan: plan(), planHash: proposal.planHash, compatibility }) };
+    const validation = await validateInvariantProposal(post(), context(proposal.id), validated as never);
+    expect(await validation.json()).toMatchObject({ status: "validated", compatibility });
+    const echidna = { run: vi.fn() }, foundry = { run: vi.fn() };
+    for (const field of ["executable", "argv", "seed", "testLimit", "timeout", "config", "compiler", "commit", "sourcePaths", "manifest", "planHash", "counterexample"]) {
+      const data = JSON.stringify({ [field]: "attacker" });
+      expect((await runInvariantProposal(post(data), context(proposal.id), validated as never, foundry as never)).status).toBe(400);
+      expect((await runEchidnaInvariantProposal(post(data), context(proposal.id), echidna as never)).status).toBe(400);
+    }
+    expect((await runEchidnaInvariantProposal(post("x".repeat(1025)), context(proposal.id), echidna as never)).status).toBe(413);
+    expect(echidna.run).not.toHaveBeenCalled(); expect(foundry.run).not.toHaveBeenCalled();
+  });
+  it("runs Echidna only on its explicit route and exposes the persisted engine in history", async () => {
+    const proposal = proposalRow(), runRow = createExecutableInvariantRun(database, { plan: plan(), engine: "foundry" });
+    const echidna = { run: vi.fn().mockResolvedValue({ status: "completed", run: { ...runRow, engine: "echidna" } }) };
+    const response = await runEchidnaInvariantProposal(post(), context(proposal.id), echidna as never);
+    expect((await response.json()).run.engine).toBe("echidna");
+    expect(echidna.run).toHaveBeenCalledWith(hypothesisId, proposal.id);
+    const history = await readInvariantHistory(new Request("http://localhost"), context(), database);
+    expect((await history.json()).runs[0].engine).toBe("foundry");
   });
   it("returns bounded history without raw worker output", async () => {
     proposalRow(); createExecutableInvariantRun(database, { plan: plan() });

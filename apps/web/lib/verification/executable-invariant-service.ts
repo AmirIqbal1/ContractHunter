@@ -1,7 +1,7 @@
 import { lstat, realpath } from "node:fs/promises";
 import path from "node:path";
 import { executableInvariantPlanSchema, invariantPlanHash, loadConfig, stableCompilerVersionSchema, type ExecutableInvariantPlan, type ExecutableInvariantExecutionManifest } from "@contracthunter/core";
-import { completeExecutableInvariantRun, createExecutableInvariantRun, failExecutableInvariantRun, getActiveExecutableInvariantRun, getDatabase, getScan, getVulnerabilityHypothesis, markExecutableInvariantRunRunning, type DatabaseClient, type ExecutableInvariantRunRow } from "@contracthunter/db";
+import { completeExecutableInvariantRun, createExecutableInvariantRun, failExecutableInvariantRun, getActiveExecutableInvariantRun, getDatabase, getScan, getVulnerabilityHypothesis, markExecutableInvariantRunRunning, setFoundryInvariantRunMetadata, type DatabaseClient, type ExecutableInvariantRunRow } from "@contracthunter/db";
 import { ExecutableInvariantWorkerClient, VerificationWorkspaceBuilder, interpretInvariantFacts, validateExecutableInvariantWorkspaceIntegrity, type ExecutableInvariantWorkerInput, type ExecutableInvariantWorkerResult } from "@contracthunter/scanners";
 
 export class ExecutableInvariantRequestError extends Error {
@@ -34,12 +34,12 @@ export class ExecutableInvariantService {
     if (!info.isDirectory() || info.isSymbolicLink() || await realpath(expected) !== expected) throw new ExecutableInvariantRequestError("invalid_state", "Prepared repository path is unsafe.");
     return { plan, repositoryPath: expected, compilers: parsedCompilers.data };
   }
-  async run(hypothesisId: string, rawPlan: unknown): Promise<{ status: "completed" | "failed" | "conflict"; run: ExecutableInvariantRunRow }> {
+  async run(hypothesisId: string, rawPlan: unknown, proposalId?: string): Promise<{ status: "completed" | "failed" | "conflict"; run: ExecutableInvariantRunRow }> {
     const bound = await this.bind(hypothesisId, rawPlan);
     const active = getActiveExecutableInvariantRun(this.options.database, hypothesisId);
     if (active) return { status: "conflict", run: active };
     let run: ExecutableInvariantRunRow;
-    try { run = createExecutableInvariantRun(this.options.database, { plan: bound.plan }); }
+    try { run = createExecutableInvariantRun(this.options.database, { plan: bound.plan, proposalId }); }
     catch (error) { const concurrent = getActiveExecutableInvariantRun(this.options.database, hypothesisId); if (concurrent) return { status: "conflict", run: concurrent }; throw error; }
     markExecutableInvariantRunRunning(this.options.database, run.id);
     const started = Date.now(); let built: Built | undefined; let result: ExecutableInvariantWorkerResult | undefined;
@@ -47,6 +47,7 @@ export class ExecutableInvariantService {
       built = await this.options.workspaceBuilder(bound.compilers).buildInvariant({ workspaceId: run.id, repositoryPath: bound.repositoryPath, plan: bound.plan });
       const manifest = await (this.options.validateIntegrity ?? validateExecutableInvariantWorkspaceIntegrity)(built.workspacePath);
       if (JSON.stringify(manifest) !== JSON.stringify(built.manifest) || manifest.planHash !== invariantPlanHash(bound.plan)) throw new Error("invariant_manifest_mismatch");
+      setFoundryInvariantRunMetadata(this.options.database, run.id, { configHash: manifest.foundryConfigSha256, generatorVersion: manifest.generatorVersion });
       result = await this.options.runner.run({ workspacePath: built.workspacePath, scanId: bound.plan.scanId, hypothesisId, resolvedCommit: bound.plan.resolvedCommit, compilerVersion: bound.plan.compilerVersion, planHash: built.manifest.planHash, mode: bound.plan.mode });
       if (result.status !== "completed" || !result.isolation || result.mode !== bound.plan.mode || result.planHash !== built.manifest.planHash || result.timedOut || result.outputTruncated || result.errorCode || result.runsExecuted === null || result.testCount === null || result.passedCount === null || result.failedCount === null || result.exitCode === null || (result.failedCount === 0 ? result.exitCode !== 0 : result.exitCode === 0)) {
         const failed = failExecutableInvariantRun(this.options.database, run.id, { errorCode: result.errorCode ?? "invariant_result_unparseable", durationMs: result.durationMs, stdoutSummary: result.stdoutSummary.slice(0, 4096), stderrSummary: result.stderrSummary.slice(0, 4096), contentFingerprint: built.manifest.contentFingerprint, isolationMetadata: result.isolation ? JSON.stringify(result.isolation).slice(0, 4096) : null, exitCode: result.exitCode, timedOut: result.timedOut });

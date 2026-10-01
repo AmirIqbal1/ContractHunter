@@ -22,7 +22,9 @@ Release hardening completed transactional v0.1.9 migration, fresh-install and up
 
 Milestone 1 is implemented as an internal Echidna execution branch in the existing networkless worker. It uses the pinned, locally patched Echidna 2.3.3 compatibility build, strict terminal JSON, a deterministic stateful-plan subset, a separate version 3 manifest, the existing trusted solc resolver, and canonical action-sequence mapping to the existing Foundry replay format. Foundry remains available. No AI prompt, public engine selector, automatic dual execution, or lifecycle policy changes are part of this milestone.
 
-Milestone 2 should persist and expose explicitly selected Echidna runs through the existing manual review flow, then expand caller and setup semantics only after exact EVM equivalence and replay proofs. Fuzz-property translation remains unsupported until its semantics are defined explicitly.
+Milestone 2 implements additive public engine persistence, deterministic compatibility reporting, explicit manual Foundry/Echidna actions, normalized run history, and source-engine-bound replay provenance. The v0.2.0-shaped upgrade resolves historical invariant runs and replays as Foundry without changing evidence or hypothesis status. Echidna counterexamples without an exact canonical action mapping remain recorded with replay unavailable. No automatic choice, dual execution, AI engine selection, or lifecycle change is introduced. Echidna's compatible subset remains intentionally narrower than Foundry's.
+
+Milestone 3 should harden the public release with isolated fresh-install and upgrade end-to-end probes, exact EVM equivalence and replay proofs for any proposed caller/setup expansion, operational diagnostics, and final deployment review. Fuzz-property translation and broader address semantics remain unsupported until their semantics are proven.
 
 ## v0.2.2
 

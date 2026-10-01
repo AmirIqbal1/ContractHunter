@@ -9,6 +9,8 @@ import {
   createHypothesisVerificationRun, createInvariantReplayArtifact, createInvariantReplayRun, createProtocolAnalysis, createScan, createSecurityReviewerRun,
   createSecurityReviewPlan, finishInvariantReplayRun, getVulnerabilityHypothesis, insertVulnerabilityHypotheses, markExecutableInvariantRunRunning,
   markHypothesisVerificationRunRunning, markInvariantReplayRunRunning,
+  getExecutableInvariantRun, getInvariantReplayArtifact, reviewReproducedInvariantEvidence,
+  executableInvariantProposals,
 } from "./index";
 
 const commit = "a".repeat(40);
@@ -87,20 +89,50 @@ describe("v0.1.9 to v0.2.0 migration", () => {
       { id: ids.verificationIds[0], status: "completed", error: null },
       { id: ids.verificationIds[1], status: "failed", error: "Historical failed retry." },
     ]);
-    expect((upgraded.sqlite.prepare("SELECT id FROM schema_migrations").pluck().all() as string[])).toEqual(["0001_v0_2_0_release_schema"]);
+    expect((upgraded.sqlite.prepare("SELECT id FROM schema_migrations").pluck().all() as string[])).toEqual(["0001_v0_2_0_release_schema", "0002_v0_2_1_echidna_public", "0003_v0_2_1_run_proposal_binding"]);
 
     const plan = invariantPlan(ids.scanId, ids.hypothesisId), planHash = invariantPlanHash(plan);
+    expect(() => createExecutableInvariantRun(upgraded, { plan, proposalId: crypto.randomUUID() })).toThrow("Invariant plan does not match persisted scan identity");
     const proposal = createExecutableInvariantProposal(upgraded, { hypothesisId: ids.hypothesisId, scanId: ids.scanId, result: { status: "generated", plan, planHash, hypothesisExpectation: "hypothesis-predicts-property-violation", relationRationale: "The hypothesis predicts ownership instability.", rationale: "Upgrade probe.", limitations: [], notPlannableReasons: [], failureCode: null, provenance: { provider: "mock", requestedModel: "mock", actualModel: "mock", promptVersion: "invariant-plan-v1", generatedAt: new Date().toISOString(), inputTokens: 1, outputTokens: 1, totalTokens: 2, estimatedCostUsd: 0, durationMs: 1, sourceFileCount: 1, totalSourceBytes: 100, sourceContextTruncated: false } }, contextManifest: { sourceHashes: {} }, requestId: "upgrade-probe" });
-    const run = createExecutableInvariantRun(upgraded, { plan }); markExecutableInvariantRunRunning(upgraded, run.id);
+    const run = createExecutableInvariantRun(upgraded, { plan, proposalId: proposal.id }); markExecutableInvariantRunRunning(upgraded, run.id);
     const counterexample = { kind: "single" as const, parserVersion: "foundry-1.7.1-json-v1" as const, parameterValues: [{ name: "newOwner", type: "bool" as const, value: true }], summary: "Upgrade probe counterexample." };
     completeExecutableInvariantRun(upgraded, run.id, { evidence: [{ planHash, mode: "fuzz-property", propertyName: "ownerStable", configuredRuns: 128, configuredDepth: null, runsExecuted: 1, propertyOutcome: "counterexample-found", hypothesisRelation: "unreviewed", compilerVersion: "0.8.24", isolationProvider: "docker-verification-worker-v1", counterexample, summary: "Counterexample found." }], testCount: 1, passedCount: 0, failedCount: 1, runsExecuted: 1, stdoutSummary: "bounded", stderrSummary: "", contentFingerprint: "c".repeat(64), isolationMetadata: "{}", exitCode: 1, durationMs: 2 });
     const replayPlan = invariantReplayPlanSchema.parse({ schemaVersion: "contracthunter-invariant-replay-v1", scanId: ids.scanId, hypothesisId: ids.hypothesisId, resolvedCommit: commit, compilerVersion: "0.8.24", proposalId: proposal.id, invariantRunId: run.id, invariantPlanHash: planHash, propertyName: "ownerStable", hypothesisExpectation: "hypothesis-predicts-property-violation", counterexample, counterexampleHash: counterexampleHash(counterexample) });
+    const otherProposalId = crypto.randomUUID(); upgraded.orm.insert(executableInvariantProposals).values({ ...proposal, id: otherProposalId }).run();
+    expect(() => createInvariantReplayArtifact(upgraded, { id: crypto.randomUUID(), proposalId: otherProposalId, invariantRunId: run.id, replayPlan: { ...replayPlan, proposalId: otherProposalId }, harnessHash: "d".repeat(64), contentFingerprint: "e".repeat(64) })).toThrow("Replay artifact identity is invalid");
     const artifact = createInvariantReplayArtifact(upgraded, { id: crypto.randomUUID(), proposalId: proposal.id, invariantRunId: run.id, replayPlan, harnessHash: "d".repeat(64), contentFingerprint: "e".repeat(64) });
+    expect(() => createInvariantReplayArtifact(upgraded, { id: crypto.randomUUID(), proposalId: proposal.id, invariantRunId: run.id, replayPlan: { ...replayPlan, sourceEngine: "echidna" }, harnessHash: "d".repeat(64), contentFingerprint: "e".repeat(64) })).toThrow("Replay artifact identity is invalid");
     const replayRun = createInvariantReplayRun(upgraded, artifact.id); markInvariantReplayRunRunning(upgraded, replayRun.id); finishInvariantReplayRun(upgraded, replayRun.id, { outcome: "reproduced", exitCode: 0, timedOut: false, errorCode: null, isolationMetadata: "{}", durationMs: 1 });
-    expect(upgraded.sqlite.prepare("SELECT count(*) AS count FROM executable_invariant_proposals").get()).toEqual({ count: 1 });
+    reviewReproducedInvariantEvidence(upgraded, { hypothesisId: ids.hypothesisId, proposalId: proposal.id, invariantRunId: run.id, replayRunId: replayRun.id });
+    expect(upgraded.sqlite.prepare("SELECT count(*) AS count FROM executable_invariant_proposals").get()).toEqual({ count: 2 });
     expect(upgraded.sqlite.prepare("SELECT count(*) AS count FROM executable_invariant_runs").get()).toEqual({ count: 1 });
     expect(upgraded.sqlite.prepare("SELECT count(*) AS count FROM invariant_replay_runs").get()).toEqual({ count: 1 });
     closeDatabase(upgraded);
+
+    // Model an existing v0.2.0 installation with its invariant/replay/review history.
+    const v020Path = path.join(directory, "v0.2.0-shaped.db"); copyFileSync(copyPath, v020Path);
+    const old = new Database(v020Path);
+    old.exec("DROP INDEX executable_invariant_runs_proposal_idx; ALTER TABLE executable_invariant_runs DROP COLUMN proposal_id; ALTER TABLE executable_invariant_runs DROP COLUMN engine_metadata; ALTER TABLE executable_invariant_runs DROP COLUMN engine; ALTER TABLE invariant_replay_artifacts DROP COLUMN source_engine; DELETE FROM schema_migrations WHERE id IN ('0002_v0_2_1_echidna_public', '0003_v0_2_1_run_proposal_binding')");
+    old.close();
+    const migrated = createDatabase(v020Path);
+    expect(getExecutableInvariantRun(migrated, run.id)?.engine).toBe("foundry");
+    expect(getInvariantReplayArtifact(migrated, artifact.id)?.sourceEngine).toBe("foundry");
+    expect(migrated.sqlite.prepare("SELECT count(*) AS count FROM invariant_evidence_reviews").get()).toEqual({ count: 1 });
+    expect(migrated.sqlite.prepare("SELECT count(*) AS count FROM authoritative_invariant_evidence").get()).toEqual({ count: 1 });
+    expect(getVulnerabilityHypothesis(migrated, ids.hypothesisId)?.status).toBe("verified");
+    if (plan.mode !== "fuzz-property") throw new Error("Fixture requires a fuzz plan.");
+    const { property, fuzzAction, ...base } = plan;
+    void fuzzAction;
+    const stateful = executableInvariantPlanSchema.parse({ ...base, mode: "stateful-invariant", handlerActions: [{ name: "replaceOwner", instanceName: "target", functionName: "setOwner", parameters: [{ name: "newOwner", type: "bool" }], args: [{ kind: "parameter", name: "newOwner" }] }], properties: [property] });
+    const echidnaRun = createExecutableInvariantRun(migrated, { plan: stateful, engine: "echidna" });
+    expect(echidnaRun.engine).toBe("echidna"); markExecutableInvariantRunRunning(migrated, echidnaRun.id);
+    expect(() => completeExecutableInvariantRun(migrated, echidnaRun.id, { evidence: [{ engine: "foundry", planHash: invariantPlanHash(stateful), mode: "stateful-invariant", propertyName: "ownerStable", configuredRuns: 128, configuredDepth: 32, runsExecuted: 128, propertyOutcome: "held-within-bounds", hypothesisRelation: "neutral", compilerVersion: "0.8.24", isolationProvider: "test", counterexample: null, summary: "Bounded" }], testCount: 1, passedCount: 1, failedCount: 0, runsExecuted: 128, stdoutSummary: "", stderrSummary: "", contentFingerprint: "c".repeat(64), isolationMetadata: "{}", exitCode: 0, durationMs: 1 })).toThrow("Invariant evidence does not match the run");
+    const unmappable = completeExecutableInvariantRun(migrated, echidnaRun.id, { evidence: [{ engine: "echidna", planHash: invariantPlanHash(stateful), mode: "stateful-invariant", propertyName: "ownerStable", configuredRuns: 128, configuredDepth: 32, runsExecuted: 128, propertyOutcome: "counterexample-found", hypothesisRelation: "unreviewed", compilerVersion: "0.8.24", isolationProvider: "test", counterexample: null, replayAvailable: false, replayUnavailableReason: "sequence-not-exactly-mappable", summary: "Bounded Echidna observation." }], testCount: 1, passedCount: 0, failedCount: 1, runsExecuted: 128, stdoutSummary: "", stderrSummary: "", contentFingerprint: "c".repeat(64), isolationMetadata: "{}", exitCode: 1, durationMs: 1 });
+    expect(unmappable.outcome).toBe("counterexample-found"); expect(JSON.parse(unmappable.dynamicEvidence)[0].replayAvailable).toBe(false);
+    closeDatabase(migrated);
+    const reopened = createDatabase(v020Path);
+    expect((reopened.sqlite.prepare("SELECT id FROM schema_migrations ORDER BY id").pluck().all() as string[])).toEqual(["0001_v0_2_0_release_schema", "0002_v0_2_1_echidna_public", "0003_v0_2_1_run_proposal_binding"]);
+    expect(getExecutableInvariantRun(reopened, run.id)?.engine).toBe("foundry"); closeDatabase(reopened);
 
     expect(snapshot(sourcePath)).toEqual(before);
     const untouched = new Database(sourcePath, { readonly: true });

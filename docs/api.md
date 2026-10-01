@@ -31,13 +31,17 @@
 - `GET /api/hypotheses/:id/verifications` — list verification history
 - `GET /api/hypotheses/:id/invariant-proposals` — list bounded proposal and invariant-run history
 - `POST /api/hypotheses/:id/invariant-proposals` — manually request one AI semantic proposal; bodyless, no execution
-- `POST /api/hypotheses/:id/invariant-proposals/:proposalId/validate` — bodyless revalidation of a persisted plan and source
-- `POST /api/hypotheses/:id/invariant-proposals/:proposalId/run` — bodyless explicit local run of that validated proposal through the worker; every retry gets a new run ID and freshly generated workspace
+- `POST /api/hypotheses/:id/invariant-proposals/:proposalId/validate` — bodyless revalidation of a persisted plan and source; returns bounded Foundry and Echidna compatibility with reason codes
+- `POST /api/hypotheses/:id/invariant-proposals/:proposalId/run/foundry` — bodyless explicit Foundry execution
+- `POST /api/hypotheses/:id/invariant-proposals/:proposalId/run/echidna` — bodyless explicit Echidna execution; incompatible plans return a conflict before workspace or worker use
+- `POST /api/hypotheses/:id/invariant-proposals/:proposalId/run` — historical Foundry alias
 - `POST /api/hypotheses/:id/invariant-proposals/:proposalId/runs/:runId/replays` — generate a deterministic replay artifact from the persisted counterexample; bodyless and does not execute
 - `POST /api/hypotheses/:id/invariant-proposals/:proposalId/runs/:runId/replays/:replayId/run` — explicitly execute the persisted replay artifact in a fresh networkless-worker workspace; retries preserve the artifact and receive new replay-run IDs
 - `POST /api/hypotheses/:id/invariant-proposals/:proposalId/runs/:runId/replays/:replayRunId/reviews` — confirm relevance of that successfully reproduced replay run and invoke centralized lifecycle evaluation
 
 Every invariant identifier is UUID-validated and the service verifies the complete hypothesis → proposal → invariant run → replay artifact/run relationship against persisted server state. Replay endpoints never accept counterexample values, handler actions, plans, commit/compiler identity, commands, environment, or Forge arguments. All invariant action POSTs read at most 1,024 actual body bytes and require zero body bytes; declared or actual oversized input fails before service/provider use.
+
+Run history returns an authoritative persisted `engine` (`foundry` or `echidna`) and normalized `propertyOutcome`/`hypothesisRelation` evidence. New runs also persist their proposal ID. Echidna replay artifacts record `sourceEngine`, source invariant run ID, and canonical counterexample hash. Historical Foundry rows resolve as Foundry after migration; their proposal association remains hash based if the old row did not store an ID. The app has no engine enum body, execution configuration body, or combined-engine action.
 
 Invalid state transitions fail without rewriting prior history. Proposal generation, validation, invariant execution, replay generation, failed/refused/not-reproduced replay, and counterexample discovery alone never set a hypothesis to `verified`. Only authoritative supporting evidence created by explicit relevance review enters the centralized lifecycle authority. The application is a single-user local service without application authentication; expose it only on a trusted local interface.
 
