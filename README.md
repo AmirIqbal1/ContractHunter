@@ -33,7 +33,7 @@ Static scanning does not use OpenAI tokens. AI stages are optional and manual. A
 
 Deterministic Foundry fuzz/property and stateful invariant testing, AI semantic invariant proposals, deterministic counterexample replay, explicit relevance review, and authoritative dynamic evidence.
 
-**v0.2.1 — Echidna invariant engine** · Versioned for release preparation; final runtime validation pending
+**v0.2.1 — Echidna invariant engine** · Release-ready; publication pending
 
 - **Milestone 1 — Engine foundation:** reproducible patched Echidna 2.3.3, networkless worker execution, a deterministic stateful invariant subset, strict structured output, and reuse of the existing replay pipeline.
 - **Milestone 2 — Explicit engine workflow:** manual Foundry/Echidna selection, persisted engine provenance, compatibility reporting, Echidna run history, and Echidna-origin deterministic replay.
