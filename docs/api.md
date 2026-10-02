@@ -26,6 +26,7 @@
 
 - `GET /api/hypotheses` and `GET /api/hypotheses/:id` — list/retrieve hypotheses
 - `PATCH /api/hypotheses/:id` — update an allowed non-authoritative hypothesis status; `verified` is never accepted and invalid transitions return a conflict
+- `GET /api/hypotheses/:id/verification-options` — read-only deterministic options for structured verification, Foundry fuzz/stateful invariants, and Echidna stateful invariants, in display order. Each option has separate `strategy`, `engine`, `planMode`, `compatibility`, bounded `reasons`, and `selectionAvailable`. Unknown remains distinct from incompatible; this endpoint never generates a plan, invokes AI, executes a worker, or changes status/evidence. A 404 means the hypothesis does not exist.
 - `POST /api/hypotheses/:id/verification-plan` — generate a non-executing plan preview
 - `POST /api/hypotheses/:id/verify` — validate and explicitly execute a local plan
 - `GET /api/hypotheses/:id/verifications` — list verification history

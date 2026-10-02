@@ -30,6 +30,8 @@ Milestone 3 hardening is complete. A copied v0.2.0-shaped database retained hist
 
 Milestone 1 Part 1 implements an internal, deterministic assessment of four existing verification strategies: structured verification, Foundry fuzz property, Foundry stateful invariant, and Echidna stateful invariant. Bounded facts come only from exact correlated scanner source/rule IDs and resolved investigation contract identity. Canonical profiles reflect current plan capabilities; missing or unmapped evidence produces `unknown`. Results are advisory only: they do not validate a concrete plan, rank strategies, invoke AI, execute verification, or change evidence or hypothesis status.
 
+Milestone 1 Part 2A exposes those four assessments as read-only verification options on each hypothesis page and through a narrow GET endpoint. The public mapper sends only closed strategy, engine, plan-mode, compatibility and reason values with server-owned display text. Compatible options can be selected locally for planning preview; this does not generate a plan, persist a choice, or run a worker. Existing manual generation and execution controls remain available independently. Part 2B will connect strategy-aware generation deliberately.
+
 Later work will select appropriate plans using this assessment, then improve hypothesis/property selection and root-cause grouping and deduplication. No automatic engine execution or broader Echidna semantics is included in Part 1.
 
 ## v0.3

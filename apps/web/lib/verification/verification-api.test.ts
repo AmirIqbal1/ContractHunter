@@ -5,12 +5,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { validAIOutput, verificationHarnessPlanSchema, type ProtocolAnalysisResult } from "@contracthunter/core";
 import {
   closeDatabase, completeHypothesisVerificationRun, createDatabase, createHypothesisVerificationRun, createProtocolAnalysis, createScan,
-  createSecurityReviewerRun, createSecurityReviewPlan, failHypothesisVerificationRun, insertVulnerabilityHypotheses,
+  createSecurityReviewerRun, createSecurityReviewPlan, failHypothesisVerificationRun, getVulnerabilityHypothesis, insertFindings, insertVulnerabilityHypotheses, reconcileInvestigations,
   markHypothesisVerificationRunRunning, type DatabaseClient, type HypothesisVerificationRunRow,
 } from "@contracthunter/db";
 import { HypothesisVerificationRequestError } from "./hypothesis-verification-service";
 import { generateVerificationPlan, readVerificationHistory, startVerification } from "./verification-api";
 import { VerificationPlanGenerationError } from "./verification-plan-generation-service";
+import { readVerificationOptions } from "./verification-options-api";
 
 const commit = "a".repeat(40);
 let directory: string; let database: DatabaseClient; let hypothesisId: string; let scanId: string;
@@ -79,6 +80,63 @@ describe("verification history API", () => {
     expect(body.verifications.map((run: { id: string }) => run.id)).toEqual([second.id, first.id]);
     expect(body.verifications[0]).toMatchObject({ failureCode: "verification_failed", verifier: "local-verifier", compiler: "0.8.24", testCounts: { total: 0, passed: 0, failed: 0 } });
     expect(JSON.stringify(body)).not.toContain("stdout"); expect(JSON.stringify(body)).not.toContain("internal/path"); expect(JSON.stringify(body)).not.toContain("verificationPlan");
+  });
+});
+
+describe("read-only verification options API", () => {
+  function linkRule(detectorId: string) {
+    insertFindings(database, scanId, [{ title: "Hostile scanner text /secret/path", severity: "medium", confidence: 80,
+      source: "slither", detectorId, fingerprint: "f".repeat(64), contract: "Vault", functionName: "check",
+      filePath: "src/Vault.sol", startLine: 1, endLine: 1, rootCause: "Hostile root cause", attackScenario: "", impact: "",
+      evidence: "secret-looking raw scanner output", status: "candidate" }]);
+    const investigation = reconcileInvestigations(database, scanId)[0];
+    database.sqlite.prepare("UPDATE vulnerability_hypotheses SET related_investigation_ids = ? WHERE id = ?")
+      .run(JSON.stringify([investigation.id]), hypothesisId);
+  }
+
+  it("validates identifiers and returns 404 for a missing hypothesis", async () => {
+    expect((await readVerificationOptions(new Request("http://localhost"), context("bad"), database)).status).toBe(400);
+    expect((await readVerificationOptions(new Request("http://localhost"), context(crypto.randomUUID()), database)).status).toBe(404);
+  });
+
+  it("returns unknown for missing investigation without calling AI or execution", async () => {
+    database.sqlite.prepare("UPDATE vulnerability_hypotheses SET related_investigation_ids = ? WHERE id = ?")
+      .run(JSON.stringify([crypto.randomUUID()]), hypothesisId);
+    vi.stubEnv("AI_ENABLED", "false"); vi.stubEnv("OPENAI_API_KEY", "");
+    const before = getVulnerabilityHypothesis(database, hypothesisId);
+    const response = await readVerificationOptions(new Request("http://localhost"), context(), database);
+    const body = await response.json();
+    expect(response.status).toBe(200);
+    expect(body.options).toHaveLength(4);
+    expect(body.options.every((option: { compatibility: string }) => option.compatibility === "unknown")).toBe(true);
+    expect(body.options[0].reasons[0].code).toBe("missing-investigation");
+    expect(getVulnerabilityHypothesis(database, hypothesisId)).toEqual(before);
+    vi.unstubAllEnvs();
+  });
+
+  it.each([
+    ["protected-vars", ["compatible", "compatible", "compatible", "incompatible"]],
+    ["reentrancy-eth", Array(4).fill("incompatible")],
+    ["tx-origin", Array(4).fill("incompatible")],
+    ["unchecked-lowlevel", Array(4).fill("incompatible")],
+    ["timestamp", Array(4).fill("incompatible")],
+    ["unknown-rule", Array(4).fill("unknown")],
+  ])("returns bounded %s options without persistence side effects", async (rule, expected) => {
+    linkRule(rule);
+    const before = getVulnerabilityHypothesis(database, hypothesisId);
+    const response = await readVerificationOptions(new Request("http://localhost"), context(), database);
+    const body = await response.json();
+    expect(response.status).toBe(200);
+    expect(body.options.map((option: { compatibility: string }) => option.compatibility)).toEqual(expected);
+    expect(body.options.map((option: { strategy: string }) => option.strategy)).toEqual([
+      "structured-verification", "foundry-fuzz-property", "foundry-stateful-invariant", "echidna-stateful-invariant",
+    ]);
+    expect(JSON.stringify(body)).not.toMatch(/Hostile scanner|secret|src\/Vault|root cause|repository|command/i);
+    expect(JSON.stringify(body).length).toBeLessThan(5000);
+    expect(getVulnerabilityHypothesis(database, hypothesisId)).toEqual(before);
+    for (const table of ["hypothesis_verification_runs", "executable_invariant_proposals", "executable_invariant_runs", "invariant_replay_artifacts", "authoritative_invariant_evidence", "hypothesis_lifecycle_transitions"]) {
+      expect(database.sqlite.prepare(`SELECT count(*) AS count FROM ${table}`).get()).toEqual({ count: 0 });
+    }
   });
 });
 
