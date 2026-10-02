@@ -98,6 +98,7 @@ describe("trusted scanner fact extraction", () => {
     expect(scannerRequirementRules["slither:reentrancy-eth"]).toContain("reentrant-callback");
     expect(scannerRequirementRules["slither:protected-vars"]).toEqual(["explicit-caller"]);
     expect(scannerRequirementRules["slither:tx-origin"]).toEqual(["tx-origin"]);
+    expect(scannerRequirementRules["slither:divide-before-multiply"]).toEqual(["uint-observation"]);
   });
 
   it("assesses ReentrancyVault-style exact reentrancy evidence conservatively", () => {

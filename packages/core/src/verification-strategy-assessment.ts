@@ -69,6 +69,9 @@ export const scannerRequirementRules: Readonly<Record<string, readonly Verificat
   "slither:timestamp": ["block-timestamp"],
   "slither:tx-origin": ["tx-origin"],
   "slither:unchecked-lowlevel": ["external-return-value"],
+  // Numeric division-order findings require a uint observation; concrete ABI and source
+  // compatibility still require separate validation before any engine can run.
+  "slither:divide-before-multiply": ["uint-observation"],
   "aderyn:reentrancy-state-change": ["reentrant-callback", "state-sequence"],
   "aderyn:block-timestamp-deadline": ["block-timestamp"],
   "aderyn:unchecked-low-level-call": ["external-return-value"],

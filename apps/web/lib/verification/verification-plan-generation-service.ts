@@ -8,14 +8,14 @@ import {
   type VerificationPlanProvider, type VerificationPlanProviderResult,
 } from "@contracthunter/core";
 import {
-  getCurrentProtocolAnalysis, getDatabase, getInvestigation, getInvariant, getScan, getVulnerabilityHypothesis,
+  assessPersistedHypothesisVerificationStrategies, createVerificationPlanAttempt, getCurrentProtocolAnalysis, getDatabase, getInvestigation, getInvariant, getScan, getVulnerabilityHypothesis,
   type DatabaseClient, type VulnerabilityHypothesisRow,
 } from "@contracthunter/db";
 import { VerificationHarnessGenerator, SolidityFunctionValidationError, validateSolidityFunctionUses } from "@contracthunter/scanners";
 import { OpenAIProvider } from "@/lib/ai/openai-provider";
 
 export class VerificationPlanGenerationError extends Error {
-  constructor(readonly code: "unknown_hypothesis" | "invalid_state" | "missing_context", message: string) { super(message); this.name = "VerificationPlanGenerationError"; }
+  constructor(readonly code: "unknown_hypothesis" | "invalid_state" | "missing_context" | "strategy_not_compatible", message: string) { super(message); this.name = "VerificationPlanGenerationError"; }
 }
 
 export type VerificationPlanGenerationServiceOptions = {
@@ -109,9 +109,33 @@ async function validateStaticPlan(plan: VerificationHarnessPlan, repositoryPath:
 export class VerificationPlanGenerationService {
   constructor(private readonly options: VerificationPlanGenerationServiceOptions) {}
 
-  async generate(hypothesisId: string): Promise<VerificationPlanGenerationResult> {
+  async generate(hypothesisId: string, selectedStrategy?: "structured-verification"): Promise<VerificationPlanGenerationResult> {
+    let result: VerificationPlanGenerationResult;
+    try { result = await this.generateInternal(hypothesisId, selectedStrategy); }
+    catch (error) {
+      const hypothesis = getVulnerabilityHypothesis(this.options.database, hypothesisId);
+      if (!selectedStrategy || !(error instanceof VerificationPlanGenerationError) || !hypothesis || hypothesis.status === "rejected" || error.code === "unknown_hypothesis" || error.code === "strategy_not_compatible") throw error;
+      result = { status: "failed", plan: null, rationale: null, limitations: [], notPlannableReasons: [], failureCode: "strategy_concrete_plan_incompatible",
+        provenance: { provider: this.options.provider.id, requestedModel: this.options.requestedModel, actualModel: null,
+          promptVersion: VERIFICATION_PLAN_PROMPT_VERSION, generatedAt: (this.options.now?.() ?? new Date()).toISOString(),
+          inputTokens: null, outputTokens: null, totalTokens: null, durationMs: 0, sourceFileCount: 0,
+          totalSourceBytes: 0, sourceContextTruncated: false } };
+    }
+    if (selectedStrategy) {
+      const hypothesis = getVulnerabilityHypothesis(this.options.database, hypothesisId);
+      if (!hypothesis) throw new VerificationPlanGenerationError("unknown_hypothesis", "Vulnerability hypothesis not found.");
+      createVerificationPlanAttempt(this.options.database, { hypothesisId, scanId: hypothesis.scanId, selectedStrategy, result });
+    }
+    return result;
+  }
+
+  private async generateInternal(hypothesisId: string, selectedStrategy?: "structured-verification"): Promise<VerificationPlanGenerationResult> {
     const hypothesis = getVulnerabilityHypothesis(this.options.database, hypothesisId);
     if (!hypothesis) throw new VerificationPlanGenerationError("unknown_hypothesis", "Vulnerability hypothesis not found.");
+    if (selectedStrategy) {
+      const compatibility = assessPersistedHypothesisVerificationStrategies(this.options.database, hypothesisId)?.strategies.find((item) => item.strategy === selectedStrategy)?.compatibility;
+      if (compatibility !== "compatible") throw new VerificationPlanGenerationError("strategy_not_compatible", "The selected strategy is no longer compatible with persisted evidence.");
+    }
     if (hypothesis.status === "rejected") throw new VerificationPlanGenerationError("invalid_state", "Rejected hypotheses cannot receive verification plans.");
     const scan = getScan(this.options.database, hypothesis.scanId);
     if (!scan || scan.status !== "completed" || !scan.resolvedCommit || !["ready", "cached"].includes(scan.compilerStatus)) throw new VerificationPlanGenerationError("invalid_state", "Verification planning requires a completed scan with trusted compiler state.");
@@ -146,7 +170,7 @@ export class VerificationPlanGenerationService {
     const trustedCompilerVersion = compilers[0];
     let response: VerificationPlanProviderResult;
     try {
-      response = await this.options.provider.generateVerificationPlan({ model: this.options.requestedModel, promptVersion: VERIFICATION_PLAN_PROMPT_VERSION, systemPrompt: VERIFICATION_PLAN_SYSTEM_PROMPT, context, timeoutMs: this.options.timeoutMs });
+      response = await this.options.provider.generateVerificationPlan({ model: this.options.requestedModel, promptVersion: VERIFICATION_PLAN_PROMPT_VERSION, systemPrompt: selectedStrategy ? `${VERIFICATION_PLAN_SYSTEM_PROMPT}\nSELECTED STRATEGY: structured-verification. Return only the existing bounded structured verification semantics; ContractHunter supplies all authoritative identity.` : VERIFICATION_PLAN_SYSTEM_PROMPT, context, timeoutMs: this.options.timeoutMs });
     } catch {
       logRejection(this.options, hypothesis.id, scan.id, "plan_generation_failed", "provider_request_failed");
       return { status: "failed", plan: null, rationale: null, limitations: [], notPlannableReasons: [], failureCode: "plan_generation_failed", provenance: provenance(this.options, context, null, started) };

@@ -8,7 +8,7 @@ ContractHunter is a locally hosted smart-contract security analysis workstation 
 
 ## Current version state
 
-Current released version: `v0.2.1`. Current development target: `v0.2.2` (Milestone 1 Parts 1 and 2A implemented, not released). Git commit/tag/push and publication remain manual operations outside AI/Codex.
+Current released version: `v0.2.1`. Current development target: `v0.2.2` (Milestone 1 Parts 1, 2A and 2B-1 implemented, not released). Git commit/tag/push and publication remain manual operations outside AI/Codex.
 
 v0.2.0 includes executable invariant plan v1, bounded fuzz/stateful worker execution, manual AI semantic proposals, deterministic counterexample replay, explicit relevance review, authoritative invariant evidence, centralized lifecycle transitions, transactional v0.1.9 migration, retry workspaces and release regression probes.
 
@@ -148,5 +148,11 @@ For the current exact-rule fixtures, `protected-vars` requires explicit caller s
 ## v0.2.2 Milestone 1 Part 2A handoff
 
 The hypothesis page now renders a compact Verification options section from the same read-only persisted assessment as `GET /api/hypotheses/:id/verification-options`. A single server-side public mapper fixes order and converts closed reason codes to bounded display text; no raw scanner output or repository path crosses this new API. Unknown is visibly separate from incompatible. Compatible cards offer page-local strategy selection for planning preview only. Selection is not persisted or connected to either planner; no plan, AI request, worker run, evidence or lifecycle change follows from viewing or selecting. The existing structured verification and invariant proposal controls remain fully available, including when an option is unknown. Part 2B should bind an explicit strategy to generation with fresh concrete plan validation while preserving manual execution and the current replay/relevance/lifecycle authority.
+
+## v0.2.2 Milestone 1 Part 2B-1 handoff
+
+The new bodyless `POST /api/hypotheses/:id/verification-options/:strategy/generate` route accepts only a closed strategy path segment. It reloads persisted evidence and recomputes abstract compatibility before any provider call; each reused planner checks again. Structured selection reuses the historical structured planner and appends an immutable planning-attempt row. Foundry fuzz/stateful selections constrain the existing invariant proposal service to the server-derived mode. Echidna selection uses canonical stateful semantics and requires the existing concrete Echidna validator; failure is persisted as `strategy_concrete_plan_incompatible`, with no Foundry fallback or second provider request. Mode mismatch is `strategy_plan_mode_mismatch`. A known numeric division-order scanner rule contributes only a uint observation requirement to abstract assessment; actual ABI/source compatibility remains a separate concrete gate.
+
+Migration `0004_v0_2_2_strategy_planning` adds nullable selected-strategy provenance to invariant proposal rows and a separate structured planning-attempt table without rewriting historical rows. Old manual generation routes still work and record no selected strategy. The Part 2A UI selection preview is not yet connected; Part 2B-2 can call this route and render the returned reviewable plan/proposal. No generation route runs Forge/Echidna, contacts the verification worker, creates dynamic evidence or invokes lifecycle authority. Keep explicit user validation and execution separate.
 
 Git operations remain manual outside AI/Codex. Do not commit, push, tag, or publish from an AI session.

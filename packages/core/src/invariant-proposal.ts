@@ -27,7 +27,7 @@ CANONICAL INVARIANT CAPABILITIES: ${JSON.stringify(invariantCapabilityProfile)}
 
 For generated proposals, hypothesisExpectation must be hypothesis-predicts-property-violation. Explain why the vulnerability hypothesis predicts that the property can be broken, but do not assign evidence authority. Declare symbolic actors and instance names. Deploy only the primary contract with no constructor arguments. Calls use typed fixed symbolic arguments or bounded uint256/bool fuzz parameters exactly as represented by the schema. Each fuzz action targets one specific function. Each stateful handler action targets one specific function; properties read current state. Use short identifiers and concise rationales. If source compatibility is uncertain, return not_plannable.`;
 
-export const invariantProposalFailureCodes = ["invalid_invariant_provider_proposal", "invalid_invariant_source", "invalid_invariant_function_signature", "unsupported_invariant_semantics", "ambiguous_trusted_compiler", "invalid_invariant_plan", "invariant_generation_unavailable"] as const;
+export const invariantProposalFailureCodes = ["invalid_invariant_provider_proposal", "invalid_invariant_source", "invalid_invariant_function_signature", "unsupported_invariant_semantics", "ambiguous_trusted_compiler", "invalid_invariant_plan", "invariant_generation_unavailable", "strategy_plan_mode_mismatch", "strategy_concrete_plan_incompatible"] as const;
 export type InvariantProposalFailureCode = (typeof invariantProposalFailureCodes)[number];
 export type InvariantProposalGenerationResult = {
   status: "generated" | "not_plannable" | "failed"; plan: ExecutableInvariantPlan | null; planHash: string | null;

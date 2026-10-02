@@ -3,7 +3,7 @@ import type { ExecutableInvariantProposalRow, ExecutableInvariantRunRow, Invaria
 
 const parse = (value: string | null): unknown => { try { return JSON.parse(value ?? "null") as unknown; } catch { return null; } };
 export type PublicInvariantProposal = {
-  id: string; status: ExecutableInvariantProposalRow["status"]; plan: ExecutableInvariantPlan | null; planHash: string | null; hypothesisExpectation: ExecutableInvariantProposalRow["hypothesisExpectation"]; relationRationale: string | null;
+  id: string; selectedStrategy: ExecutableInvariantProposalRow["selectedStrategy"]; status: ExecutableInvariantProposalRow["status"]; plan: ExecutableInvariantPlan | null; planHash: string | null; hypothesisExpectation: ExecutableInvariantProposalRow["hypothesisExpectation"]; relationRationale: string | null;
   rationale: string | null; limitations: string[]; notPlannableReasons: string[]; failureCode: string | null;
   provider: string; model: string; promptVersion: string; sourceFileCount: number; totalSourceBytes: number; contextTruncated: boolean;
   inputTokens: number | null; outputTokens: number | null; totalTokens: number | null; estimatedCostUsd: number | null; durationMs: number; createdAt: string;
@@ -19,8 +19,9 @@ export type PublicInvariantReplayRun = { id: string; artifactId: string; status:
 export type PublicInvariantReview = { id: string; proposalId: string; invariantRunId: string; replayRunId: string; counterexampleHash: string; action: "confirm-relevance"; evidenceId: string; transitionId: string | null; createdAt: string };
 export function toPublicInvariantProposal(row: ExecutableInvariantProposalRow): PublicInvariantProposal {
   const parsedPlan = executableInvariantPlanSchema.safeParse(parse(row.plan));
+  if (row.status === "generated" && (!parsedPlan.success || row.selectedStrategy === "foundry-fuzz-property" && parsedPlan.data.mode !== "fuzz-property" || (row.selectedStrategy === "foundry-stateful-invariant" || row.selectedStrategy === "echidna-stateful-invariant") && parsedPlan.data.mode !== "stateful-invariant")) throw new Error("Persisted proposal strategy provenance is invalid.");
   const manifest = parse(row.contextManifest) as { files?: unknown[]; totalSourceBytes?: number; truncated?: boolean } | null;
-  return { id: row.id, status: row.status, plan: parsedPlan.success ? parsedPlan.data : null, planHash: row.planHash, hypothesisExpectation: row.hypothesisExpectation, relationRationale: row.relationRationale, rationale: row.rationale,
+  return { id: row.id, selectedStrategy: row.selectedStrategy, status: row.status, plan: parsedPlan.success ? parsedPlan.data : null, planHash: row.planHash, hypothesisExpectation: row.hypothesisExpectation, relationRationale: row.relationRationale, rationale: row.rationale,
     limitations: Array.isArray(parse(row.limitations)) ? parse(row.limitations) as string[] : [], notPlannableReasons: Array.isArray(parse(row.notPlannableReasons)) ? parse(row.notPlannableReasons) as string[] : [], failureCode: row.failureCode,
     provider: row.provider, model: row.actualModel ?? row.requestedModel, promptVersion: row.promptVersion, sourceFileCount: manifest?.files?.length ?? 0, totalSourceBytes: manifest?.totalSourceBytes ?? 0, contextTruncated: manifest?.truncated ?? false,
     inputTokens: row.inputTokens, outputTokens: row.outputTokens, totalTokens: row.totalTokens, estimatedCostUsd: row.estimatedCostUsd, durationMs: row.durationMs, createdAt: row.createdAt.toISOString() };

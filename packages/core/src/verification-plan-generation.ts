@@ -42,6 +42,7 @@ export const verificationPlanGenerationFailureCodes = [
   "invalid_function_signature",
   "unsupported_function_signature",
   "invalid_harness_plan",
+  "strategy_concrete_plan_incompatible",
 ] as const;
 export type VerificationPlanGenerationFailureCode = (typeof verificationPlanGenerationFailureCodes)[number];
 

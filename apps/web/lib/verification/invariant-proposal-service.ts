@@ -4,13 +4,13 @@ import path from "node:path";
 import semver from "semver";
 import {
   EXECUTABLE_INVARIANT_SCHEMA_VERSION, INVARIANT_PROPOSAL_PROMPT_VERSION, INVARIANT_PROPOSAL_SYSTEM_PROMPT,
-  VerificationPlanContextBuilder, calculateAICost, executableInvariantPlanSchema, invariantCapabilityProfile, invariantPlanHash,
+  VerificationPlanContextBuilder, calculateAICost, executableInvariantPlanSchema, invariantCapabilityProfile, invariantPlanHash, verificationCapabilityProfiles,
   invariantProposalSchema, loadConfig, repositorySolidityPathSchema, sourceEvidenceSchema, stableCompilerVersionSchema,
   validateEvidence, type ExecutableInvariantPlan, type InvariantProposalContext, type InvariantProposalFailureCode,
-  type InvariantProposalGenerationResult, type InvariantProposalProvider, type InvariantProposalProviderResult,
+  type InvariantProposalGenerationResult, type InvariantProposalProvider, type InvariantProposalProviderResult, type VerificationStrategy,
 } from "@contracthunter/core";
 import {
-  createExecutableInvariantProposal, getCurrentProtocolAnalysis, getDatabase, getExecutableInvariantProposal,
+  assessPersistedHypothesisVerificationStrategies, createExecutableInvariantProposal, getCurrentProtocolAnalysis, getDatabase, getExecutableInvariantProposal,
   getInvestigation, getInvariant, getScan, getVulnerabilityHypothesis, type DatabaseClient, type ExecutableInvariantProposalRow,
 } from "@contracthunter/db";
 import { ExecutableInvariantGenerator, extractSolidityPragmas, SolidityFunctionValidationError, validateEchidnaPlanCompatibility, type EchidnaCompatibility } from "@contracthunter/scanners";
@@ -71,16 +71,20 @@ function sourceEvidence(repository: string, hypothesis: { evidence: string; viol
 }
 export class InvariantProposalService {
   constructor(private readonly options: InvariantProposalServiceOptions) {}
-  private record(hypothesisId: string, scanId: string, result: InvariantProposalGenerationResult, contextManifest: object, requestId: string | null) {
+  private record(hypothesisId: string, scanId: string, result: InvariantProposalGenerationResult, contextManifest: object, requestId: string | null, selectedStrategy?: Exclude<VerificationStrategy, "structured-verification">) {
     if (result.failureCode) {
       const event = { hypothesisId, scanId, promptVersion: INVARIANT_PROPOSAL_PROMPT_VERSION, category: result.failureCode, reason: safeReason(result.failureCode) };
       if (this.options.logger) this.options.logger(event); else console.warn("[invariant-proposal] rejected", event);
     }
-    return createExecutableInvariantProposal(this.options.database, { hypothesisId, scanId, result, contextManifest, requestId });
+    return createExecutableInvariantProposal(this.options.database, { hypothesisId, scanId, result, contextManifest, requestId, selectedStrategy });
   }
-  async generate(hypothesisId: string): Promise<{ proposal: ExecutableInvariantProposalRow; result: InvariantProposalGenerationResult }> {
+  async generate(hypothesisId: string, selectedStrategy?: Exclude<VerificationStrategy, "structured-verification">): Promise<{ proposal: ExecutableInvariantProposalRow; result: InvariantProposalGenerationResult }> {
     const hypothesis = getVulnerabilityHypothesis(this.options.database, hypothesisId);
     if (!hypothesis) throw new InvariantProposalRequestError("unknown_hypothesis", "Hypothesis not found.");
+    if (selectedStrategy) {
+      const compatibility = assessPersistedHypothesisVerificationStrategies(this.options.database, hypothesisId)?.strategies.find((item) => item.strategy === selectedStrategy)?.compatibility;
+      if (compatibility !== "compatible") throw new InvariantProposalRequestError("invalid_state", "The selected strategy is no longer compatible with persisted evidence.");
+    }
     if (hypothesis.status === "rejected") throw new InvariantProposalRequestError("invalid_state", "Rejected hypotheses cannot receive invariant proposals.");
     const scan = getScan(this.options.database, hypothesis.scanId), started = Date.now();
     if (!scan || scan.status !== "completed" || !scan.resolvedCommit || !["ready", "cached"].includes(scan.compilerStatus)) throw new InvariantProposalRequestError("invalid_state", "A completed scan with trusted compiler state is required.");
@@ -88,7 +92,7 @@ export class InvariantProposalService {
     const result = (status: InvariantProposalGenerationResult["status"], code: InvariantProposalFailureCode | null, plan: ExecutableInvariantPlan | null = null, rationale: string | null = null, limitations: string[] = [], reasons: string[] = [], hypothesisExpectation: "hypothesis-predicts-property-violation" | null = null, relationRationale: string | null = null): InvariantProposalGenerationResult => ({ status, plan, planHash: plan ? invariantPlanHash(plan) : null, hypothesisExpectation, relationRationale, rationale, limitations, notPlannableReasons: reasons, failureCode: code,
       provenance: { provider: this.options.provider.id, requestedModel: this.options.requestedModel, actualModel: response?.actualModel ?? null, promptVersion: INVARIANT_PROPOSAL_PROMPT_VERSION, generatedAt: new Date().toISOString(), inputTokens: response?.inputTokens ?? null, outputTokens: response?.outputTokens ?? null, totalTokens: response?.totalTokens ?? null, estimatedCostUsd: this.options.pricing ? calculateAICost(response?.inputTokens ?? null, response?.outputTokens ?? null, this.options.pricing) : null, durationMs: response?.durationMs ?? Date.now() - started, sourceFileCount: context.manifest.files.length, totalSourceBytes: context.manifest.totalSourceBytes, sourceContextTruncated: context.manifest.truncated } });
     let writing = false;
-    const finish = (value: InvariantProposalGenerationResult) => { writing = true; return { proposal: this.record(hypothesisId, scan.id, value, { ...context.manifest, sourceHashes }, response?.requestId ?? null), result: value }; };
+    const finish = (value: InvariantProposalGenerationResult) => { writing = true; return { proposal: this.record(hypothesisId, scan.id, value, { ...context.manifest, sourceHashes }, response?.requestId ?? null, selectedStrategy), result: value }; };
     try {
       const repository = await safeRepository(this.options.repositoryRoot, scan.id);
       const evidence = sourceEvidence(repository, hypothesis, this.options.database, scan.id);
@@ -104,7 +108,11 @@ export class InvariantProposalService {
       sourceHashes = Object.fromEntries([...sources].map(([file, source]) => [file, createHash("sha256").update(source).digest("hex")]));
       const compiler = selectedCompiler(scan.compilerVersions, sources);
       if (!compiler) return finish(result("failed", "ambiguous_trusted_compiler"));
-      try { response = await this.options.provider.generateInvariantProposal({ model: this.options.requestedModel, promptVersion: INVARIANT_PROPOSAL_PROMPT_VERSION, systemPrompt: INVARIANT_PROPOSAL_SYSTEM_PROMPT, context, timeoutMs: this.options.timeoutMs }); }
+      const requiredMode = selectedStrategy === "foundry-fuzz-property" ? "fuzz-property" : selectedStrategy ? "stateful-invariant" : null;
+      const selectedProfile = verificationCapabilityProfiles.find((profile) => profile.strategy === selectedStrategy);
+      const strategyInstruction = selectedStrategy ? `\nSELECTED STRATEGY: ${selectedStrategy}. REQUIRED MODE: ${requiredMode}. SELECTED CAPABILITY PROFILE: ${JSON.stringify(selectedProfile)}. Return only semantic proposal fields. ContractHunter will validate the canonical plan; do not supply engine configuration or choose another mode.` : "";
+      const echidnaInstruction = selectedStrategy === "echidna-stateful-invariant" ? "\nThe current Echidna integration supports one deployment, uint256/bool actions, uint or balance observations, and uint equality or inequality assertions. Do not propose symbolic actors, explicit callers, setup calls or funding, address properties, or caller/environment-sensitive semantics. If these are needed, return not_plannable." : "";
+      try { response = await this.options.provider.generateInvariantProposal({ model: this.options.requestedModel, promptVersion: INVARIANT_PROPOSAL_PROMPT_VERSION, systemPrompt: `${INVARIANT_PROPOSAL_SYSTEM_PROMPT}${strategyInstruction}${echidnaInstruction}`, context, timeoutMs: this.options.timeoutMs }); }
       catch { return finish(result("failed", "invariant_generation_unavailable")); }
       const parsed = invariantProposalSchema.safeParse(response.proposal);
       if (!parsed.success) {
@@ -113,6 +121,7 @@ export class InvariantProposalService {
       }
       if (parsed.data.status === "not_plannable") return finish(result("not_plannable", null, null, parsed.data.rationale, parsed.data.limitations, parsed.data.notPlannableReasons));
       const semantics = parsed.data.semantics!;
+      if (requiredMode && semantics.mode !== requiredMode) return finish(result("failed", "strategy_plan_mode_mismatch"));
       const primaryPaths = [...new Set(evidence.filter((item) => item.contract === semantics.primaryContract && sources.has(item.filePath)).map((item) => item.filePath))];
       if (primaryPaths.length !== 1) return finish(result("failed", "invalid_invariant_source"));
       const setup = semantics.setup.map((operation) => operation.kind === "call" ? { ...operation, caller: operation.caller ?? undefined } : operation);
@@ -121,6 +130,7 @@ export class InvariantProposalService {
       if (!plan.success) return finish(result("failed", "invalid_invariant_plan"));
       try { new ExecutableInvariantGenerator().generate(plan.data, sources); }
       catch (error) { return finish(result("failed", error instanceof SolidityFunctionValidationError ? "invalid_invariant_function_signature" : "invalid_invariant_plan")); }
+      if (selectedStrategy === "echidna-stateful-invariant" && !validateEchidnaPlanCompatibility(plan.data, sources).compatible) return finish(result("failed", "strategy_concrete_plan_incompatible"));
       return finish(result("generated", null, plan.data, parsed.data.rationale, parsed.data.limitations, [], parsed.data.hypothesisExpectation, parsed.data.relationRationale));
     } catch (error) { if (writing) throw error; return finish(result("failed", "invalid_invariant_source")); }
   }

@@ -4,9 +4,9 @@ import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/better-sqlite3";
-import type { ExecutableInvariantPlan, ExecutableInvariantEvidence, InvariantProposalGenerationResult, InvariantReplayPlan, AIAnalysisStatus, CompilerStatus, CompleteHypothesisVerificationRunInput, CreateHypothesisVerificationRunInput, CreateScanInput, DependencyStatus, DynamicEvidence, FailHypothesisVerificationRunInput, FindingStatus, HypothesisStatus, InvariantCategory, InvariantStatus, InvariantTestability, InvestigationStatus, NewFinding, ProtocolAnalysisResult, ReviewRunStatus, ReviewStageStatus, ScannerStatus, ScanStatus, SecurityReviewPlan, Severity, ValidatedEvidence, VerificationStrategyAssessment } from "@contracthunter/core";
+import type { ExecutableInvariantPlan, ExecutableInvariantEvidence, InvariantProposalGenerationResult, InvariantReplayPlan, AIAnalysisStatus, CompilerStatus, CompleteHypothesisVerificationRunInput, CreateHypothesisVerificationRunInput, CreateScanInput, DependencyStatus, DynamicEvidence, FailHypothesisVerificationRunInput, FindingStatus, HypothesisStatus, InvariantCategory, InvariantStatus, InvariantTestability, InvestigationStatus, NewFinding, ProtocolAnalysisResult, ReviewRunStatus, ReviewStageStatus, ScannerStatus, ScanStatus, SecurityReviewPlan, Severity, ValidatedEvidence, VerificationStrategyAssessment, VerificationPlanGenerationResult, VerificationStrategy } from "@contracthunter/core";
 import { ECHIDNA_LIMITS, INVARIANT_COUNTEREXAMPLE_PARSER_VERSION, assessVerificationStrategies, executableInvariantPlanSchema, executableInvariantEvidenceSchema, invariantPlanHash, invariantReplayPlanHash, invariantReplayPlanSchema, assertTransition, assertVerificationRunTransition, buildInvestigations, completeHypothesisVerificationRunSchema, correlateHypotheses, createHypothesisVerificationRunSchema, dynamicEvidenceSchema, failHypothesisVerificationRunSchema, findingSchema, investigationSchema, loadConfig, scanSchema } from "@contracthunter/core";
-import { authoritativeInvariantEvidence, executableInvariantProposals, executableInvariantRuns, invariantEvidenceReviews, invariantReplayArtifacts, invariantReplayRuns, hypothesisLifecycleTransitions, findings, hypothesisGroupMembers, hypothesisGroups, hypothesisVerificationRuns, investigationFindings, investigations, invariants, protocolAnalyses, scans, scanScanners, securityReviewerRuns, securityReviewPlans, vulnerabilityHypotheses, type ExecutableInvariantProposalRow, type ExecutableInvariantRunRow, type InvariantReplayArtifactRow, type InvariantReplayRunRow, type InvariantEvidenceReviewRow, type FindingRow, type HypothesisGroupRow, type HypothesisVerificationRunRow, type InvariantRow, type InvestigationRow, type ProtocolAnalysisRow, type ScanRow, type ScanScannerRow, type SecurityReviewerRunRow, type SecurityReviewPlanRow, type VulnerabilityHypothesisRow } from "./schema";
+import { authoritativeInvariantEvidence, executableInvariantProposals, executableInvariantRuns, invariantEvidenceReviews, invariantReplayArtifacts, invariantReplayRuns, hypothesisLifecycleTransitions, findings, hypothesisGroupMembers, hypothesisGroups, hypothesisVerificationRuns, verificationPlanAttempts, investigationFindings, investigations, invariants, protocolAnalyses, scans, scanScanners, securityReviewerRuns, securityReviewPlans, vulnerabilityHypotheses, type ExecutableInvariantProposalRow, type ExecutableInvariantRunRow, type InvariantReplayArtifactRow, type InvariantReplayRunRow, type InvariantEvidenceReviewRow, type FindingRow, type HypothesisGroupRow, type HypothesisVerificationRunRow, type InvariantRow, type InvestigationRow, type ProtocolAnalysisRow, type ScanRow, type ScanScannerRow, type SecurityReviewerRunRow, type SecurityReviewPlanRow, type VulnerabilityHypothesisRow } from "./schema";
 
 export * from "./schema";
 
@@ -219,19 +219,38 @@ export function createDatabase(databasePath: string) {
     try { migrateV021ProposalBinding(); }
     catch (error) { throw new Error(`Database migration 0003_v0_2_1_run_proposal_binding failed without committing changes: ${error instanceof Error ? error.message : String(error)}`); }
   }
+  const migrateV022StrategyPlanning = sqlite.transaction(() => {
+    sqlite.exec("ALTER TABLE executable_invariant_proposals ADD COLUMN selected_strategy TEXT CHECK (selected_strategy IN ('foundry-fuzz-property', 'foundry-stateful-invariant', 'echidna-stateful-invariant'))");
+    sqlite.exec(`CREATE TABLE verification_plan_attempts (
+      id TEXT PRIMARY KEY,
+      hypothesis_id TEXT NOT NULL REFERENCES vulnerability_hypotheses(id) ON DELETE CASCADE,
+      scan_id TEXT NOT NULL REFERENCES scans(id) ON DELETE CASCADE,
+      selected_strategy TEXT NOT NULL CHECK (selected_strategy = 'structured-verification'),
+      status TEXT NOT NULL CHECK (status IN ('generated', 'not_plannable', 'failed')),
+      plan TEXT, failure_code TEXT, result TEXT NOT NULL, created_at INTEGER NOT NULL
+    )`);
+    sqlite.exec("CREATE INDEX verification_plan_attempts_hypothesis_idx ON verification_plan_attempts(hypothesis_id, created_at)");
+    sqlite.prepare("INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)").run("0004_v0_2_2_strategy_planning", Date.now());
+  });
+  if (!sqlite.prepare("SELECT 1 FROM schema_migrations WHERE id = ?").get("0004_v0_2_2_strategy_planning")) {
+    try { migrateV022StrategyPlanning(); }
+    catch (error) { throw new Error(`Database migration 0004_v0_2_2_strategy_planning failed without committing changes: ${error instanceof Error ? error.message : String(error)}`); }
+  }
   const integrity = sqlite.pragma("quick_check") as Array<{ quick_check: string }>;
   const foreignKeyViolations = sqlite.pragma("foreign_key_check") as unknown[];
-  const requiredTables = ["scans", "findings", "scan_scanners", "investigations", "investigation_findings", "protocol_analyses", "invariants", "security_review_plans", "security_reviewer_runs", "vulnerability_hypotheses", "hypothesis_verification_runs", "executable_invariant_runs", "executable_invariant_proposals", "invariant_replay_artifacts", "invariant_replay_runs", "authoritative_invariant_evidence", "invariant_evidence_reviews", "hypothesis_lifecycle_transitions", "hypothesis_groups", "hypothesis_group_members"];
+  const requiredTables = ["scans", "findings", "scan_scanners", "investigations", "investigation_findings", "protocol_analyses", "invariants", "security_review_plans", "security_reviewer_runs", "vulnerability_hypotheses", "hypothesis_verification_runs", "verification_plan_attempts", "executable_invariant_runs", "executable_invariant_proposals", "invariant_replay_artifacts", "invariant_replay_runs", "authoritative_invariant_evidence", "invariant_evidence_reviews", "hypothesis_lifecycle_transitions", "hypothesis_groups", "hypothesis_group_members"];
   const presentTables = new Set((sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as Array<{ name: string }>).map((row) => row.name));
   const runColumns = new Set((sqlite.prepare("PRAGMA table_info(executable_invariant_runs)").all() as Array<{name:string}>).map((row) => row.name));
   const replayColumns = new Set((sqlite.prepare("PRAGMA table_info(invariant_replay_artifacts)").all() as Array<{name:string}>).map((row) => row.name));
+  const proposalColumns = new Set((sqlite.prepare("PRAGMA table_info(executable_invariant_proposals)").all() as Array<{name:string}>).map((row) => row.name));
+  const planAttemptColumns = new Set((sqlite.prepare("PRAGMA table_info(verification_plan_attempts)").all() as Array<{name:string}>).map((row) => row.name));
   const invalidEngine = sqlite.prepare("SELECT 1 FROM executable_invariant_runs WHERE engine NOT IN ('foundry', 'echidna') LIMIT 1").get();
   const invalidReplayEngine = sqlite.prepare("SELECT 1 FROM invariant_replay_artifacts WHERE source_engine NOT IN ('foundry', 'echidna') LIMIT 1").get();
-  if (integrity.length !== 1 || integrity[0]?.quick_check !== "ok" || foreignKeyViolations.length || requiredTables.some((table) => !presentTables.has(table)) || !runColumns.has("engine") || !runColumns.has("engine_metadata") || !runColumns.has("proposal_id") || !replayColumns.has("source_engine") || invalidEngine || invalidReplayEngine || sqlite.prepare("SELECT 1 FROM executable_invariant_runs r LEFT JOIN executable_invariant_proposals p ON p.id=r.proposal_id WHERE r.proposal_id IS NOT NULL AND (p.id IS NULL OR p.hypothesis_id<>r.hypothesis_id OR p.scan_id<>r.scan_id OR p.plan_hash<>r.plan_hash) LIMIT 1").get()) {
+  if (integrity.length !== 1 || integrity[0]?.quick_check !== "ok" || foreignKeyViolations.length || requiredTables.some((table) => !presentTables.has(table)) || !runColumns.has("engine") || !runColumns.has("engine_metadata") || !runColumns.has("proposal_id") || !replayColumns.has("source_engine") || !proposalColumns.has("selected_strategy") || ["id", "hypothesis_id", "scan_id", "selected_strategy", "status", "plan", "failure_code", "result", "created_at"].some((column) => !planAttemptColumns.has(column)) || invalidEngine || invalidReplayEngine || sqlite.prepare("SELECT 1 FROM executable_invariant_runs r LEFT JOIN executable_invariant_proposals p ON p.id=r.proposal_id WHERE r.proposal_id IS NOT NULL AND (p.id IS NULL OR p.hypothesis_id<>r.hypothesis_id OR p.scan_id<>r.scan_id OR p.plan_hash<>r.plan_hash) LIMIT 1").get()) {
     throw new Error("Database validation failed after migration; no application access was started.");
   }
   sqlite.exec("COMMIT");
-  const orm = drizzle(sqlite, { schema: { scans, findings, scanScanners, investigations, investigationFindings, protocolAnalyses, invariants, securityReviewPlans, securityReviewerRuns, vulnerabilityHypotheses, hypothesisVerificationRuns, executableInvariantRuns, executableInvariantProposals, invariantReplayArtifacts, invariantReplayRuns, invariantEvidenceReviews, authoritativeInvariantEvidence, hypothesisLifecycleTransitions, hypothesisGroups, hypothesisGroupMembers } });
+  const orm = drizzle(sqlite, { schema: { scans, findings, scanScanners, investigations, investigationFindings, protocolAnalyses, invariants, securityReviewPlans, securityReviewerRuns, vulnerabilityHypotheses, hypothesisVerificationRuns, verificationPlanAttempts, executableInvariantRuns, executableInvariantProposals, invariantReplayArtifacts, invariantReplayRuns, invariantEvidenceReviews, authoritativeInvariantEvidence, hypothesisLifecycleTransitions, hypothesisGroups, hypothesisGroupMembers } });
   return { sqlite, orm };
   } catch (error) {
     if (sqlite.inTransaction) sqlite.exec("ROLLBACK");
@@ -593,6 +612,19 @@ export function insertVulnerabilityHypotheses(database: DatabaseClient, input: P
 }
 export function getVulnerabilityHypothesis(database: DatabaseClient, id: string): VulnerabilityHypothesisRow | undefined { return database.orm.select().from(vulnerabilityHypotheses).where(eq(vulnerabilityHypotheses.id, id)).get(); }
 
+export function createVerificationPlanAttempt(database: DatabaseClient, input: { hypothesisId: string; scanId: string; selectedStrategy: "structured-verification"; result: VerificationPlanGenerationResult }) {
+  const hypothesis = getVulnerabilityHypothesis(database, input.hypothesisId);
+  if (!hypothesis || hypothesis.scanId !== input.scanId || (input.result.status === "generated") !== !!input.result.plan || (input.result.plan && (input.result.plan.hypothesisId !== input.hypothesisId || input.result.plan.scanId !== input.scanId))) throw new Error("Verification planning attempt identity is invalid.");
+  const row = { id: randomUUID(), hypothesisId: input.hypothesisId, scanId: input.scanId, selectedStrategy: input.selectedStrategy,
+    status: input.result.status, plan: input.result.plan ? JSON.stringify(input.result.plan) : null,
+    failureCode: input.result.failureCode, result: JSON.stringify(input.result), createdAt: new Date(input.result.provenance.generatedAt) } as const;
+  database.orm.insert(verificationPlanAttempts).values(row).run();
+  return row;
+}
+export function listVerificationPlanAttempts(database: DatabaseClient, hypothesisId: string) {
+  return database.orm.select().from(verificationPlanAttempts).where(eq(verificationPlanAttempts.hypothesisId, hypothesisId)).orderBy(desc(verificationPlanAttempts.createdAt), desc(sql`rowid`)).all();
+}
+
 /** Read-only advisory assessment from persisted hypothesis links and correlated scanner rows. */
 export function assessPersistedHypothesisVerificationStrategies(database: DatabaseClient, hypothesisId: string): VerificationStrategyAssessment | undefined {
   const hypothesis = getVulnerabilityHypothesis(database, hypothesisId);
@@ -733,10 +765,11 @@ export function getActiveExecutableInvariantRun(database: DatabaseClient, hypoth
 export function listExecutableInvariantRuns(database: DatabaseClient, hypothesisId: string): ExecutableInvariantRunRow[] { return database.orm.select().from(executableInvariantRuns).where(eq(executableInvariantRuns.hypothesisId, hypothesisId)).orderBy(desc(executableInvariantRuns.createdAt), desc(sql`rowid`)).all(); }
 export function getExecutableInvariantProposal(database: DatabaseClient, id: string): ExecutableInvariantProposalRow | undefined { return database.orm.select().from(executableInvariantProposals).where(eq(executableInvariantProposals.id, id)).get(); }
 export function listExecutableInvariantProposals(database: DatabaseClient, hypothesisId: string): ExecutableInvariantProposalRow[] { return database.orm.select().from(executableInvariantProposals).where(eq(executableInvariantProposals.hypothesisId, hypothesisId)).orderBy(desc(executableInvariantProposals.createdAt), desc(sql`rowid`)).all(); }
-export function createExecutableInvariantProposal(database: DatabaseClient, input: { hypothesisId: string; scanId: string; result: InvariantProposalGenerationResult; contextManifest: object; requestId: string | null }): ExecutableInvariantProposalRow {
+export function createExecutableInvariantProposal(database: DatabaseClient, input: { hypothesisId: string; scanId: string; result: InvariantProposalGenerationResult; contextManifest: object; requestId: string | null; selectedStrategy?: Exclude<VerificationStrategy, "structured-verification"> }): ExecutableInvariantProposalRow {
   const { result } = input, hypothesis = getVulnerabilityHypothesis(database, input.hypothesisId);
-  if (!hypothesis || hypothesis.scanId !== input.scanId || (result.status === "generated") !== !!result.plan || (result.status === "generated") !== !!result.planHash || (result.plan && invariantPlanHash(result.plan) !== result.planHash)) throw new Error("Invariant proposal history is invalid.");
-  const row: ExecutableInvariantProposalRow = { id: randomUUID(), hypothesisId: input.hypothesisId, scanId: input.scanId, status: result.status, plan: result.plan ? JSON.stringify(executableInvariantPlanSchema.parse(result.plan)) : null, planHash: result.planHash, hypothesisExpectation: result.hypothesisExpectation, relationRationale: result.relationRationale, rationale: result.rationale, limitations: JSON.stringify(result.limitations), notPlannableReasons: JSON.stringify(result.notPlannableReasons), failureCode: result.failureCode,
+  const expectedMode = input.selectedStrategy === "foundry-fuzz-property" ? "fuzz-property" : input.selectedStrategy ? "stateful-invariant" : null;
+  if (!hypothesis || hypothesis.scanId !== input.scanId || (result.status === "generated") !== !!result.plan || (result.status === "generated") !== !!result.planHash || (result.plan && (invariantPlanHash(result.plan) !== result.planHash || expectedMode !== null && result.plan.mode !== expectedMode))) throw new Error("Invariant proposal history is invalid.");
+  const row: ExecutableInvariantProposalRow = { id: randomUUID(), hypothesisId: input.hypothesisId, scanId: input.scanId, selectedStrategy: input.selectedStrategy ?? null, status: result.status, plan: result.plan ? JSON.stringify(executableInvariantPlanSchema.parse(result.plan)) : null, planHash: result.planHash, hypothesisExpectation: result.hypothesisExpectation, relationRationale: result.relationRationale, rationale: result.rationale, limitations: JSON.stringify(result.limitations), notPlannableReasons: JSON.stringify(result.notPlannableReasons), failureCode: result.failureCode,
     provider: result.provenance.provider, requestedModel: result.provenance.requestedModel, actualModel: result.provenance.actualModel, promptVersion: result.provenance.promptVersion, contextManifest: JSON.stringify(input.contextManifest), inputTokens: result.provenance.inputTokens, outputTokens: result.provenance.outputTokens, totalTokens: result.provenance.totalTokens, estimatedCostUsd: result.provenance.estimatedCostUsd, durationMs: result.provenance.durationMs, requestId: input.requestId, createdAt: new Date(result.provenance.generatedAt) };
   database.orm.insert(executableInvariantProposals).values(row).run();
   return row;
