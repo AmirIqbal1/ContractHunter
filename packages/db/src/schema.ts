@@ -154,8 +154,10 @@ export const hypothesisVerificationRuns = sqliteTable("hypothesis_verification_r
 
 export const executableInvariantRuns = sqliteTable("executable_invariant_runs", {
   id: text("id").primaryKey(), hypothesisId: text("hypothesis_id").notNull().references(() => vulnerabilityHypotheses.id, { onDelete: "cascade" }), scanId: text("scan_id").notNull().references(() => scans.id, { onDelete: "cascade" }),
+  proposalId: text("proposal_id"),
+  engine: text("engine", { enum: ["foundry", "echidna"] }).notNull().default("foundry"), engineMetadata: text("engine_metadata"),
   resolvedCommit: text("resolved_commit").notNull(), compilerVersion: text("compiler_version").notNull(), planHash: text("plan_hash").notNull(), mode: text("mode", { enum: ["fuzz-property", "stateful-invariant"] }).notNull(), plan: text("plan").notNull(),
-  status: text("status", { enum: ["queued", "running", "completed", "failed"] }).notNull(), outcome: text("outcome", { enum: ["held-within-bounds", "counterexample-found"] }),
+  status: text("status", { enum: ["queued", "running", "completed", "failed"] }).notNull(), outcome: text("outcome", { enum: ["held-within-bounds", "counterexample-found", "execution-failed", "inconclusive"] }),
   configuredRuns: integer("configured_runs").notNull(), configuredDepth: integer("configured_depth"), testCount: integer("test_count").notNull(), passedCount: integer("passed_count").notNull(), failedCount: integer("failed_count").notNull(), runsExecuted: integer("runs_executed"),
   stdoutSummary: text("stdout_summary").notNull(), stderrSummary: text("stderr_summary").notNull(), dynamicEvidence: text("dynamic_evidence").notNull(), contentFingerprint: text("content_fingerprint"), isolationMetadata: text("isolation_metadata"), executionExitCode: integer("execution_exit_code"), timedOut: integer("timed_out", { mode: "boolean" }).notNull(), errorCode: text("error_code"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(), startedAt: integer("started_at", { mode: "timestamp" }), completedAt: integer("completed_at", { mode: "timestamp" }), durationMs: integer("duration_ms"),
@@ -170,6 +172,7 @@ export const executableInvariantProposals = sqliteTable("executable_invariant_pr
 
 export const invariantReplayArtifacts = sqliteTable("invariant_replay_artifacts", {
   id: text("id").primaryKey(), hypothesisId: text("hypothesis_id").notNull().references(() => vulnerabilityHypotheses.id, { onDelete: "cascade" }), proposalId: text("proposal_id").notNull().references(() => executableInvariantProposals.id, { onDelete: "cascade" }), invariantRunId: text("invariant_run_id").notNull().references(() => executableInvariantRuns.id, { onDelete: "cascade" }),
+  sourceEngine: text("source_engine", { enum: ["foundry", "echidna"] }).notNull().default("foundry"),
   scanId: text("scan_id").notNull(), resolvedCommit: text("resolved_commit").notNull(), compilerVersion: text("compiler_version").notNull(), invariantPlanHash: text("invariant_plan_hash").notNull(), counterexampleHash: text("counterexample_hash").notNull(), replayPlan: text("replay_plan").notNull(), replayPlanHash: text("replay_plan_hash").notNull(), propertyName: text("property_name").notNull(), parserVersion: text("parser_version").notNull(), harnessHash: text("harness_hash").notNull(), contentFingerprint: text("content_fingerprint").notNull(), createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 

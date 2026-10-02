@@ -1,5 +1,13 @@
 # Release history
 
+## v0.2.1 — Echidna Invariant Engine (release preparation; not published)
+
+Echidna is available as a second local invariant engine alongside Foundry. Users select Foundry or Echidna explicitly; there is no automatic engine selection or fallback. The Echidna integration uses a reproducible patched and pinned 2.3.3 compatibility build, with a static ELF verified by its SHA-256, and a deterministic stateful subset with strict terminal JSON results. Echidna counterexamples that map to the canonical action format reuse ContractHunter's existing deterministic replay pipeline. Engine identity is persisted in immutable run history, and historical v0.2.0 invariant runs migrate as Foundry without rewriting their semantic evidence. Transactional upgrade and fresh-install hardening are covered by regression checks.
+
+Final security validation pins Next.js to 16.3.8 to address GHSA-vcvr-r3jv-pc5j. The production dependency audit reports zero vulnerabilities; the versioned Docker images, fresh isolated Compose startup, and live worker regressions pass.
+
+Foundry remains supported. Echidna's supported semantics are narrower than Foundry's and do not include caller, actor, setup-call, funding, or fuzz-property translation. `held-within-bounds` is bounded evidence, not formal proof. A counterexample is an observation: it requires deterministic replay and explicit relevance review before it can create authoritative supporting evidence or contribute to a lifecycle transition.
+
 ## v0.2.0
 
 Executable invariant plans add bounded Foundry fuzz-property testing and stateful invariant testing with deterministic seeds and configuration. AI can manually propose semantic `invariant-plan-v1` operations, but the server owns scan, hypothesis, commit, compiler, source and canonical-plan identity. Users separately review, validate and run each proposal. The networkless worker independently checks the workspace, trusted compiler and fixed Forge invocation, then a bounded Forge 1.7.1 JSON interpreter records only complete, unambiguous property outcomes.

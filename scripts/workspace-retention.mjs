@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import Database from "better-sqlite3";
-import { lstat, readdir, realpath, rm } from "node:fs/promises";
+import { lstat, readFile, readdir, realpath, rm } from "node:fs/promises";
 import path from "node:path";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -18,8 +18,8 @@ function options(argv) {
 function recordFor(database, id) {
   const verification = database.prepare("SELECT status, completed_at AS completedAt FROM hypothesis_verification_runs WHERE id=?").get(id);
   if (verification) return { kind: "structured-verification", status: verification.status, timestamp: verification.completedAt };
-  const invariant = database.prepare("SELECT status, completed_at AS completedAt FROM executable_invariant_runs WHERE id=?").get(id);
-  if (invariant) return { kind: "invariant-run", status: invariant.status, timestamp: invariant.completedAt };
+  const invariant = database.prepare("SELECT status, completed_at AS completedAt, engine FROM executable_invariant_runs WHERE id=?").get(id);
+  if (invariant) return { kind: "invariant-run", status: invariant.status, timestamp: invariant.completedAt, engine: invariant.engine };
   const replay = database.prepare("SELECT status, completed_at AS completedAt FROM invariant_replay_runs WHERE id=?").get(id);
   if (replay) return { kind: "replay-run", status: replay.status, timestamp: replay.completedAt };
   const artifact = database.prepare("SELECT created_at AS createdAt FROM invariant_replay_artifacts WHERE id=?").get(id);
@@ -28,6 +28,28 @@ function recordFor(database, id) {
     return { kind: "replay-artifact", status: active ? "active" : "completed", timestamp: artifact.createdAt };
   }
   return null;
+}
+
+async function knownWorkspace(absolute, id, record) {
+  const expected = record.kind === "structured-verification" ? [".contracthunter-verification.json", 1] : record.kind === "invariant-run" ? record.engine === "echidna" ? [".contracthunter-echidna.json", 3] : record.engine === "foundry" ? [".contracthunter-invariant.json", 2] : null : [".contracthunter-replay.json", 1];
+  if (!expected) return false;
+  try {
+    const filename = path.join(absolute, expected[0]), info = await lstat(filename);
+    if (!info.isFile() || info.isSymbolicLink() || info.size > 1_048_576) return false;
+    const manifest = JSON.parse(await readFile(filename, "utf8"));
+    if (manifest.formatVersion !== expected[1] || manifest.generatedBy !== "contracthunter" || (record.kind === "structured-verification" ? manifest.verificationRunId : manifest.workspaceId) !== id) return false;
+    if (record.kind === "invariant-run" && (manifest.planKind !== "executable-invariant" || (record.engine === "echidna") !== (manifest.engine === "echidna"))) return false;
+    if ((record.kind === "replay-run" || record.kind === "replay-artifact") && manifest.planKind !== "invariant-replay") return false;
+    const pending = [absolute]; let visited = 0;
+    while (pending.length) {
+      const parent = pending.pop();
+      for (const child of await readdir(parent, { withFileTypes: true })) {
+        if (++visited > 10_000 || child.isSymbolicLink() || (!child.isDirectory() && !child.isFile())) return false;
+        if (child.isDirectory()) pending.push(path.join(parent, child.name));
+      }
+    }
+    return true;
+  } catch { return false; }
 }
 
 export async function inspectWorkspaceRetention(config, now = Date.now()) {
@@ -42,6 +64,7 @@ export async function inspectWorkspaceRetention(config, now = Date.now()) {
       if (entryInfo.isSymbolicLink() || await realpath(absolute) !== absolute) continue;
       const record = recordFor(database, entry.name);
       if (!record) { items.push({ id: entry.name, kind: "unknown", decision: "keep", reason: "no matching immutable database history" }); continue; }
+      if (!await knownWorkspace(absolute, entry.name, record)) { items.push({ id: entry.name, kind: record.kind, decision: "keep", reason: "unknown or unsafe workspace kind" }); continue; }
       if (["queued", "running", "active"].includes(record.status)) { items.push({ id: entry.name, kind: record.kind, decision: "keep", reason: "active workspace" }); continue; }
       if (typeof record.timestamp !== "number") { items.push({ id: entry.name, kind: record.kind, decision: "keep", reason: "terminal timestamp unavailable" }); continue; }
       const retentionDays = ["failed", "refused"].includes(record.status) ? config.failedDays : config.completedDays;
@@ -53,8 +76,19 @@ export async function inspectWorkspaceRetention(config, now = Date.now()) {
 }
 
 export async function applyWorkspaceRetention(report) {
-  for (const item of report.items.filter((candidate) => candidate.decision === "delete")) await rm(path.join(report.root, item.id), { recursive: true, force: false });
-  return report.items.filter((item) => item.decision === "delete").map((item) => item.id);
+  const deleted = [];
+  for (const item of report.items.filter((candidate) => candidate.decision === "delete")) {
+    const absolute = path.join(report.root, item.id), info = await lstat(absolute);
+    if (!info.isDirectory() || info.isSymbolicLink() || await realpath(absolute) !== absolute) continue;
+    const database = new Database(report.database, { readonly: true, fileMustExist: true });
+    try {
+      const record = recordFor(database, item.id), days = ["failed", "refused"].includes(record?.status) ? report.failedDays : report.completedDays;
+      if (!record || ["queued", "running", "active"].includes(record.status) || typeof record.timestamp !== "number" || Date.now() - record.timestamp < days * 86_400_000 || !await knownWorkspace(absolute, item.id, record)) continue;
+    }
+    finally { database.close(); }
+    await rm(absolute, { recursive: true, force: false }); deleted.push(item.id);
+  }
+  return deleted;
 }
 
 const invoked = process.argv[1] && path.resolve(process.argv[1]) === path.resolve(new URL(import.meta.url).pathname);

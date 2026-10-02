@@ -56,10 +56,11 @@ describe("production verification worker boundary", () => {
 
   it("ships Forge only in the worker runtime and excludes Bubblewrap", async () => {
     const dockerfile = await readFile(path.join(root, "Dockerfile"), "utf8");
-    const worker = dockerfile.split("FROM node:22-bookworm-slim AS verification-worker-runtime")[1].split("FROM node:22-bookworm-slim AS runner")[0];
-    const web = dockerfile.split("FROM node:22-bookworm-slim AS runner")[1];
+    const worker = dockerfile.split(/FROM node:22-bookworm-slim@sha256:[a-f0-9]{64} AS verification-worker-runtime/)[1].split(/FROM node:22-bookworm-slim@sha256:[a-f0-9]{64} AS runner/)[0];
+    const web = dockerfile.split(/FROM node:22-bookworm-slim@sha256:[a-f0-9]{64} AS runner/)[1];
     expect(worker).toContain("COPY --from=foundry /usr/local/bin/forge");
-    expect(worker).toContain("util-linux");
+    expect(worker).toContain("COPY --from=echidna-compat /out/echidna");
+    expect(worker).not.toContain("apt-get install");
     expect(worker).toContain("useradd --uid 10002 --gid contracthunter");
     expect(worker).not.toMatch(/bubblewrap|slither|aderyn|git |docker /i);
     expect(web).not.toMatch(/bubblewrap|prlimit --version/);

@@ -3,8 +3,9 @@ import { invariantTestFactSchema } from "./executable-invariant-result";
 import path from "node:path";
 import { realpath } from "node:fs/promises";
 import { z } from "zod";
+import { ECHIDNA_BINARY_SHA256, ECHIDNA_BUILD_ID, ECHIDNA_COMPAT_VERSION, ECHIDNA_LIMITS, ECHIDNA_UPSTREAM_VERSION, executableInvariantCounterexampleSchema } from "@contracthunter/core";
 import type { FoundryVerificationInput, FoundryVerificationResult } from "./foundry-verification-runner";
-import { encodeWorkerFrame, verificationWorkerRequestSchema, executableInvariantWorkerRequestSchema, invariantReplayWorkerRequestSchema, INVARIANT_TIMEOUT_MS, INVARIANT_MAX_OUTPUT_BYTES, REPLAY_TIMEOUT_MS, REPLAY_MAX_OUTPUT_BYTES, WorkerFrameDecoder, WORKER_REQUEST_MAX_BYTES, WORKER_RESPONSE_MAX_BYTES, WORKER_SOCKET_PATH } from "./verification-worker-protocol";
+import { encodeWorkerFrame, verificationWorkerRequestSchema, executableInvariantWorkerRequestSchema, invariantReplayWorkerRequestSchema, echidnaInvariantWorkerRequestSchema, INVARIANT_TIMEOUT_MS, INVARIANT_MAX_OUTPUT_BYTES, REPLAY_TIMEOUT_MS, REPLAY_MAX_OUTPUT_BYTES, WorkerFrameDecoder, WORKER_REQUEST_MAX_BYTES, WORKER_RESPONSE_MAX_BYTES, WORKER_SOCKET_PATH } from "./verification-worker-protocol";
 
 const limits = z.object({ maxCpuTimeSeconds: z.number().int().min(1).max(300), maxVirtualMemoryBytes: z.literal(2_147_483_648), maxProcesses: z.literal(64), maxOpenFiles: z.literal(256), maxFileSizeBytes: z.literal(67_108_864) }).strict();
 const isolation = z.object({ providerId: z.literal("docker-verification-worker-v1"), isolationVersion: z.literal("1"), networkAccess: z.literal("disabled"), networkIsolated: z.literal(true), processIsolated: z.literal(true), resourceLimitsApplied: limits, wallClockTimeoutMs: z.number().int(), maxOutputBytes: z.number().int(), writableProjectPath: z.string(), workerUid: z.literal(10002) }).strict();
@@ -15,7 +16,7 @@ const resultSchema = z.object({
   errorCode: z.string().nullable(), errorMessage: z.string().nullable(), isolation: isolation.nullable(),
   compilerIdentity: z.object({ version: z.string(), executablePath: z.string() }).strict(),
 }).strict();
-const workerErrorCode = z.enum(["invalid_workspace", "invalid_manifest", "manifest_mismatch", "trusted_compiler_unavailable", "verification_worker_unavailable", "verification_worker_isolation_unavailable", "verification_worker_protocol_error", "invariant_workspace_invalid", "invariant_manifest_mismatch", "invariant_worker_unavailable", "invariant_worker_isolation_unavailable", "invariant_execution_timeout", "invariant_forge_failed", "invariant_result_unparseable", "replay_workspace_invalid", "replay_manifest_mismatch", "replay_worker_unavailable", "replay_worker_isolation_unavailable", "replay_execution_timeout", "replay_forge_failed", "replay_result_unparseable"]);
+const workerErrorCode = z.enum(["invalid_workspace", "invalid_manifest", "manifest_mismatch", "trusted_compiler_unavailable", "verification_worker_unavailable", "verification_worker_isolation_unavailable", "verification_worker_protocol_error", "invariant_workspace_invalid", "invariant_manifest_mismatch", "invariant_worker_unavailable", "invariant_worker_isolation_unavailable", "invariant_execution_timeout", "invariant_forge_failed", "invariant_result_unparseable", "replay_workspace_invalid", "replay_manifest_mismatch", "replay_worker_unavailable", "replay_worker_isolation_unavailable", "replay_execution_timeout", "replay_forge_failed", "replay_result_unparseable", "echidna_workspace_invalid", "echidna_manifest_mismatch", "echidna_worker_isolation_unavailable", "echidna_execution_timeout", "echidna_output_oversized", "echidna_result_unparseable"]);
 const responseSchema = z.union([z.object({ result: resultSchema }).strict(), z.object({ errorCode: workerErrorCode, errorMessage: z.string().max(256) }).strict()]);
 
 export function workerFailure(code: FoundryVerificationResult["errorCode"], message: string, startedAt = Date.now()): FoundryVerificationResult {
@@ -103,6 +104,46 @@ export class ExecutableInvariantWorkerClient {
     } catch (error) {
       return refused(error instanceof Error && error.message === "timeout" ? "invariant_execution_timeout" : error instanceof Error && error.message === "protocol" ? "verification_worker_protocol_error" : "invariant_worker_unavailable", "Invariant worker is unavailable or did not complete the bounded request.");
     }
+  }
+}
+
+const echidnaResultSchema = z.object({
+  engine: z.literal("echidna"), status: z.enum(["completed", "failed"]), planHash: z.string().regex(/^[a-f0-9]{64}$/),
+  exitCode: z.number().int(), durationMs: z.number().int().nonnegative(), timedOut: z.boolean(), outputTruncated: z.boolean(), errorCode: z.string().nullable(), errorMessage: z.string().nullable(),
+  seed: z.number().int().nonnegative().nullable(), executedCalls: z.number().int().nonnegative().nullable(), campaignStopReason: z.string().nullable(),
+  tests: z.array(z.object({ propertyName: z.string().regex(/^[A-Za-z][A-Za-z0-9_]{0,63}$/), outcome: z.enum(["held-within-bounds", "counterexample-found", "execution-failed", "inconclusive"]), counterexample: executableInvariantCounterexampleSchema.nullable(), replayAvailable: z.boolean() }).strict()).max(16),
+  stdoutSummary: z.string().max(2048), stderrSummary: z.string().max(2048), binaryHash: z.literal(ECHIDNA_BINARY_SHA256), echidnaVersion: z.literal(ECHIDNA_UPSTREAM_VERSION), compatibilityVersion: z.literal(ECHIDNA_COMPAT_VERSION), buildId: z.literal(ECHIDNA_BUILD_ID),
+  compilerIdentity: z.object({ version: z.string(), executablePath: z.string() }).strict(), isolation,
+}).strict();
+export type EchidnaInvariantWorkerResult = z.infer<typeof echidnaResultSchema>;
+export type EchidnaInvariantWorkerInput = { workspacePath: string; scanId: string; hypothesisId: string; resolvedCommit: string; compilerVersion: string; planHash: string };
+const echidnaResponseSchema = z.union([z.object({ result: echidnaResultSchema }).strict(), z.object({ errorCode: workerErrorCode, errorMessage: z.string().max(256) }).strict()]);
+export class EchidnaInvariantWorkerClient {
+  constructor(private readonly verificationRoot: string, private readonly socketPath = WORKER_SOCKET_PATH) {}
+  async run(input: EchidnaInvariantWorkerInput): Promise<EchidnaInvariantWorkerResult | { status: "refused"; errorCode: string }> {
+    let request: z.infer<typeof echidnaInvariantWorkerRequestSchema>, workspace: string;
+    try {
+      const root = await realpath(this.verificationRoot); workspace = await realpath(input.workspacePath);
+      if (path.dirname(workspace) !== root || path.basename(workspace) !== path.basename(input.workspacePath)) throw new Error();
+      request = echidnaInvariantWorkerRequestSchema.parse({ command: "execute-echidna-invariant", runId: path.basename(workspace), workspaceId: path.basename(workspace), scanId: input.scanId, hypothesisId: input.hypothesisId, resolvedCommit: input.resolvedCommit, compilerVersion: input.compilerVersion, planHash: input.planHash });
+    } catch { return { status: "refused", errorCode: "echidna_workspace_invalid" }; }
+    try {
+      const response = await new Promise<unknown>((resolve, reject) => {
+        const socket = net.createConnection(this.socketPath), decoder = new WorkerFrameDecoder(WORKER_RESPONSE_MAX_BYTES);
+        const timer = setTimeout(() => { socket.destroy(); reject(new Error("timeout")); }, ECHIDNA_LIMITS.wallClockTimeoutMs + 20_000);
+        let settled = false;
+        const finish = (error?: Error, value?: unknown) => { if (settled) return; settled = true; clearTimeout(timer); socket.destroy(); if (error) reject(error); else resolve(value); };
+        socket.on("connect", () => { try { socket.write(encodeWorkerFrame(request, WORKER_REQUEST_MAX_BYTES)); } catch { finish(new Error("protocol")); } });
+        socket.on("data", (chunk: Buffer) => { try { const value = decoder.push(chunk); if (value !== undefined) finish(undefined, value); } catch { finish(new Error("protocol")); } });
+        socket.on("error", () => finish(new Error("unavailable"))); socket.on("end", () => finish(new Error("protocol")));
+      });
+      const parsed = echidnaResponseSchema.safeParse(response);
+      if (!parsed.success) return { status: "refused", errorCode: "verification_worker_protocol_error" };
+      if ("errorCode" in parsed.data) return { status: "refused", errorCode: parsed.data.errorCode };
+      const value = parsed.data.result, expectedCompilerPath = `/data/tool-home/.solc-select/artifacts/solc-${request.compilerVersion}/solc-${request.compilerVersion}`;
+      if (value.planHash !== request.planHash || value.compilerIdentity.version !== request.compilerVersion || value.compilerIdentity.executablePath !== expectedCompilerPath || value.isolation.wallClockTimeoutMs !== ECHIDNA_LIMITS.wallClockTimeoutMs || value.isolation.maxOutputBytes !== ECHIDNA_LIMITS.maxOutputBytes || value.isolation.writableProjectPath !== workspace || value.isolation.resourceLimitsApplied.maxCpuTimeSeconds !== 181 || (value.status === "completed") !== (value.errorCode === null)) return { status: "refused", errorCode: "verification_worker_protocol_error" };
+      return value;
+    } catch (error) { return { status: "refused", errorCode: error instanceof Error && error.message === "timeout" ? "echidna_execution_timeout" : error instanceof Error && error.message === "protocol" ? "verification_worker_protocol_error" : "echidna_worker_unavailable" }; }
   }
 }
 

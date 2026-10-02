@@ -11,7 +11,7 @@ Use it only with repositories and contracts you are authorised to analyse. Repos
 - Optional AI protocol analysis and specialist security review
 - Ranked vulnerability hypotheses
 - Structured local verification with deterministic Foundry harnesses
-- Foundry fuzz testing and stateful invariant testing
+- Foundry fuzz testing and stateful invariant testing, with Echidna as a manually selected second local engine for a narrower stateful subset
 - Deterministic counterexample replay with explicit relevance review
 - API cost estimates and recorded usage visibility
 - Local-first, Docker-first operation
@@ -26,6 +26,34 @@ Repository → Slither + Aderyn → Investigations → Static scan complete
 ```
 
 Static scanning does not use OpenAI tokens. AI stages are optional and manual. AI hypotheses are not verified vulnerabilities. Local verification is explicit and fail-closed. Bounded fuzzing is not formal proof.
+
+## Milestones
+
+**v0.2.0 — Executable invariants** · Released
+
+Deterministic Foundry fuzz/property and stateful invariant testing, AI semantic invariant proposals, deterministic counterexample replay, explicit relevance review, and authoritative dynamic evidence.
+
+**v0.2.1 — Echidna invariant engine** · Release-ready; publication pending
+
+- **Milestone 1 — Engine foundation:** reproducible patched Echidna 2.3.3, networkless worker execution, a deterministic stateful invariant subset, strict structured output, and reuse of the existing replay pipeline.
+- **Milestone 2 — Explicit engine workflow:** manual Foundry/Echidna selection, persisted engine provenance, compatibility reporting, Echidna run history, and Echidna-origin deterministic replay.
+- **Milestone 3 — Release hardening:** migration hardening, fresh-install validation, public workflow QA, malformed-output and tamper regression coverage.
+
+Echidna supports a bounded compatible subset; bounded success means no counterexample was found within the configured budget, not that safety is proven. A counterexample alone does not verify a vulnerability.
+
+**v0.2.2 — Smarter verification** · Planned
+
+Smarter verification-plan selection, better hypothesis/property selection, root-cause grouping, and finding/hypothesis deduplication.
+
+**v0.3 — Autonomous local auditing** · Planned
+
+More automated local audit orchestration, a static analysis → AI review → verification workflow, and local audit/report generation, while preserving existing verification and security boundaries.
+
+See the [full roadmap](docs/roadmap.md) for details.
+
+## Future
+
+Possible future work includes per-stage AI models, additional scanners, Vyper, benchmark/regression scoring, local LLM support, CI/PR review mode, and broader Echidna semantics after equivalence and replay safety are proven.
 
 ## Quick start
 

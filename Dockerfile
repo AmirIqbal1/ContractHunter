@@ -1,4 +1,4 @@
-FROM debian:bookworm-slim AS data-initializer
+FROM debian:bookworm-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251 AS data-initializer
 RUN mkdir -p /data/tool-home \
   && chown 10001:10001 /data /data/tool-home \
   && chmod 0755 /data /data/tool-home
@@ -7,7 +7,7 @@ USER 10001:10001
 # rmdir fails closed if that directory contains any existing cache data.
 CMD ["sh", "-ec", "if [ -d /data/tool-home ] && [ ! -w /data/tool-home ]; then rmdir /data/tool-home; fi; mkdir -p /data/tool-home && test -d /data/tool-home && test -r /data/tool-home && test -w /data/tool-home && test -x /data/tool-home"]
 
-FROM node:22-bookworm-slim AS dependencies
+FROM node:22-bookworm-slim@sha256:d649c27dae7ba0137b3cef5dd75baa422c08dc3d9e3fc0c23dfb172dc3cc6436 AS dependencies
 WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ && rm -rf /var/lib/apt/lists/*
 COPY package.json package-lock.json ./
@@ -17,7 +17,7 @@ COPY packages/db/package.json packages/db/package.json
 COPY packages/scanners/package.json packages/scanners/package.json
 RUN npm ci
 
-FROM node:22-bookworm-slim AS builder
+FROM node:22-bookworm-slim@sha256:d649c27dae7ba0137b3cef5dd75baa422c08dc3d9e3fc0c23dfb172dc3cc6436 AS builder
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV DATA_DIR=/app/data
@@ -27,7 +27,7 @@ COPY --from=dependencies /app/node_modules ./node_modules
 COPY . .
 RUN npm run build
 
-FROM node:22-bookworm-slim AS aderyn
+FROM node:22-bookworm-slim@sha256:d649c27dae7ba0137b3cef5dd75baa422c08dc3d9e3fc0c23dfb172dc3cc6436 AS aderyn
 ARG ADERYN_VERSION=0.6.8
 ARG TARGETARCH
 ADD --checksum=sha256:ffd6ca658962e211a3ac821c646f69c8e14bf1b1001cbfe091bcd4535a691e46 https://github.com/Cyfrin/aderyn/releases/download/aderyn-v0.6.8/aderyn-x86_64-unknown-linux-gnu.tar.xz /tmp/aderyn-amd64.tar.xz
@@ -38,7 +38,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends xz-utils \
   && install -m 0755 "/tmp/${directory}/aderyn" /usr/local/bin/aderyn \
   && test "$(aderyn --version)" = "aderyn ${ADERYN_VERSION}"
 
-FROM node:22-bookworm-slim AS foundry
+FROM node:22-bookworm-slim@sha256:d649c27dae7ba0137b3cef5dd75baa422c08dc3d9e3fc0c23dfb172dc3cc6436 AS foundry
 ARG FOUNDRY_VERSION=1.7.1
 ARG TARGETARCH
 ADD --checksum=sha256:cf7e688ed0c4c48adffca788b496076e31060b67ac5afe1e43dbb5499c20c88b https://github.com/foundry-rs/foundry/releases/download/v1.7.1/foundry_v1.7.1_linux_amd64.tar.gz /tmp/foundry-amd64.tar.gz
@@ -48,19 +48,35 @@ RUN case "${TARGETARCH}" in amd64) archive=/tmp/foundry-amd64.tar.gz ;; arm64) a
   && install -m 0755 /tmp/forge /usr/local/bin/forge \
   && forge --version
 
-FROM node:22-bookworm-slim AS verification-worker
+FROM nixos/nix:2.24.14@sha256:4411619b45575be9fb47063c0878e2d9ef86988678b23c01bf3dd1b967d753fc AS echidna-compat
+COPY third_party/echidna/upstream-v2.3.3.tar.gz third_party/echidna/contracthunter-compat-v1.patch /build/
+COPY docker/echidna/build.sh /build/build.sh
+RUN sh /build/build.sh
+
+FROM python:3.11-slim-bookworm@sha256:a36c24f9cbdf4fd0f52d67f0823eeac19c2028c637cecc392d97f980d4fec56b AS echidna-crytic
+COPY third_party/echidna/crytic-requirements.lock /build/crytic-requirements.lock
+RUN python3 -m pip install --no-cache-dir --only-binary=:all: --require-hashes -r /build/crytic-requirements.lock \
+  && crytic-compile --version
+
+FROM node:22-bookworm-slim@sha256:d649c27dae7ba0137b3cef5dd75baa422c08dc3d9e3fc0c23dfb172dc3cc6436 AS verification-worker
 WORKDIR /worker
 ENV NODE_ENV=production
 COPY --from=dependencies /app/node_modules ./node_modules
 COPY packages ./packages
 COPY docker/verification-worker.ts ./docker/verification-worker.ts
 RUN /worker/node_modules/.bin/esbuild docker/verification-worker.ts --bundle --platform=node --format=cjs --target=node22 --outfile=/worker/verification-worker.cjs
-FROM node:22-bookworm-slim AS verification-worker-runtime
+FROM node:22-bookworm-slim@sha256:d649c27dae7ba0137b3cef5dd75baa422c08dc3d9e3fc0c23dfb172dc3cc6436 AS verification-worker-runtime
 ENV NODE_ENV=production
 COPY --from=verification-worker /worker/verification-worker.cjs /worker/verification-worker.cjs
 COPY --from=foundry /usr/local/bin/forge /usr/local/bin/forge
-RUN apt-get update && apt-get install -y --no-install-recommends util-linux && rm -rf /var/lib/apt/lists/* \
-  && groupadd --gid 10001 contracthunter \
+COPY --from=echidna-compat /out/echidna /opt/contracthunter/echidna/echidna
+COPY third_party/echidna/build-manifest.json /opt/contracthunter/echidna/build-manifest.json
+COPY --from=echidna-crytic /usr/local/bin/python3.11 /usr/local/bin/python
+COPY --from=echidna-crytic /usr/local/bin/python3.11 /usr/local/bin/python3
+COPY --from=echidna-crytic /usr/local/bin/crytic-compile /usr/local/bin/crytic-compile
+COPY --from=echidna-crytic /usr/local/lib/python3.11 /usr/local/lib/python3.11
+COPY --from=echidna-crytic /usr/local/lib/libpython3.11.so.1.0 /usr/local/lib/libpython3.11.so.1.0
+RUN groupadd --gid 10001 contracthunter \
   && useradd --uid 10002 --gid contracthunter --home-dir /home/contracthunter --no-create-home --shell /usr/sbin/nologin contracthunter-verifier \
   && mkdir -p /verification /run/contracthunter-verification /home/contracthunter /data/tool-home \
   && chown 10001:10001 /verification \
@@ -69,7 +85,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends util-linux && r
 USER 10002:10001
 CMD ["node", "/worker/verification-worker.cjs"]
 
-FROM node:22-bookworm-slim AS runner
+FROM node:22-bookworm-slim@sha256:d649c27dae7ba0137b3cef5dd75baa422c08dc3d9e3fc0c23dfb172dc3cc6436 AS runner
 WORKDIR /app
 ARG SLITHER_VERSION=0.11.3
 ENV NODE_ENV=production

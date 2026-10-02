@@ -13,6 +13,7 @@ export const invariantReplayPlanSchema = z.object({
   schemaVersion: z.literal(INVARIANT_REPLAY_SCHEMA_VERSION), hypothesisId: uuid, scanId: uuid,
   resolvedCommit: z.string().regex(/^[a-f0-9]{40}$/), compilerVersion: stableCompilerVersionSchema,
   proposalId: uuid, invariantRunId: uuid, invariantPlanHash: sha256, propertyName: z.string().regex(/^[A-Za-z][A-Za-z0-9_]{0,63}$/),
+  sourceEngine: z.enum(["foundry", "echidna"]).optional(),
   hypothesisExpectation: invariantHypothesisExpectationSchema, counterexample: executableInvariantCounterexampleSchema, counterexampleHash: sha256,
 }).strict().superRefine((plan, context) => {
   if (counterexampleHash(plan.counterexample) !== plan.counterexampleHash) context.addIssue({ code: z.ZodIssueCode.custom, message: "Counterexample hash is invalid." });

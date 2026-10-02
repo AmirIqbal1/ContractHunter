@@ -61,6 +61,14 @@ describe("pinned Forge 1.7.1 JSON interpretation", () => {
     expect(failed?.tests[0].counterexample).toMatchObject({ kind: "sequence", actions: [{ actionName: "takeOwnership" }] });
     expect(interpretInvariantFacts(plan, failed!, "docker-verification-worker-v1")).toMatchObject([{ hypothesisRelation: "unreviewed" }]);
   });
+  it("uses Forge raw stateful arguments when display text contains scientific notation", () => {
+    const original = stateful();
+    if (original.mode !== "stateful-invariant") throw new Error("Stateful fixture required.");
+    const plan = executableInvariantPlanSchema.parse({ ...original, handlerActions: [{ ...original.handlerActions[0], parameters: [{ name: "amount", type: "uint256" }], args: [{ kind: "parameter", name: "amount" }] }, original.handlerActions[1]] });
+    const raw = forgeJson("ContractHunterInvariantTest", "invariant_ownerStable()", "Failure", "Invariant", 1, { Sequence: [1, [{ contract_name: "test/ContractHunterInvariant.t.sol:ContractHunterHandler", signature: "action_touch(uint256)", args: "24785092003 [2.478e10]", raw_args: "24785092003" }]] });
+    expect(parseTrustedInvariantForgeResult(raw, plan, 1, false)?.tests[0].counterexample).toMatchObject({ kind: "sequence", actions: [{ actionName: "touch", parameterValues: [{ name: "amount", type: "uint256", value: "24785092003" }] }] });
+    expect(parseInvariantForgeJson(raw.replace('"raw_args":"24785092003"', '"raw_args":"not-a-uint"'), plan)).toBeNull();
+  });
   it("fails closed on unrelated, incomplete, malformed, or oversized Forge output", () => {
     const plan = fuzz();
     expect(parseInvariantForgeJson("not-json", plan)).toBeNull();

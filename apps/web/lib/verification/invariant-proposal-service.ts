@@ -13,7 +13,7 @@ import {
   createExecutableInvariantProposal, getCurrentProtocolAnalysis, getDatabase, getExecutableInvariantProposal,
   getInvestigation, getInvariant, getScan, getVulnerabilityHypothesis, type DatabaseClient, type ExecutableInvariantProposalRow,
 } from "@contracthunter/db";
-import { ExecutableInvariantGenerator, extractSolidityPragmas, SolidityFunctionValidationError } from "@contracthunter/scanners";
+import { ExecutableInvariantGenerator, extractSolidityPragmas, SolidityFunctionValidationError, validateEchidnaPlanCompatibility, type EchidnaCompatibility } from "@contracthunter/scanners";
 import { OpenAIProvider } from "@/lib/ai/openai-provider";
 
 export class InvariantProposalRequestError extends Error {
@@ -124,7 +124,7 @@ export class InvariantProposalService {
       return finish(result("generated", null, plan.data, parsed.data.rationale, parsed.data.limitations, [], parsed.data.hypothesisExpectation, parsed.data.relationRationale));
     } catch (error) { if (writing) throw error; return finish(result("failed", "invalid_invariant_source")); }
   }
-  async validate(hypothesisId: string, proposalId: string): Promise<{ plan: ExecutableInvariantPlan; planHash: string }> {
+  async validate(hypothesisId: string, proposalId: string): Promise<{ plan: ExecutableInvariantPlan; planHash: string; compatibility: { foundry: { compatible: true; reasons: [] }; echidna: EchidnaCompatibility } }> {
     const row = getExecutableInvariantProposal(this.options.database, proposalId);
     if (!row || row.hypothesisId !== hypothesisId) throw new InvariantProposalRequestError("unknown_proposal", "Invariant proposal not found.");
     if (row.status !== "generated" || !row.plan || !row.planHash) throw new InvariantProposalRequestError("invalid_state", "This proposal cannot be executed.");
@@ -138,7 +138,7 @@ export class InvariantProposalService {
     if (!contextManifest.sourceHashes || Object.keys(contextManifest.sourceHashes).length !== sources.size || [...sources].some(([file, source]) => contextManifest.sourceHashes?.[file] !== createHash("sha256").update(source).digest("hex")) || selectedCompiler(scan.compilerVersions, sources) !== plan.compilerVersion || !sources.has(plan.primarySourcePath)) throw new InvariantProposalRequestError("invalid_state", "Trusted compiler or source mapping changed.");
     try { new ExecutableInvariantGenerator().generate(plan, sources); }
     catch { throw new InvariantProposalRequestError("invalid_state", "Invariant source validation failed."); }
-    return { plan, planHash: row.planHash };
+    return { plan, planHash: row.planHash, compatibility: { foundry: { compatible: true, reasons: [] }, echidna: validateEchidnaPlanCompatibility(plan, sources) } };
   }
 }
 export function createInvariantProposalService(database: DatabaseClient = getDatabase()): InvariantProposalService {

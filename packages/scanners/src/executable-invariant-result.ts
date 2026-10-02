@@ -41,7 +41,7 @@ function counterexample(raw: unknown, plan: ExecutableInvariantPlan): InvariantC
     const actions = steps.map((item) => {
       const entry = record(item);
       const signature = String(entry?.signature), action = plan.handlerActions.find((candidate) => signature === `action_${candidate.name}(${candidate.parameters.map((parameter) => parameter.type).join(",")})`);
-      const parameterValues = action ? values(entry?.args, action.parameters) : null;
+      const parameterValues = action ? values(entry?.raw_args ?? entry?.args, action.parameters) : null;
       return action && parameterValues ? { actionName: action.name, parameterValues } : null;
     });
     if (actions.some((action) => action === null)) return null;
