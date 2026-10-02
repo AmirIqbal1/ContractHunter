@@ -1,4 +1,4 @@
-# Echidna compatibility build (v0.2.1 development)
+# Echidna compatibility build (ContractHunter v0.2.1 release preparation)
 
 ContractHunter uses a locally modified build of [crytic/echidna](https://github.com/crytic/echidna), upstream tag `v2.3.3`, commit `4454f3a337ed58e89a3be488b8eac03e83cd40f2`. The official source archive is included as `upstream-v2.3.3.tar.gz` (SHA-256 `fab7817640a613856365766031518a8bde5471a9fb14618dfb0b77e3820a7cba`). Its license is reproduced in `LICENSE`.
 
