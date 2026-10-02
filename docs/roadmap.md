@@ -18,7 +18,7 @@ Milestone 4 separates property outcomes from hypothesis relations. Counterexampl
 
 Release hardening completed transactional v0.1.9 migration, fresh-install and upgrade probes, UI component plus SSR/API workflow QA, fresh retry workspaces, conservative workspace-retention tooling, malformed Forge-output regression coverage, real replay/lifecycle probes, legacy structured-verification regression, and final worker/API trust-boundary review. Broader invariant semantics, inverse hypothesis relationships, multi-counterexample selection, and autonomous execution remain out of scope.
 
-## v0.2.1 — completed / release-ready
+## v0.2.1 — completed / released
 
 Milestone 1 is implemented as an internal Echidna execution branch in the existing networkless worker. It uses the pinned, locally patched Echidna 2.3.3 compatibility build, strict terminal JSON, a deterministic stateful-plan subset, a separate version 3 manifest, the existing trusted solc resolver, and canonical action-sequence mapping to the existing Foundry replay format. Foundry remains available. No AI prompt, public engine selector, automatic dual execution, or lifecycle policy changes are part of this milestone.
 
@@ -26,9 +26,11 @@ Milestone 2 implements additive public engine persistence, deterministic compati
 
 Milestone 3 hardening is complete. A copied v0.2.0-shaped database retained historical rows and Foundry identity through the upgrade; failures in any pending migration or final validation roll back the whole startup transaction. Separate fresh Compose volumes started with an empty compiler cache and refused missing-solc jobs as `trusted_compiler_unavailable`. Mocked public workflows, malformed-result and tamper cases, retry workspaces, retention policy, and live worker isolation were checked. Isolated real-worker probes covered safe Foundry and Echidna stateful runs, vulnerable Echidna and Foundry counterexamples, Echidna-origin reproduction and explicit review, deliberate non-reproduction without evidence, and the historical Foundry fuzz path. Final release preparation updates the application version to 0.2.1, pins Next.js 16.3.8, and passes the production audit, isolated Compose startup, and live worker smoke. Publishing and tagging remain manual. Caller/setup expansion, fuzz-property Echidna translation, and broader address semantics remain unsupported.
 
-## v0.2.2
+## v0.2.2 — in development
 
-Smarter verification / plan selection / root-cause grouping.
+Milestone 1 Part 1 implements an internal, deterministic assessment of four existing verification strategies: structured verification, Foundry fuzz property, Foundry stateful invariant, and Echidna stateful invariant. Bounded facts come only from exact correlated scanner source/rule IDs and resolved investigation contract identity. Canonical profiles reflect current plan capabilities; missing or unmapped evidence produces `unknown`. Results are advisory only: they do not validate a concrete plan, rank strategies, invoke AI, execute verification, or change evidence or hypothesis status.
+
+Later work will select appropriate plans using this assessment, then improve hypothesis/property selection and root-cause grouping and deduplication. No automatic engine execution or broader Echidna semantics is included in Part 1.
 
 ## v0.3
 

@@ -4,9 +4,9 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { validAIOutput, verificationHarnessPlanSchema, type DynamicEvidence, type ProtocolAnalysisResult, type VerificationOutcome } from "@contracthunter/core";
 import {
-  closeDatabase, completeHypothesisVerificationRun, createDatabase, createHypothesisVerificationRun, createProtocolAnalysis, createScan,
+  assessPersistedHypothesisVerificationStrategies, closeDatabase, completeHypothesisVerificationRun, createDatabase, createHypothesisVerificationRun, createProtocolAnalysis, createScan,
   createSecurityReviewerRun, createSecurityReviewPlan, failHypothesisVerificationRun, getHypothesisVerificationRun, getLatestHypothesisVerificationRun,
-  getVulnerabilityHypothesis, insertVulnerabilityHypotheses, listHypothesisVerificationRuns, markHypothesisVerificationRunRunning,
+  getVulnerabilityHypothesis, insertFindings, insertVulnerabilityHypotheses, listHypothesisVerificationRuns, markHypothesisVerificationRunRunning, reconcileInvestigations,
   updateVulnerabilityHypothesisStatus, verifyHypothesisFromDynamicEvidence, type DatabaseClient, type HypothesisVerificationRunRow,
 } from "./index";
 
@@ -56,6 +56,23 @@ function complete(run: HypothesisVerificationRunRow, outcome: VerificationOutcom
 }
 
 describe("hypothesis verification persistence", () => {
+  it("assesses persisted correlated scanner evidence without changing historical state", () => {
+    insertFindings(database, scanId, [{
+      title: "Timestamp dependence", severity: "medium", confidence: 80, source: "slither", detectorId: "timestamp",
+      fingerprint: "f".repeat(64), contract: "Vault", functionName: "draw", filePath: "src/Vault.sol",
+      startLine: 10, endLine: 10, rootCause: "Timestamp controls the outcome.", attackScenario: "", impact: "", evidence: "fixture", status: "candidate",
+    }]);
+    const investigation = reconcileInvestigations(database, scanId)[0];
+    database.sqlite.prepare("UPDATE vulnerability_hypotheses SET related_investigation_ids = ? WHERE id = ?")
+      .run(JSON.stringify([investigation.id]), hypothesisId);
+    const before = getVulnerabilityHypothesis(database, hypothesisId);
+    const result = assessPersistedHypothesisVerificationStrategies(database, hypothesisId);
+    expect(result?.requirements).toEqual(["block-timestamp"]);
+    expect(result?.strategies.every((strategy) => strategy.compatibility === "incompatible")).toBe(true);
+    expect(getVulnerabilityHypothesis(database, hypothesisId)).toEqual(before);
+    expect(assessPersistedHypothesisVerificationStrategies(database, "absent")).toBeUndefined();
+  });
+
   it("creates a queued run and permits only queued -> running", () => {
     const run = createRun();
     expect(run).toMatchObject({ hypothesisId, scanId, resolvedCommit: commit, status: "queued", outcome: null, dynamicEvidence: "[]" });

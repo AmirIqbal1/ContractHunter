@@ -19,3 +19,4 @@ export * from "./executable-invariant";
 export * from "./echidna-invariant";
 export * from "./invariant-proposal";
 export * from "./invariant-replay";
+export * from "./verification-strategy-assessment";

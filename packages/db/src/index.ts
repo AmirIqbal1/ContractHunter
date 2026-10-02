@@ -4,8 +4,8 @@ import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/better-sqlite3";
-import type { ExecutableInvariantPlan, ExecutableInvariantEvidence, InvariantProposalGenerationResult, InvariantReplayPlan, AIAnalysisStatus, CompilerStatus, CompleteHypothesisVerificationRunInput, CreateHypothesisVerificationRunInput, CreateScanInput, DependencyStatus, DynamicEvidence, FailHypothesisVerificationRunInput, FindingStatus, HypothesisStatus, InvariantCategory, InvariantStatus, InvariantTestability, InvestigationStatus, NewFinding, ProtocolAnalysisResult, ReviewRunStatus, ReviewStageStatus, ScannerStatus, ScanStatus, SecurityReviewPlan, Severity, ValidatedEvidence } from "@contracthunter/core";
-import { ECHIDNA_LIMITS, INVARIANT_COUNTEREXAMPLE_PARSER_VERSION, executableInvariantPlanSchema, executableInvariantEvidenceSchema, invariantPlanHash, invariantReplayPlanHash, invariantReplayPlanSchema, assertTransition, assertVerificationRunTransition, buildInvestigations, completeHypothesisVerificationRunSchema, correlateHypotheses, createHypothesisVerificationRunSchema, dynamicEvidenceSchema, failHypothesisVerificationRunSchema, findingSchema, investigationSchema, loadConfig, scanSchema } from "@contracthunter/core";
+import type { ExecutableInvariantPlan, ExecutableInvariantEvidence, InvariantProposalGenerationResult, InvariantReplayPlan, AIAnalysisStatus, CompilerStatus, CompleteHypothesisVerificationRunInput, CreateHypothesisVerificationRunInput, CreateScanInput, DependencyStatus, DynamicEvidence, FailHypothesisVerificationRunInput, FindingStatus, HypothesisStatus, InvariantCategory, InvariantStatus, InvariantTestability, InvestigationStatus, NewFinding, ProtocolAnalysisResult, ReviewRunStatus, ReviewStageStatus, ScannerStatus, ScanStatus, SecurityReviewPlan, Severity, ValidatedEvidence, VerificationStrategyAssessment } from "@contracthunter/core";
+import { ECHIDNA_LIMITS, INVARIANT_COUNTEREXAMPLE_PARSER_VERSION, assessVerificationStrategies, executableInvariantPlanSchema, executableInvariantEvidenceSchema, invariantPlanHash, invariantReplayPlanHash, invariantReplayPlanSchema, assertTransition, assertVerificationRunTransition, buildInvestigations, completeHypothesisVerificationRunSchema, correlateHypotheses, createHypothesisVerificationRunSchema, dynamicEvidenceSchema, failHypothesisVerificationRunSchema, findingSchema, investigationSchema, loadConfig, scanSchema } from "@contracthunter/core";
 import { authoritativeInvariantEvidence, executableInvariantProposals, executableInvariantRuns, invariantEvidenceReviews, invariantReplayArtifacts, invariantReplayRuns, hypothesisLifecycleTransitions, findings, hypothesisGroupMembers, hypothesisGroups, hypothesisVerificationRuns, investigationFindings, investigations, invariants, protocolAnalyses, scans, scanScanners, securityReviewerRuns, securityReviewPlans, vulnerabilityHypotheses, type ExecutableInvariantProposalRow, type ExecutableInvariantRunRow, type InvariantReplayArtifactRow, type InvariantReplayRunRow, type InvariantEvidenceReviewRow, type FindingRow, type HypothesisGroupRow, type HypothesisVerificationRunRow, type InvariantRow, type InvestigationRow, type ProtocolAnalysisRow, type ScanRow, type ScanScannerRow, type SecurityReviewerRunRow, type SecurityReviewPlanRow, type VulnerabilityHypothesisRow } from "./schema";
 
 export * from "./schema";
@@ -592,6 +592,32 @@ export function insertVulnerabilityHypotheses(database: DatabaseClient, input: P
   if (rows.length) database.orm.insert(vulnerabilityHypotheses).values(rows).run(); return rows;
 }
 export function getVulnerabilityHypothesis(database: DatabaseClient, id: string): VulnerabilityHypothesisRow | undefined { return database.orm.select().from(vulnerabilityHypotheses).where(eq(vulnerabilityHypotheses.id, id)).get(); }
+
+/** Read-only advisory assessment from persisted hypothesis links and correlated scanner rows. */
+export function assessPersistedHypothesisVerificationStrategies(database: DatabaseClient, hypothesisId: string): VerificationStrategyAssessment | undefined {
+  const hypothesis = getVulnerabilityHypothesis(database, hypothesisId);
+  if (!hypothesis) return undefined;
+  let relatedInvestigationIds: unknown;
+  try { relatedInvestigationIds = JSON.parse(hypothesis.relatedInvestigationIds); }
+  catch { relatedInvestigationIds = null; }
+  if (!Array.isArray(relatedInvestigationIds) || relatedInvestigationIds.length > 32 || relatedInvestigationIds.some((id) => typeof id !== "string" || id.length > 100)) {
+    return assessVerificationStrategies({ hypothesis: { scanId: hypothesis.scanId, relatedInvestigationIds }, investigations: [] });
+  }
+  const linked = [...new Set(relatedInvestigationIds as string[])];
+  const investigationsForAssessment = linked.flatMap((id) => {
+    const investigation = getInvestigation(database, id);
+    if (!investigation) return [];
+    return [{
+      id: investigation.id, scanId: investigation.scanId,
+      primaryContract: investigation.primaryContract, primaryFilePath: investigation.primaryFilePath,
+      findings: listInvestigationFindings(database, investigation.id).map((finding) => ({
+        scanId: finding.scanId, source: finding.source, detectorId: finding.detectorId,
+        contract: finding.contract, filePath: finding.filePath,
+      })),
+    }];
+  });
+  return assessVerificationStrategies({ hypothesis: { scanId: hypothesis.scanId, relatedInvestigationIds: linked }, investigations: investigationsForAssessment });
+}
 export function updateVulnerabilityHypothesisStatus(database: DatabaseClient, id: string, status: Exclude<HypothesisStatus, "verified">): VulnerabilityHypothesisRow | undefined {
   if ((status as HypothesisStatus) === "verified") throw new Error("Verified status requires confirmed dynamic evidence.");
   database.orm.update(vulnerabilityHypotheses).set({ status, updatedAt: new Date() }).where(eq(vulnerabilityHypotheses.id, id)).run(); return getVulnerabilityHypothesis(database, id);
