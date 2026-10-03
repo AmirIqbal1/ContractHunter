@@ -40,7 +40,9 @@ Milestone 2 Part 1 adds the conservative advisory target model below. Later work
 
 ## v0.2.2 Milestone 2 — deterministic verification targets
 
-Part 1 is implemented. A computed, read-only target model uses only exact source/detector mappings, same-scan investigation links, resolved contract and source path, and matching function/source regions. It conservatively groups hypotheses that refer to the same structured verification target and selects one representative for planning readiness. Unknown rules, missing links, ambiguous multi-target evidence, and distinct functions or contracts remain separate. No hypothesis row is merged, deleted, reprioritized, or blocked from manual planning. Exact generated invariant property semantics also receive a computed property-target identity; this does not imply that two vulnerability hypotheses have the same validity. No migration, AI call, worker execution, evidence, or lifecycle change is part of Part 1. Part 2 can expose the advisory relationship and offer explicit reuse or redirection after current server reassessment; it must preserve direct manual planning and history.
+Part 1 is implemented. A computed, read-only target model uses only exact source/detector mappings, same-scan investigation links, resolved contract and source path, and matching function/source regions. It conservatively groups hypotheses that refer to the same structured verification target and selects one representative for planning readiness. Unknown rules, missing links, ambiguous multi-target evidence, and distinct functions or contracts remain separate. No hypothesis row is merged, deleted, reprioritized, or blocked from manual planning. Exact generated invariant property semantics also receive a computed property-target identity; this does not imply that two vulnerability hypotheses have the same validity. No migration, AI call, worker execution, evidence, or lifecycle change is part of Part 1.
+
+Milestone 2 Part 2A is implemented. The hypothesis page shows a bounded verification target summary, related hypothesis links, representative navigation, strategy readiness counts, and existing planning candidate labels. A read-only GET recomputes the target and candidate discovery from current persisted rows. Candidates require the current target, selected strategy, scan/commit/compiler/source identity, exact invariant property identity, and persisted execution history as a validation witness before receiving an advisory `eligible` label. Standalone validation is not persisted, so generated-only artifacts remain ineligible. Stale, incompatible, and legacy artifacts remain viewable. No plan is cloned, rebound, executed, or reused; no redirect, status/evidence change, provider call, worker call, or migration occurs. Explicit reuse belongs to Part 2B.
 ## v0.3
 
 More autonomous local audit/reporting workflow.
@@ -52,4 +54,3 @@ Per-stage AI models (including inexpensive Luna triage, a stronger deep-review m
 ## Explicit non-goals
 
 No automatic bounty submission, live exploit deployment, wallet/private-key interaction, or automatic live-chain transactions.
-
