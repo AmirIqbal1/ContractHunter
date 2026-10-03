@@ -10,6 +10,8 @@ import {
   type DatabaseClient,
 } from "@contracthunter/db";
 import { VerificationPlanGenerationError, VerificationPlanGenerationService } from "./verification-plan-generation-service";
+import { generateForSelectedStrategy } from "./strategy-generation-api";
+import { requestSelectedStrategy } from "./client-strategy-generation";
 
 const commit = "a".repeat(40); const fixture = path.resolve("packages/scanners/fixtures/verification");
 let root: string; let repositoryRoot: string; let repository: string; let database: DatabaseClient; let scanId: string; let hypothesisId: string;
@@ -56,7 +58,11 @@ describe("trust-bounded verification plan generation", () => {
     const investigation = reconcileInvestigations(database, scanId)[0];
     database.sqlite.prepare("UPDATE vulnerability_hypotheses SET related_investigation_ids=?, evidence=? WHERE id=?").run(JSON.stringify([investigation.id]), JSON.stringify([{ filePath: "contracts/BrokenAccessControl.sol", contract: "BrokenAccessControl", functionName: "setOwner", startLine: 11, endLine: 13 }]), hypothesisId);
     const provider = fake(generatedAccessControl());
-    const output = await service(provider).generate(hypothesisId, "structured-verification");
+    const planner = service(provider);
+    const response = await requestSelectedStrategy(hypothesisId, "structured-verification", (async (url: RequestInfo | URL, init?: RequestInit) => generateForSelectedStrategy(new Request(new URL(String(url), "http://localhost"), init), { params: Promise.resolve({ id: hypothesisId, strategy: "structured-verification" }) }, { database, structured: planner })) as typeof fetch);
+    expect(response.ok).toBe(true);
+    const output = response.body.attempt?.result;
+    expect(response.body.attempt?.selectedStrategy).toBe("structured-verification");
     expect(output).toMatchObject({ status: "generated", plan: { hypothesisId, scanId, resolvedCommit: commit, compilerVersion: "0.8.24" } });
     expect(provider.calls).toHaveLength(1);
     expect(provider.calls[0].systemPrompt).toContain("SELECTED STRATEGY: structured-verification");

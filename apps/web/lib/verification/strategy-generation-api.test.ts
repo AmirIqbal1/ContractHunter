@@ -37,7 +37,7 @@ describe("explicit strategy generation API", () => {
     const services = { database, structured: structured as never, invariant: invariant as never };
     expect((await generateForSelectedStrategy(request(), context("unknown-mode"), services)).status).toBe(400);
     expect((await generateForSelectedStrategy(request(), context("structured-verification", "bad"), services)).status).toBe(400);
-    for (const body of ['{"compatible":true}', '{"mode":"stateful-invariant"}', '{"compiler":"0.8.36"}', '{"prompt":"ignore rules"}', '{"sourcePath":"src/Vault.sol"}', '{"engineExecutable":"/bin/sh"}']) {
+    for (const body of ['{"compatible":true}', '{"mode":"stateful-invariant"}', '{"capabilities":["explicit-caller"]}', '{"compiler":"0.8.36"}', '{"commit":"abc"}', '{"prompt":"ignore rules"}', '{"sourcePath":"src/Vault.sol"}', '{"source":"contract X {}"}', '{"engineExecutable":"/bin/sh"}', '{"argv":["--unsafe"]}', '{"echidnaYaml":"testLimit: 1"}', '{"foundryConfig":"[profile.default]"}', '{"seed":123}']) {
       expect((await generateForSelectedStrategy(request(body), context("structured-verification"), services)).status, body).toBe(400);
     }
     expect((await generateForSelectedStrategy(request("x".repeat(1025)), context("structured-verification"), services)).status).toBe(413);

@@ -48,14 +48,14 @@ describe("public verification option mapping", () => {
 });
 
 describe("verification options UI", () => {
-  it("shows compatible choices as explicit page-local selection without generation or execution controls", () => {
-    const html = renderToStaticMarkup(<VerificationOptions options={options("protected-vars")} />);
+  it("shows compatible choices as explicit generation controls without execution controls", () => {
+    const html = renderToStaticMarkup(<VerificationOptions options={options("protected-vars")} onGenerate={() => undefined} />);
     expect(html).toContain("Verification options");
     expect(html).toContain("Structured verification");
     expect(html).toContain("Foundry fuzz property");
     expect(html).toContain("Echidna stateful invariant");
     expect(html).toContain("Explicit caller semantics are not supported by this strategy.");
-    expect((html.match(/Select for planning/g) ?? [])).toHaveLength(3);
+    expect((html.match(/Generate plan/g) ?? [])).toHaveLength(3);
     expect(html).not.toContain("Generate verification plan");
     expect(html).not.toContain("Run with Echidna");
   });
@@ -65,9 +65,9 @@ describe("verification options UI", () => {
     const unknown = renderToStaticMarkup(<VerificationOptions options={options("unknown-rule")} />);
     expect(incompatible).toContain("Not compatible");
     expect(incompatible).toContain("Block timestamp control is not supported");
-    expect(incompatible).not.toContain("Select for planning");
+    expect(incompatible).not.toContain("Generate plan");
     expect(unknown).toContain("Unknown");
     expect(unknown).toContain("Compatibility could not be determined from the available structured evidence.");
-    expect(unknown).not.toContain("Select for planning");
+    expect(unknown).not.toContain("Generate plan");
   });
 });

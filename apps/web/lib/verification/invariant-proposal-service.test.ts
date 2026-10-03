@@ -6,6 +6,8 @@ import { ECHIDNA_BINARY_SHA256, ECHIDNA_BUILD_ID, ECHIDNA_UPSTREAM_VERSION, echi
 import { closeDatabase, createDatabase, createProtocolAnalysis, createScan, createSecurityReviewerRun, createSecurityReviewPlan, getVulnerabilityHypothesis, insertFindings, insertVulnerabilityHypotheses, listExecutableInvariantProposals, listExecutableInvariantRuns, reconcileInvestigations, type DatabaseClient } from "@contracthunter/db";
 import { VerificationWorkspaceBuilder } from "@contracthunter/scanners";
 import { InvariantProposalService } from "./invariant-proposal-service";
+import { generateForSelectedStrategy } from "./strategy-generation-api";
+import { requestSelectedStrategy } from "./client-strategy-generation";
 import { EchidnaInvariantService } from "./echidna-invariant-service";
 import { ExecutableInvariantService } from "./executable-invariant-service";
 
@@ -77,6 +79,44 @@ describe("reviewed invariant proposal boundary", () => {
     expect(provider.calls).toHaveLength(1);
     expect(provider.calls[0].systemPrompt).toContain("current Echidna integration");
     expect(listExecutableInvariantRuns(database, hypothesisId)).toEqual([]);
+  });
+
+  it("preserves independent fuzz, stateful, and failed Echidna strategy attempts without execution", async () => {
+    linkNumericRule("VulnerableAccounting", "contracts/VulnerableAccounting.sol");
+    const fuzzProvider = fake(generated(fuzzSemantics()));
+    async function throughBrowser(strategy: "foundry-fuzz-property" | "foundry-stateful-invariant" | "echidna-stateful-invariant", provider: InvariantProposalProvider) {
+      const planner = service(provider);
+      const send = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => generateForSelectedStrategy(new Request(new URL(String(url), "http://localhost"), init), { params: Promise.resolve({ id: hypothesisId, strategy }) }, { database, invariant: planner }));
+      const response = await requestSelectedStrategy(hypothesisId, strategy, send as typeof fetch);
+      expect(send).toHaveBeenCalledOnce();
+      expect(response.ok).toBe(true);
+      expect(response.body.proposal?.selectedStrategy).toBe(strategy);
+      return { proposal: response.body.proposal!, planner };
+    }
+    const fuzz = await throughBrowser("foundry-fuzz-property", fuzzProvider);
+    expect((await fuzz.planner.validate(hypothesisId, fuzz.proposal.id)).plan.mode).toBe("fuzz-property");
+    database.sqlite.prepare("UPDATE vulnerability_hypotheses SET evidence=?, affected_contracts=? WHERE id=?").run(JSON.stringify([{ filePath: "contracts/StatefulAccessControl.sol", contract: "StatefulAccessControl", functionName: "transferOwnership", startLine: 6, endLine: 6 }]), JSON.stringify(["StatefulAccessControl"]), hypothesisId);
+    database.sqlite.prepare("UPDATE findings SET contract=?, file_path=? WHERE scan_id=?").run("StatefulAccessControl", "contracts/StatefulAccessControl.sol", scanId);
+    database.sqlite.prepare("UPDATE investigations SET primary_contract=?, primary_file_path=? WHERE scan_id=?").run("StatefulAccessControl", "contracts/StatefulAccessControl.sol", scanId);
+    const statefulProvider = fake(generated(statefulSemantics()));
+    const stateful = await throughBrowser("foundry-stateful-invariant", statefulProvider);
+    expect((await stateful.planner.validate(hypothesisId, stateful.proposal.id)).plan.mode).toBe("stateful-invariant");
+    const echidnaProvider = fake(generated(statefulSemantics()));
+    const echidna = await throughBrowser("echidna-stateful-invariant", echidnaProvider);
+    expect(echidna.proposal).toMatchObject({ status: "failed", failureCode: "strategy_concrete_plan_incompatible" });
+    const history = listExecutableInvariantProposals(database, hypothesisId);
+    expect(history.map((item) => [item.id, item.selectedStrategy, item.status])).toEqual([
+      [echidna.proposal.id, "echidna-stateful-invariant", "failed"],
+      [stateful.proposal.id, "foundry-stateful-invariant", "generated"],
+      [fuzz.proposal.id, "foundry-fuzz-property", "generated"],
+    ]);
+    expect(JSON.parse(history[2].plan!).mode).toBe("fuzz-property");
+    expect(JSON.parse(history[1].plan!).mode).toBe("stateful-invariant");
+    expect([fuzzProvider.calls.length, statefulProvider.calls.length, echidnaProvider.calls.length]).toEqual([1, 1, 1]);
+    for (const table of ["hypothesis_verification_runs", "executable_invariant_runs", "invariant_replay_artifacts", "invariant_replay_runs", "authoritative_invariant_evidence", "hypothesis_lifecycle_transitions"]) {
+      expect(database.sqlite.prepare(`SELECT count(*) AS count FROM ${table}`).get(), table).toEqual({ count: 0 });
+    }
+    expect(getVulnerabilityHypothesis(database, hypothesisId)?.status).toBe("candidate");
   });
 
   it("records Echidna concrete incompatibility without fallback or another provider call", async () => {

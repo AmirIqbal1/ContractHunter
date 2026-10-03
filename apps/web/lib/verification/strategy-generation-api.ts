@@ -1,5 +1,5 @@
 import { loadConfig, verificationStrategies } from "@contracthunter/core";
-import { assessPersistedHypothesisVerificationStrategies, getDatabase, type DatabaseClient } from "@contracthunter/db";
+import { assessPersistedHypothesisVerificationStrategies, getDatabase, listVerificationPlanAttempts, type DatabaseClient } from "@contracthunter/db";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { idSchema } from "@/lib/api";
@@ -7,6 +7,7 @@ import { createInvariantProposalService, InvariantProposalRequestError, type Inv
 import { createVerificationPlanGenerationService, VerificationPlanGenerationError, type VerificationPlanGenerationService } from "./verification-plan-generation-service";
 import { toPublicInvariantProposal } from "./public-invariants";
 import { toPublicVerificationOptions } from "./public-verification-options";
+import { toPublicVerificationPlanAttempt } from "./public-strategy-planning-server";
 
 type RouteContext = { params: Promise<{ id: string; strategy: string }> };
 type Services = { database?: DatabaseClient; structured?: Pick<VerificationPlanGenerationService, "generate">; invariant?: Pick<InvariantProposalService, "generate"> };
@@ -46,7 +47,8 @@ export async function generateForSelectedStrategy(request: Request, context: Rou
   try {
     if (strategy.data === "structured-verification") {
       const result = await (services.structured ?? createVerificationPlanGenerationService(database)).generate(id.data, strategy.data);
-      return NextResponse.json({ selectedStrategy: strategy.data, result });
+      const attempt = listVerificationPlanAttempts(database, id.data).find((item) => item.result === JSON.stringify(result));
+      return NextResponse.json({ selectedStrategy: strategy.data, result, attempt: attempt ? toPublicVerificationPlanAttempt(attempt) : null });
     }
     const output = await (services.invariant ?? createInvariantProposalService(database)).generate(id.data, strategy.data);
     return NextResponse.json({ selectedStrategy: strategy.data, proposal: toPublicInvariantProposal(output.proposal) });

@@ -1,5 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
+import type { PublicVerificationPlanAttempt } from "@/lib/verification/public-strategy-planning";
 import type { PublicHypothesisVerificationRun } from "@/lib/verification/public-verification";
 import { LocalVerification, PlanGenerationView } from "./local-verification";
 import type { VerificationPlanGenerationResult } from "../../../packages/core/src/verification-plan-generation";
@@ -52,8 +53,18 @@ describe("local verification UI", () => {
     const notPlannable: VerificationPlanGenerationResult = { status: "not_plannable", plan: null, rationale: "Bytes arguments required.", limitations: [], notPlannableReasons: ["unsupported_function_argument_type"], failureCode: null, provenance };
     const failed: VerificationPlanGenerationResult = { status: "failed", plan: null, rationale: null, limitations: [], notPlannableReasons: [], failureCode: "plan_generation_failed", provenance };
     expect(renderToStaticMarkup(<PlanGenerationView generating result={null} />)).toContain("Generating");
-    const preview = renderToStaticMarkup(<PlanGenerationView generating={false} result={generated} />); expect(preview).toContain("Generated preview"); expect(preview).toContain("Bounded initial state only"); expect(preview).toContain("verification-plan-v1"); expect(preview).toContain("This proposal has not been executed"); expect(preview).not.toContain("<button");
+    const preview = renderToStaticMarkup(<PlanGenerationView generating={false} result={generated} />); expect(preview).toContain("Generated proposal"); expect(preview).toContain("Bounded initial state only"); expect(preview).toContain("verification-plan-v1"); expect(preview).toContain("This proposal has not been executed"); expect(preview).not.toContain("<button");
     expect(renderToStaticMarkup(<PlanGenerationView generating={false} result={notPlannable} />)).toContain("could not safely express this hypothesis");
-    expect(renderToStaticMarkup(<PlanGenerationView generating={false} result={failed} />)).toContain("failed safely");
+    expect(renderToStaticMarkup(<PlanGenerationView generating={false} result={failed} />)).toContain("planning provider could not produce");
+    const attempts: PublicVerificationPlanAttempt[] = [
+      { id: crypto.randomUUID(), selectedStrategy: "structured-verification", status: "failed", failureCode: "strategy_concrete_plan_incompatible", result: { ...failed, failureCode: "strategy_concrete_plan_incompatible" }, createdAt: provenance.generatedAt },
+      { id: crypto.randomUUID(), selectedStrategy: "structured-verification", status: "generated", failureCode: null, result: generated, createdAt: provenance.generatedAt },
+    ];
+    const history = renderToStaticMarkup(<LocalVerification hypothesisId={base.hypothesisId} hypothesisStatus="candidate" initialRuns={[]} initialAttempts={attempts} />);
+    expect(history).toContain("Strategy planning history");
+    expect(history).toContain("Structured verification");
+    expect((history.match(/· Review/g) ?? [])).toHaveLength(2);
+    expect(history).toContain("concrete plan did not pass");
+
   });
 });
