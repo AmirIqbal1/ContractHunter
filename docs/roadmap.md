@@ -36,8 +36,11 @@ Milestone 1 Part 2B-1 adds bodyless, explicit strategy-aware server planning. Th
 
 Milestone 1 Part 2B-2 implements the strategy-aware planning UI. Compatible options expose an explicit Generate plan action; unknown and incompatible options show bounded reasons without a generation control. The bodyless selected-strategy route feeds the existing structured or invariant review UI, where validation and execution remain separate explicit actions. Structured attempts and invariant proposals retain independent histories and selected-strategy provenance. The browser refreshes options after a current-evidence compatibility rejection; no alternate strategy or provider retry is started. Milestone 1 strategy-aware planning is implemented; v0.2.2 remains in development.
 
-Later work will improve hypothesis/property selection and root-cause grouping and deduplication. No automatic engine execution or broader Echidna semantics is included in Part 1.
+Milestone 2 Part 1 adds the conservative advisory target model below. Later work may expose reuse choices and improve root-cause grouping without automatic execution or broader Echidna semantics.
 
+## v0.2.2 Milestone 2 — deterministic verification targets
+
+Part 1 is implemented. A computed, read-only target model uses only exact source/detector mappings, same-scan investigation links, resolved contract and source path, and matching function/source regions. It conservatively groups hypotheses that refer to the same structured verification target and selects one representative for planning readiness. Unknown rules, missing links, ambiguous multi-target evidence, and distinct functions or contracts remain separate. No hypothesis row is merged, deleted, reprioritized, or blocked from manual planning. Exact generated invariant property semantics also receive a computed property-target identity; this does not imply that two vulnerability hypotheses have the same validity. No migration, AI call, worker execution, evidence, or lifecycle change is part of Part 1. Part 2 can expose the advisory relationship and offer explicit reuse or redirection after current server reassessment; it must preserve direct manual planning and history.
 ## v0.3
 
 More autonomous local audit/reporting workflow.
@@ -49,3 +52,4 @@ Per-stage AI models (including inexpensive Luna triage, a stronger deep-review m
 ## Explicit non-goals
 
 No automatic bounty submission, live exploit deployment, wallet/private-key interaction, or automatic live-chain transactions.
+

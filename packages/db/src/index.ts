@@ -4,8 +4,8 @@ import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/better-sqlite3";
-import type { ExecutableInvariantPlan, ExecutableInvariantEvidence, InvariantProposalGenerationResult, InvariantReplayPlan, AIAnalysisStatus, CompilerStatus, CompleteHypothesisVerificationRunInput, CreateHypothesisVerificationRunInput, CreateScanInput, DependencyStatus, DynamicEvidence, FailHypothesisVerificationRunInput, FindingStatus, HypothesisStatus, InvariantCategory, InvariantStatus, InvariantTestability, InvestigationStatus, NewFinding, ProtocolAnalysisResult, ReviewRunStatus, ReviewStageStatus, ScannerStatus, ScanStatus, SecurityReviewPlan, Severity, ValidatedEvidence, VerificationStrategyAssessment, VerificationPlanGenerationResult, VerificationStrategy } from "@contracthunter/core";
-import { ECHIDNA_LIMITS, INVARIANT_COUNTEREXAMPLE_PARSER_VERSION, assessVerificationStrategies, executableInvariantPlanSchema, executableInvariantEvidenceSchema, invariantPlanHash, invariantReplayPlanHash, invariantReplayPlanSchema, assertTransition, assertVerificationRunTransition, buildInvestigations, completeHypothesisVerificationRunSchema, correlateHypotheses, createHypothesisVerificationRunSchema, dynamicEvidenceSchema, failHypothesisVerificationRunSchema, findingSchema, investigationSchema, loadConfig, scanSchema } from "@contracthunter/core";
+import type { ExecutableInvariantPlan, ExecutableInvariantEvidence, InvariantProposalGenerationResult, InvariantReplayPlan, AIAnalysisStatus, CompilerStatus, CompleteHypothesisVerificationRunInput, CreateHypothesisVerificationRunInput, CreateScanInput, DependencyStatus, DynamicEvidence, FailHypothesisVerificationRunInput, FindingStatus, HypothesisStatus, InvariantCategory, InvariantStatus, InvariantTestability, InvestigationStatus, NewFinding, ProtocolAnalysisResult, ReviewRunStatus, ReviewStageStatus, ScannerStatus, ScanStatus, SecurityReviewPlan, Severity, ValidatedEvidence, VerificationTargetHypothesis, VerificationTargetInvestigation, VerificationStrategyAssessment, VerificationPlanGenerationResult, VerificationStrategy } from "@contracthunter/core";
+import { ECHIDNA_LIMITS, INVARIANT_COUNTEREXAMPLE_PARSER_VERSION, assessVerificationStrategies, executableInvariantPlanSchema, executableInvariantEvidenceSchema, invariantPlanHash, invariantReplayPlanHash, invariantReplayPlanSchema, assertTransition, assertVerificationRunTransition, buildInvestigations, buildInvariantPropertyTargets, buildVerificationTargetGroups, completeHypothesisVerificationRunSchema, correlateHypotheses, createHypothesisVerificationRunSchema, dynamicEvidenceSchema, failHypothesisVerificationRunSchema, findingSchema, investigationSchema, loadConfig, scanSchema } from "@contracthunter/core";
 import { authoritativeInvariantEvidence, executableInvariantProposals, executableInvariantRuns, invariantEvidenceReviews, invariantReplayArtifacts, invariantReplayRuns, hypothesisLifecycleTransitions, findings, hypothesisGroupMembers, hypothesisGroups, hypothesisVerificationRuns, verificationPlanAttempts, investigationFindings, investigations, invariants, protocolAnalyses, scans, scanScanners, securityReviewerRuns, securityReviewPlans, vulnerabilityHypotheses, type ExecutableInvariantProposalRow, type ExecutableInvariantRunRow, type InvariantReplayArtifactRow, type InvariantReplayRunRow, type InvariantEvidenceReviewRow, type FindingRow, type HypothesisGroupRow, type HypothesisVerificationRunRow, type InvariantRow, type InvestigationRow, type ProtocolAnalysisRow, type ScanRow, type ScanScannerRow, type SecurityReviewerRunRow, type SecurityReviewPlanRow, type VulnerabilityHypothesisRow } from "./schema";
 
 export * from "./schema";
@@ -650,6 +650,27 @@ export function assessPersistedHypothesisVerificationStrategies(database: Databa
   });
   return assessVerificationStrategies({ hypothesis: { scanId: hypothesis.scanId, relatedInvestigationIds: linked }, investigations: investigationsForAssessment });
 }
+/** Computed advisory targets across all retained hypotheses for one scan. No rows are written. */
+export function listPersistedVerificationTargetGroups(database: DatabaseClient, scanId: string) {
+  const rows = database.orm.select().from(vulnerabilityHypotheses).where(eq(vulnerabilityHypotheses.scanId, scanId)).all();
+  const parseArray = (raw: string): unknown[] => { try { const value: unknown = JSON.parse(raw); return Array.isArray(value) && value.length <= 256 ? value : []; } catch { return []; } };
+  const hypotheses: VerificationTargetHypothesis[] = rows.map((row) => {
+    const links = parseArray(row.relatedInvestigationIds);
+    const relatedInvestigationIds = links.length <= 32 && links.every((id) => typeof id === "string" && id.length > 0 && id.length <= 100) ? links as string[] : [];
+    return { id: row.id, scanId: row.scanId, relatedInvestigationIds,
+    evidence: parseArray(row.evidence).filter((item): item is Record<string, unknown> => !!item && typeof item === "object" && !Array.isArray(item)).map((item) => ({
+      valid: item.valid === true, filePath: typeof item.filePath === "string" ? item.filePath : "", contract: typeof item.contract === "string" ? item.contract : null, functionName: typeof item.functionName === "string" ? item.functionName : null,
+    })),
+  }; });
+  const ids = [...new Set(hypotheses.flatMap((item) => item.relatedInvestigationIds))].sort();
+  const linked = ids.map((id) => getInvestigation(database, id)).filter((item): item is InvestigationRow => !!item);
+  const investigationsForTargets: VerificationTargetInvestigation[] = linked.map((item) => ({
+    id: item.id, scanId: item.scanId, primaryContract: item.primaryContract, primaryFilePath: item.primaryFilePath, primaryFunction: item.primaryFunction,
+    findings: listInvestigationFindings(database, item.id).map((finding) => ({ id: finding.id, scanId: finding.scanId, source: finding.source, detectorId: finding.detectorId,
+      contract: finding.contract, filePath: finding.filePath, functionName: finding.functionName, startLine: finding.startLine, endLine: finding.endLine })),
+  }));
+  return buildVerificationTargetGroups({ hypotheses, investigations: investigationsForTargets });
+}
 export function updateVulnerabilityHypothesisStatus(database: DatabaseClient, id: string, status: Exclude<HypothesisStatus, "verified">): VulnerabilityHypothesisRow | undefined {
   if ((status as HypothesisStatus) === "verified") throw new Error("Verified status requires confirmed dynamic evidence.");
   database.orm.update(vulnerabilityHypotheses).set({ status, updatedAt: new Date() }).where(eq(vulnerabilityHypotheses.id, id)).run(); return getVulnerabilityHypothesis(database, id);
@@ -765,6 +786,18 @@ export function getActiveExecutableInvariantRun(database: DatabaseClient, hypoth
 export function listExecutableInvariantRuns(database: DatabaseClient, hypothesisId: string): ExecutableInvariantRunRow[] { return database.orm.select().from(executableInvariantRuns).where(eq(executableInvariantRuns.hypothesisId, hypothesisId)).orderBy(desc(executableInvariantRuns.createdAt), desc(sql`rowid`)).all(); }
 export function getExecutableInvariantProposal(database: DatabaseClient, id: string): ExecutableInvariantProposalRow | undefined { return database.orm.select().from(executableInvariantProposals).where(eq(executableInvariantProposals.id, id)).get(); }
 export function listExecutableInvariantProposals(database: DatabaseClient, hypothesisId: string): ExecutableInvariantProposalRow[] { return database.orm.select().from(executableInvariantProposals).where(eq(executableInvariantProposals.hypothesisId, hypothesisId)).orderBy(desc(executableInvariantProposals.createdAt), desc(sql`rowid`)).all(); }
+/** Exact semantic property identities from generated persisted proposals; no row changes. */
+export function listPersistedInvariantPropertyTargets(database: DatabaseClient, hypothesisIds: string[]) {
+  const ids = [...new Set(hypothesisIds)].sort();
+  if (!ids.length) return [];
+  const rows = database.orm.select().from(executableInvariantProposals).where(inArray(executableInvariantProposals.hypothesisId, ids)).all();
+  const inputs = rows.flatMap((row) => {
+    if (row.status !== "generated" || !row.plan) return [];
+    try { return [{ proposalId: row.id, plan: JSON.parse(row.plan) as unknown }]; }
+    catch { return []; }
+  });
+  return buildInvariantPropertyTargets(inputs);
+}
 export function createExecutableInvariantProposal(database: DatabaseClient, input: { hypothesisId: string; scanId: string; result: InvariantProposalGenerationResult; contextManifest: object; requestId: string | null; selectedStrategy?: Exclude<VerificationStrategy, "structured-verification"> }): ExecutableInvariantProposalRow {
   const { result } = input, hypothesis = getVulnerabilityHypothesis(database, input.hypothesisId);
   const expectedMode = input.selectedStrategy === "foundry-fuzz-property" ? "fuzz-property" : input.selectedStrategy ? "stateful-invariant" : null;

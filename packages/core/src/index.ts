@@ -20,3 +20,5 @@ export * from "./echidna-invariant";
 export * from "./invariant-proposal";
 export * from "./invariant-replay";
 export * from "./verification-strategy-assessment";
+export * from "./verification-targets";
+export * from "./invariant-property-targets";
