@@ -621,6 +621,8 @@ export function createVerificationPlanAttempt(database: DatabaseClient, input: {
   database.orm.insert(verificationPlanAttempts).values(row).run();
   return row;
 }
+
+
 export function listVerificationPlanAttempts(database: DatabaseClient, hypothesisId: string) {
   return database.orm.select().from(verificationPlanAttempts).where(eq(verificationPlanAttempts.hypothesisId, hypothesisId)).orderBy(desc(verificationPlanAttempts.createdAt), desc(sql`rowid`)).all();
 }
