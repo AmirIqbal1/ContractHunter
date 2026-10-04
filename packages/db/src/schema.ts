@@ -1,4 +1,4 @@
-import { integer, primaryKey, real, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { blob, integer, primaryKey, real, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { aiAnalysisStatuses, compilerStatuses, coverageStatuses, dependencyStatuses, findingStatuses, frameworks, hypothesisStatuses, invariantCategories, invariantStatuses, invariantTestabilities, investigationStatuses, reviewRunStatuses, reviewStageStatuses, scannerStatuses, scanDepths, scanStatuses, severities, verificationOutcomes, verificationRunStatuses, verificationStrategies, vulnerabilityCategories } from "@contracthunter/core";
 
 export const scans = sqliteTable("scans", {
@@ -30,6 +30,18 @@ export const scans = sqliteTable("scans", {
   reviewStatus: text("review_status", { enum: reviewStageStatuses }).notNull(),
   reviewError: text("review_error"),
 });
+
+export const scanSourceSnapshots = sqliteTable("scan_source_snapshots", {
+  scanId: text("scan_id").primaryKey().references(() => scans.id, { onDelete: "cascade" }),
+  schema: text("schema").notNull(), resolvedCommit: text("resolved_commit").notNull(),
+  fileCount: integer("file_count").notNull(), totalBytes: integer("total_bytes").notNull(),
+  finalizedAt: integer("finalized_at", { mode: "timestamp" }),
+});
+export const scanSourceSnapshotFiles = sqliteTable("scan_source_snapshot_files", {
+  scanId: text("scan_id").notNull().references(() => scanSourceSnapshots.scanId, { onDelete: "cascade" }),
+  sourceKey: text("source_key").notNull(), rawBytes: blob("raw_bytes", { mode: "buffer" }).notNull(),
+  rawSha256: text("raw_sha256").notNull(), byteLength: integer("byte_length").notNull(),
+}, (table) => [primaryKey({ columns: [table.scanId, table.sourceKey] })]);
 
 export const findings = sqliteTable("findings", {
   id: text("id").primaryKey(),

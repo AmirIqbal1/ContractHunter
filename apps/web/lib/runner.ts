@@ -1,6 +1,6 @@
 import { cloneRepository, detectFramework, loadConfig, sanitiseError, type Scanner } from "@contracthunter/core";
-import { getDatabase, getScan, insertFindings, markActiveScansInterrupted, markDetachedJobsInterrupted, reconcileInvestigations, transitionScan, updateCompilerState, updateDependencyState, updateScannerState, upsertScanScanner, type DatabaseClient } from "@contracthunter/db";
-import { AderynScanner, DependencyManager, executeScanners, SlitherScanner, type ScannerExecution } from "@contracthunter/scanners";
+import { finalizeScanSourceSnapshot, getDatabase, getScan, insertFindings, markActiveScansInterrupted, markDetachedJobsInterrupted, reconcileInvestigations, transitionScan, updateCompilerState, updateDependencyState, updateScannerState, upsertScanScanner, type DatabaseClient } from "@contracthunter/db";
+import { AderynScanner, captureScanSourceSnapshot, DependencyManager, executeScanners, SlitherScanner, type ScannerExecution } from "@contracthunter/scanners";
 import { activeProtocolAnalysisScanIds } from "@/lib/ai/job-runner";
 import { activeSecurityReviewScanIds } from "@/lib/ai/security-review-job-runner";
 
@@ -76,6 +76,8 @@ class InProcessJobRunner implements JobRunner {
         onStatus: (status, metadata, error) => updateDependencyState(database, scanId, status, metadata, error ?? null),
       });
       await dependencyManager.prepare(cloned.path);
+      const sourceSnapshot = await captureScanSourceSnapshot(cloned.path);
+      finalizeScanSourceSnapshot(database, scanId, cloned.commit, sourceSnapshot);
       scan = transitionScan(database, scanId, "preparing_compiler");
       const executions = await executeScanners({
         scanners: this.scanners,
