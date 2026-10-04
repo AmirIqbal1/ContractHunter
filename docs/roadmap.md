@@ -46,9 +46,21 @@ Milestone 2 Part 2A is implemented. The hypothesis page shows a bounded verifica
 
 Milestone 2 Part 2B-00A is implemented. Immediately after trusted dependency preparation, each new scan stores a versioned, immutable SQLite snapshot of bounded raw Solidity source bytes and their per-file SHA-256 hashes, bound to its resolved commit. The allowed source universe is Solidity under `src`, `contracts`, and `lib`, plus `node_modules` Solidity reached through the supported import resolver. Historical scans are not backfilled. The snapshot survives checkout deletion and is available through an internal scan/key reader without filesystem fallback. Existing planners and verification workspace builders still consume their prior checkout-based paths; Part 2B-00B will introduce unified snapshot-backed closure resolution. Generation-time closure fingerprints and explicit plan reuse remain blocked until that consumer migration and their own checks are implemented. v0.2.2 remains in development.
 
-## v0.3
+## v0.3 — Fork & Impact Engine / Impact Lab (planned)
 
-More autonomous local audit/reporting workflow.
+Impact Lab will sit downstream of static findings, investigations, hypotheses, and the existing explicit verification workflows. An authorised researcher will select a candidate and a deployed target, pin an EVM chain and fork block, reproduce a reviewed PoC against a ContractHunter-controlled **local Anvil fork**, and retain traces, selected state changes, asset flows, impact estimates, and exportable evidence. Ethereum, Arbitrum, Base, Optimism, and Polygon are initial targets where the configured upstream RPC and Anvil support the required fork behavior. The engine remains local-first, open-source-first, and Anvil-first; Tenderly is only a possible later optional integration. No hypothesis automatically starts a fork.
+
+1. **Fork safety and Anvil lifecycle:** bounded chain/RPC reference, deployed address, exact block and finding linkage; local-only Anvil startup/shutdown, identity and health checks, disposable accounts, snapshot/revert/reset, controlled impersonation and time/block operations, and a transaction-blocking upstream RPC boundary.
+2. **Controlled PoC execution:** manually supplied and reviewed Forge PoCs run with fixed bounds against the verified local fork endpoint. Autonomous exploit generation is not a prerequisite.
+3. **State capture and diff:** selected native/ERC-20/ERC-721/ERC-1155 balances and ownership, contract ETH, storage, accounting values, and important views before and after execution.
+4. **Transaction and call tracing:** normalized call-tree data from available Anvil/Foundry traces, independent of the eventual GUI.
+5. **Asset-flow and impact analysis:** graph-ready movements, addresses, fees, flash-loan repayment, attacker net gain, and protocol loss, with explicit uncertainty and privilege prerequisites. Asset movement alone does not establish vulnerability validity.
+6. **Reproducibility and evidence export:** immutable experiment inputs/results, replay/reset, structured files and a technical bounty report tied to chain, deployment and fork block.
+7. **Impact Lab GUI:** add a technical view in the existing web application only after the engine, service/CLI boundary, and API are reliable.
+
+The fork boundary must prevent malformed PoCs from sending transactions to production: execution can reach only a verified local Anvil RPC; the upstream RPC supplies fork/read state through a read-only filter and must reject transaction-submission methods. Real user private keys never enter experiments. Fork reproduction, measured impact, and hypothesis lifecycle remain distinct until a future evidence policy is designed. Detailed architecture, scenarios, safety tests and export shape are in [Impact Lab](impact-lab.md).
+
+After the reliable local-fork engine, later v0.3.x or future work may add bounded AI PoC proposals, local trace-guided retries, more autonomous audit orchestration, and report generation. Those actions remain explicit and can execute only inside Impact Lab's local fork boundary.
 
 ## Future possibilities
 

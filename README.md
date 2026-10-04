@@ -41,15 +41,15 @@ Deterministic Foundry fuzz/property and stateful invariant testing, AI semantic 
 
 Echidna supports a bounded compatible subset; bounded success means no counterexample was found within the configured budget, not that safety is proven. A counterexample alone does not verify a vulnerability.
 
-**v0.2.2 — Smarter verification** · Planned
+**v0.2.2 — Smarter verification** · In development
 
 Smarter verification-plan selection, better hypothesis/property selection, root-cause grouping, and finding/hypothesis deduplication.
 
-**v0.3 — Autonomous local auditing** · Planned
+**v0.3 — Fork & Impact Engine / Impact Lab** · Planned
 
-More automated local audit orchestration, a static analysis → AI review → verification workflow, and local audit/report generation, while preserving existing verification and security boundaries.
+An Anvil-first, local-fork workflow for authorised researchers to reproduce candidate vulnerabilities against pinned deployed state, inspect traces and state changes, measure impact, and export reproducible evidence. Autonomous PoC generation and broader audit orchestration follow the safe engine foundation.
 
-See the [full roadmap](docs/roadmap.md) for details.
+See the [full roadmap](docs/roadmap.md) and [Impact Lab design](docs/impact-lab.md) for details.
 
 ## Future
 
@@ -106,4 +106,5 @@ AI remains optional/manual and hypotheses are not automatically verified. Local 
 - [Development](docs/development.md)
 - [Release history](docs/release-history.md)
 - [Roadmap](docs/roadmap.md)
+- [Impact Lab design](docs/impact-lab.md)
 - [AI handoff](docs/ai-handoff.md)
