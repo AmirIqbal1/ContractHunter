@@ -1,13 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { lstat, realpath } from "node:fs/promises";
 import path from "node:path";
-import { counterexampleHash, executableInvariantEvidenceSchema, executableInvariantPlanSchema, invariantPlanHash, invariantReplayManifestFingerprint, invariantReplayPlanHash, invariantReplayPlanSchema, loadConfig, stableCompilerVersionSchema, type InvariantReplayPlan } from "@contracthunter/core";
+import { counterexampleHash, executableInvariantEvidenceSchema, executableInvariantPlanSchema, invariantPlanHash, invariantReplayManifestFingerprint, invariantReplayPlanHash, invariantReplayPlanSchema, loadConfig, stableCompilerVersionSchema, type InvariantReplayPlan, type ResolvedAuthoritativeSourceClosure } from "@contracthunter/core";
 import { createInvariantReplayArtifact, createInvariantReplayRun, finishInvariantReplayRun, getExecutableInvariantProposal, getExecutableInvariantRun, getInvariantReplayArtifact, getScan, getVulnerabilityHypothesis, listInvariantReplayArtifacts, markInvariantReplayRunRunning, reviewReproducedInvariantEvidence, type DatabaseClient, type InvariantEvidenceReviewRow, type InvariantReplayArtifactRow, type InvariantReplayRunRow, getDatabase } from "@contracthunter/db";
 import { InvariantReplayWorkerClient, VerificationWorkspaceBuilder, validateInvariantReplayWorkspaceIntegrity, type InvariantReplayWorkerResult } from "@contracthunter/scanners";
+import { sourceAuthorityForHypothesis } from "./authoritative-source-authority";
 
 export class InvariantReplayRequestError extends Error { constructor(readonly code: "unknown_run" | "unknown_replay" | "invalid_state" | "replay_unavailable", message: string) { super(message); this.name = "InvariantReplayRequestError"; } }
 type BuiltReplay = Awaited<ReturnType<VerificationWorkspaceBuilder["buildInvariantReplay"]>>;
-export type InvariantReplayServiceOptions = { database: DatabaseClient; repositoryRoot: string; verificationRoot: string; workspaceBuilder: (compilers: string[]) => { buildInvariantReplay(input: { workspaceId: string; repositoryPath: string; replayPlan: InvariantReplayPlan; invariantPlan: ReturnType<typeof executableInvariantPlanSchema.parse> }): Promise<BuiltReplay> }; runner: { run(input: Parameters<InvariantReplayWorkerClient["run"]>[0]): Promise<InvariantReplayWorkerResult> }; validateIntegrity?: typeof validateInvariantReplayWorkspaceIntegrity };
+export type InvariantReplayServiceOptions = { database: DatabaseClient; repositoryRoot: string; verificationRoot: string; workspaceBuilder: (compilers: string[]) => { buildInvariantReplay(input: { workspaceId: string; repositoryPath: string; replayPlan: InvariantReplayPlan; invariantPlan: ReturnType<typeof executableInvariantPlanSchema.parse>; authoritativeClosure?: ResolvedAuthoritativeSourceClosure }): Promise<BuiltReplay> }; runner: { run(input: Parameters<InvariantReplayWorkerClient["run"]>[0]): Promise<InvariantReplayWorkerResult> }; validateIntegrity?: typeof validateInvariantReplayWorkspaceIntegrity };
 const parse = (value: string | null): unknown => { try { return JSON.parse(value ?? "null") as unknown; } catch { return null; } };
 
 export class InvariantReplayService {
@@ -22,15 +23,18 @@ export class InvariantReplayService {
     if (failing.length !== 1) throw new InvariantReplayRequestError("replay_unavailable", "Replay requires exactly one bounded counterexample.");
     const scan = getScan(this.options.database, hypothesis.scanId), compilers = stableCompilerVersionSchema.array().safeParse(parse(scan?.compilerVersions ?? null));
     if (!scan || scan.resolvedCommit !== invariant.data.resolvedCommit || !compilers.success || !compilers.data.includes(invariant.data.compilerVersion)) throw new InvariantReplayRequestError("invalid_state", "Trusted scan identity changed.");
+    const authority = sourceAuthorityForHypothesis(this.options.database, hypothesis, { sourceUnitName: invariant.data.primarySourcePath, contract: invariant.data.primaryContract });
+    if (authority.kind === "authoritative") return { hypothesis, proposal, run, invariant: invariant.data, evidence: failing[0], compilers: compilers.data,
+      repositoryPath: path.join(this.options.repositoryRoot, scan.id), authoritativeClosure: authority.closure };
     const root = await realpath(this.options.repositoryRoot).catch(() => { throw new InvariantReplayRequestError("invalid_state", "Repository root is unavailable."); }), expected = path.join(root, scan.id), info = await lstat(expected).catch(() => { throw new InvariantReplayRequestError("invalid_state", "Prepared repository is unavailable."); });
     if (!info.isDirectory() || info.isSymbolicLink() || await realpath(expected) !== expected) throw new InvariantReplayRequestError("invalid_state", "Prepared repository is unsafe.");
-    return { hypothesis, proposal, run, invariant: invariant.data, evidence: failing[0], compilers: compilers.data, repositoryPath: expected };
+    return { hypothesis, proposal, run, invariant: invariant.data, evidence: failing[0], compilers: compilers.data, repositoryPath: expected, authoritativeClosure: undefined };
   }
   async generate(hypothesisId: string, proposalId: string, runId: string): Promise<InvariantReplayArtifactRow> {
     const existing = listInvariantReplayArtifacts(this.options.database, runId).find((item) => item.proposalId === proposalId); if (existing) return existing;
     const bound = await this.repository(hypothesisId, proposalId, runId), artifactId = randomUUID(), counterexample = bound.evidence.counterexample!;
     const replayPlan = invariantReplayPlanSchema.parse({ schemaVersion: "contracthunter-invariant-replay-v1", hypothesisId, scanId: bound.invariant.scanId, resolvedCommit: bound.invariant.resolvedCommit, compilerVersion: bound.invariant.compilerVersion, proposalId, invariantRunId: runId, sourceEngine: bound.run.engine, invariantPlanHash: bound.proposal.planHash, propertyName: bound.evidence.propertyName, hypothesisExpectation: bound.proposal.hypothesisExpectation, counterexample, counterexampleHash: counterexampleHash(counterexample) });
-    const built = await this.options.workspaceBuilder(bound.compilers).buildInvariantReplay({ workspaceId: artifactId, repositoryPath: bound.repositoryPath, replayPlan, invariantPlan: bound.invariant });
+    const built = await this.options.workspaceBuilder(bound.compilers).buildInvariantReplay({ workspaceId: artifactId, repositoryPath: bound.repositoryPath, replayPlan, invariantPlan: bound.invariant, ...(bound.authoritativeClosure ? { authoritativeClosure: bound.authoritativeClosure } : {}) });
     const validated = await (this.options.validateIntegrity ?? validateInvariantReplayWorkspaceIntegrity)(built.workspacePath);
     if (JSON.stringify(validated) !== JSON.stringify(built.manifest) || built.manifest.replayPlanHash !== invariantReplayPlanHash(replayPlan)) throw new InvariantReplayRequestError("invalid_state", "Generated replay workspace failed validation.");
     return createInvariantReplayArtifact(this.options.database, { id: artifactId, proposalId, invariantRunId: runId, replayPlan, harnessHash: built.manifest.generatedHarnessSha256, contentFingerprint: built.manifest.contentFingerprint });
@@ -41,7 +45,7 @@ export class InvariantReplayService {
     if (!replayPlan.success || invariantReplayPlanHash(replayPlan.data) !== artifact.replayPlanHash || counterexampleHash(replayPlan.data.counterexample) !== artifact.counterexampleHash || (replayPlan.data.sourceEngine ?? "foundry") !== artifact.sourceEngine || artifact.sourceEngine !== bound.run.engine || replayPlan.data.invariantRunId !== bound.run.id || replayPlan.data.proposalId !== bound.proposal.id || replayPlan.data.hypothesisId !== bound.hypothesis.id || replayPlan.data.scanId !== bound.run.scanId || replayPlan.data.resolvedCommit !== bound.run.resolvedCommit || replayPlan.data.compilerVersion !== bound.run.compilerVersion) throw new InvariantReplayRequestError("invalid_state", "Replay artifact identity is invalid.");
     const run = createInvariantReplayRun(this.options.database, artifact.id); markInvariantReplayRunRunning(this.options.database, run.id); let result: InvariantReplayWorkerResult | undefined; const started = Date.now();
     try {
-      const built = await this.options.workspaceBuilder(bound.compilers).buildInvariantReplay({ workspaceId: run.id, repositoryPath: bound.repositoryPath, replayPlan: replayPlan.data, invariantPlan: bound.invariant });
+      const built = await this.options.workspaceBuilder(bound.compilers).buildInvariantReplay({ workspaceId: run.id, repositoryPath: bound.repositoryPath, replayPlan: replayPlan.data, invariantPlan: bound.invariant, ...(bound.authoritativeClosure ? { authoritativeClosure: bound.authoritativeClosure } : {}) });
       const manifest = await (this.options.validateIntegrity ?? validateInvariantReplayWorkspaceIntegrity)(built.workspacePath);
       const { contentFingerprint: _freshFingerprint, ...freshBase } = manifest;
       void _freshFingerprint;

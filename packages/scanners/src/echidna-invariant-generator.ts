@@ -27,7 +27,7 @@ export function validateEchidnaPlanCompatibility(raw: ExecutableInvariantPlan, s
 export type GeneratedEchidnaInvariant = { source: string; config: string; planHash: string; harnessHash: string; configHash: string; settings: { testMode: "property"; testLimit: 128; seqLen: 32; shrinkLimit: 128; workers: 1; timeout: 150; format: "json"; seed: number } };
 const spaces = (lines: string[], count = 8) => lines.map((line) => `${" ".repeat(count)}${line}`).join("\n");
 export class EchidnaInvariantGenerator {
-  generate(raw: ExecutableInvariantPlan, sources: ReadonlyMap<string, string>): GeneratedEchidnaInvariant {
+  generate(raw: ExecutableInvariantPlan, sources: ReadonlyMap<string, string>, authoritativeLayout = false): GeneratedEchidnaInvariant {
     const plan = executableInvariantPlanSchema.parse(raw);
     const compatibility = validateEchidnaPlanCompatibility(plan, sources);
     if (!compatibility.compatible) throw new Error(`echidna_incompatible:${compatibility.reasons.join(",")}`);
@@ -46,7 +46,7 @@ export class EchidnaInvariantGenerator {
       const assertions = property.assertions.map((assertion) => `(${assertion.actual} ${assertion.kind === "uint-not-eq" ? "!=" : "=="} ${typeof assertion.expected === "string" ? assertion.expected : assertion.expected.name})`);
       return `    function echidna_ch_${property.name}() public view returns (bool) {\n${spaces([...observations, `return ${assertions.join(" && ")};`])}\n    }`;
     }).join("\n\n");
-    const source = `// SPDX-License-Identifier: UNLICENSED\npragma solidity ${plan.compilerVersion};\n\nimport { ${plan.primaryContract} } from "./src/${plan.primarySourcePath}";\n\ncontract ContractHunterEchidnaHarness {\n    ${plan.primaryContract} internal ${deploy.instanceName};\n\n    constructor() {\n        ${deploy.instanceName} = new ${plan.primaryContract}();\n    }\n\n${actions}\n\n${properties}\n}\n`;
+    const source = `// SPDX-License-Identifier: UNLICENSED\npragma solidity ${plan.compilerVersion};\n\nimport { ${plan.primaryContract} } from "./${authoritativeLayout ? "" : "src/"}${plan.primarySourcePath}";\n\ncontract ContractHunterEchidnaHarness {\n    ${plan.primaryContract} internal ${deploy.instanceName};\n\n    constructor() {\n        ${deploy.instanceName} = new ${plan.primaryContract}();\n    }\n\n${actions}\n\n${properties}\n}\n`;
     const planHash = invariantPlanHash(plan), seed = echidnaSeed(planHash);
     const settings = { testMode: "property", testLimit: ECHIDNA_LIMITS.testLimit, seqLen: ECHIDNA_LIMITS.seqLen, shrinkLimit: ECHIDNA_LIMITS.shrinkLimit, workers: 1, timeout: ECHIDNA_LIMITS.timeoutSeconds, format: "json", seed } as const;
     const config = `testMode: property\ntestLimit: ${settings.testLimit}\nseqLen: ${settings.seqLen}\nshrinkLimit: ${settings.shrinkLimit}\nworkers: 1\ntimeout: ${settings.timeout}\nformat: json\nseed: ${seed}\ncoverage: false\nstopOnFail: false\nsymExec: false\nprefix: echidna_ch_\n`;

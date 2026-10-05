@@ -30,7 +30,7 @@ export async function validateEchidnaInvariantWorkspaceIntegrity(workspacePath: 
     sources.set(entry.originalPath, bytes.toString("utf8")); allowed.add(entry.workspacePath);
   }
   let generated;
-  try { generated = new EchidnaInvariantGenerator().generate(manifest.plan, sources); }
+  try { generated = new EchidnaInvariantGenerator().generate(manifest.plan, sources, !!manifest.sourceLayout); }
   catch { throw new EchidnaWorkspaceIntegrityError("echidna_harness_regeneration_failed"); }
   if (generated.planHash !== manifest.planHash || generated.harnessHash !== manifest.harnessHash || generated.configHash !== manifest.configHash || JSON.stringify(generated.settings) !== JSON.stringify(manifest.settings)) throw new EchidnaWorkspaceIntegrityError("echidna_generated_hash_mismatch");
   if ((await file(root, ECHIDNA_HARNESS_FILE, 1_048_576)).toString("utf8") !== generated.source || (await file(root, ECHIDNA_CONFIG_FILE, 16_384)).toString("utf8") !== generated.config) throw new EchidnaWorkspaceIntegrityError("echidna_generated_bytes_mismatch");
@@ -39,7 +39,7 @@ export async function validateEchidnaInvariantWorkspaceIntegrity(workspacePath: 
       const absolute = path.join(dir, entry.name), relative = path.relative(root, absolute).split(path.sep).join("/");
       const info = await lstat(absolute);
       if (info.isSymbolicLink()) throw new EchidnaWorkspaceIntegrityError("echidna_workspace_symlink");
-      if (info.isDirectory()) { if (relative !== "src" && !relative.startsWith("src/")) throw new EchidnaWorkspaceIntegrityError("echidna_workspace_unexpected_directory"); await walk(absolute); }
+      if (info.isDirectory()) { if (relative !== "src" && !relative.startsWith("src/") && !(manifest.sourceLayout && (relative === "contracts" || relative.startsWith("contracts/")))) throw new EchidnaWorkspaceIntegrityError("echidna_workspace_unexpected_directory"); await walk(absolute); }
       else if (!info.isFile() || !allowed.has(relative)) throw new EchidnaWorkspaceIntegrityError("echidna_workspace_unexpected_file");
     }
   }

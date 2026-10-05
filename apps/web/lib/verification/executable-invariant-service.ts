@@ -1,8 +1,9 @@
 import { lstat, realpath } from "node:fs/promises";
 import path from "node:path";
-import { executableInvariantPlanSchema, invariantPlanHash, loadConfig, stableCompilerVersionSchema, type ExecutableInvariantPlan, type ExecutableInvariantExecutionManifest } from "@contracthunter/core";
+import { executableInvariantPlanSchema, invariantPlanHash, loadConfig, stableCompilerVersionSchema, type ExecutableInvariantPlan, type ExecutableInvariantExecutionManifest, type ResolvedAuthoritativeSourceClosure } from "@contracthunter/core";
 import { completeExecutableInvariantRun, createExecutableInvariantRun, failExecutableInvariantRun, getActiveExecutableInvariantRun, getDatabase, getScan, getVulnerabilityHypothesis, markExecutableInvariantRunRunning, setFoundryInvariantRunMetadata, type DatabaseClient, type ExecutableInvariantRunRow } from "@contracthunter/db";
 import { ExecutableInvariantWorkerClient, VerificationWorkspaceBuilder, interpretInvariantFacts, validateExecutableInvariantWorkspaceIntegrity, type ExecutableInvariantWorkerInput, type ExecutableInvariantWorkerResult } from "@contracthunter/scanners";
+import { sourceAuthorityForHypothesis } from "./authoritative-source-authority";
 
 export class ExecutableInvariantRequestError extends Error {
   constructor(readonly code: "invalid_plan" | "unknown_hypothesis" | "invalid_state" | "state_mismatch", message: string) { super(message); this.name = "ExecutableInvariantRequestError"; }
@@ -10,13 +11,13 @@ export class ExecutableInvariantRequestError extends Error {
 type Built = Awaited<ReturnType<VerificationWorkspaceBuilder["buildInvariant"]>>;
 export type ExecutableInvariantServiceOptions = {
   database: DatabaseClient; repositoryRoot: string;
-  workspaceBuilder: (compilers: string[]) => { buildInvariant(input: { workspaceId: string; repositoryPath: string; plan: ExecutableInvariantPlan }): Promise<Built> };
+  workspaceBuilder: (compilers: string[]) => { buildInvariant(input: { workspaceId: string; repositoryPath: string; plan: ExecutableInvariantPlan; authoritativeClosure?: ResolvedAuthoritativeSourceClosure }): Promise<Built> };
   runner: { run(input: ExecutableInvariantWorkerInput): Promise<ExecutableInvariantWorkerResult> };
   validateIntegrity?: (path: string) => Promise<ExecutableInvariantExecutionManifest>;
 };
 export class ExecutableInvariantService {
   constructor(private readonly options: ExecutableInvariantServiceOptions) {}
-  private async bind(hypothesisId: string, rawPlan: unknown): Promise<{ plan: ExecutableInvariantPlan; repositoryPath: string; compilers: string[] }> {
+  private async bind(hypothesisId: string, rawPlan: unknown): Promise<{ plan: ExecutableInvariantPlan; repositoryPath: string; compilers: string[]; authoritativeClosure?: ResolvedAuthoritativeSourceClosure }> {
     const parsed = executableInvariantPlanSchema.safeParse(rawPlan);
     if (!parsed.success) throw new ExecutableInvariantRequestError("invalid_plan", "Executable invariant plan is invalid.");
     const plan = parsed.data, hypothesis = getVulnerabilityHypothesis(this.options.database, hypothesisId);
@@ -29,6 +30,11 @@ export class ExecutableInvariantService {
     try { rawCompilers = JSON.parse(scan.compilerVersions ?? "null"); } catch { throw new ExecutableInvariantRequestError("invalid_state", "Trusted compiler selection is malformed."); }
     const parsedCompilers = stableCompilerVersionSchema.array().min(1).max(32).safeParse(rawCompilers);
     if (!parsedCompilers.success || !parsedCompilers.data.includes(plan.compilerVersion)) throw new ExecutableInvariantRequestError("state_mismatch", "Invariant compiler was not accepted for the scan.");
+    const authority = sourceAuthorityForHypothesis(this.options.database, hypothesis, { sourceUnitName: plan.primarySourcePath, contract: plan.primaryContract });
+    if (authority.kind === "authoritative") {
+      if (authority.closure.compilerIdentity.version !== plan.compilerVersion || plan.sourceFiles.some((file) => !authority.closure.files.some((source) => source.sourceUnitName === file))) throw new ExecutableInvariantRequestError("state_mismatch", "Invariant source or compiler differs from authoritative compilation.");
+      return { plan, repositoryPath: path.join(this.options.repositoryRoot, scan.id), compilers: parsedCompilers.data, authoritativeClosure: authority.closure };
+    }
     const root = await realpath(this.options.repositoryRoot).catch(() => { throw new ExecutableInvariantRequestError("invalid_state", "Repository root is unavailable."); });
     const expected = path.join(root, scan.id), info = await lstat(expected).catch(() => { throw new ExecutableInvariantRequestError("invalid_state", "Prepared repository is unavailable."); });
     if (!info.isDirectory() || info.isSymbolicLink() || await realpath(expected) !== expected) throw new ExecutableInvariantRequestError("invalid_state", "Prepared repository path is unsafe.");
@@ -44,7 +50,7 @@ export class ExecutableInvariantService {
     markExecutableInvariantRunRunning(this.options.database, run.id);
     const started = Date.now(); let built: Built | undefined; let result: ExecutableInvariantWorkerResult | undefined;
     try {
-      built = await this.options.workspaceBuilder(bound.compilers).buildInvariant({ workspaceId: run.id, repositoryPath: bound.repositoryPath, plan: bound.plan });
+      built = await this.options.workspaceBuilder(bound.compilers).buildInvariant({ workspaceId: run.id, repositoryPath: bound.repositoryPath, plan: bound.plan, ...(bound.authoritativeClosure ? { authoritativeClosure: bound.authoritativeClosure } : {}) });
       const manifest = await (this.options.validateIntegrity ?? validateExecutableInvariantWorkspaceIntegrity)(built.workspacePath);
       if (JSON.stringify(manifest) !== JSON.stringify(built.manifest) || manifest.planHash !== invariantPlanHash(bound.plan)) throw new Error("invariant_manifest_mismatch");
       setFoundryInvariantRunMetadata(this.options.database, run.id, { configHash: manifest.foundryConfigSha256, generatorVersion: manifest.generatorVersion });

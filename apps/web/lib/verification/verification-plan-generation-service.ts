@@ -13,6 +13,7 @@ import {
 } from "@contracthunter/db";
 import { VerificationHarnessGenerator, SolidityFunctionValidationError, validateSolidityFunctionUses } from "@contracthunter/scanners";
 import { OpenAIProvider } from "@/lib/ai/openai-provider";
+import { AuthoritativeSourceError, evidenceFor, sourceAuthorityForHypothesis, textSources } from "./authoritative-source-authority";
 
 export class VerificationPlanGenerationError extends Error {
   constructor(readonly code: "unknown_hypothesis" | "invalid_state" | "missing_context" | "strategy_not_compatible", message: string) { super(message); this.name = "VerificationPlanGenerationError"; }
@@ -74,11 +75,12 @@ function provenance(options: VerificationPlanGenerationServiceOptions, context: 
   };
 }
 
-async function validateStaticPlan(plan: VerificationHarnessPlan, repositoryPath: string, allowlist: Set<string>): Promise<void> {
+async function validateStaticPlan(plan: VerificationHarnessPlan, repositoryPath: string | null, allowlist: Set<string>, authoritativeSources?: Map<string, string>): Promise<void> {
   if (plan.sourceFiles.some((file) => !allowlist.has(file)) || !allowlist.has(plan.primarySourcePath)) reject("invalid_plan_source", "source_not_allowlisted");
-  const sources = new Map<string, string>();
-  for (const file of plan.sourceFiles) {
-    const expected = path.join(repositoryPath, file);
+  const sources = authoritativeSources ?? new Map<string, string>();
+  if (!authoritativeSources && !repositoryPath) reject("invalid_plan_source", "source_unavailable");
+  for (const file of authoritativeSources ? [] : plan.sourceFiles) {
+    const expected = path.join(repositoryPath!, file);
     try {
       const info = await lstat(expected); const real = await realpath(expected);
       if (!info.isFile() || info.isSymbolicLink() || real !== expected || !real.startsWith(`${repositoryPath}${path.sep}`)) reject("invalid_plan_source", "source_no_longer_safe");
@@ -141,26 +143,43 @@ export class VerificationPlanGenerationService {
     if (!scan || scan.status !== "completed" || !scan.resolvedCommit || !["ready", "cached"].includes(scan.compilerStatus)) throw new VerificationPlanGenerationError("invalid_state", "Verification planning requires a completed scan with trusted compiler state.");
     const analysis = getCurrentProtocolAnalysis(this.options.database, scan.id);
     if (!analysis || analysis.id !== hypothesis.protocolAnalysisId) throw new VerificationPlanGenerationError("missing_context", "The persisted protocol analysis for this hypothesis is unavailable.");
-    const compilers = acceptedCompilers(scan.compilerVersions); const repositoryPath = await repositoryFor(this.options.repositoryRoot, scan.id); const evidence = persistedEvidence(repositoryPath, hypothesis);
+    const compilers = acceptedCompilers(scan.compilerVersions);
+    let authority: ReturnType<typeof sourceAuthorityForHypothesis>;
+    try { authority = sourceAuthorityForHypothesis(this.options.database, hypothesis); }
+    catch (error) { if (error instanceof AuthoritativeSourceError) throw new VerificationPlanGenerationError("missing_context", `Authoritative source is unavailable: ${error.code}.`); throw error; }
+    const repositoryPath = authority.kind === "legacy" ? await repositoryFor(this.options.repositoryRoot, scan.id) : null;
+    let authoritySources: Map<string, string> | undefined;
+    if (authority.kind === "authoritative") {
+      try { authoritySources = textSources(authority.closure); }
+      catch (error) { if (error instanceof AuthoritativeSourceError) throw new VerificationPlanGenerationError("missing_context", `Authoritative source is unavailable: ${error.code}.`); throw error; }
+    }
+    const evidence = authority.kind === "authoritative" ? evidenceFor(hypothesis).filter((item) => item.filePath === authority.closure.targetSourceUnit && item.contract === authority.targetContract && authoritySources!.has(item.filePath)) : persistedEvidence(repositoryPath!, hypothesis);
+    if (!evidence.length) throw new VerificationPlanGenerationError("missing_context", "No aligned source evidence is available.");
     const invariantIds = parse<string[]>(hypothesis.violatedInvariantIds, []); const investigationIds = parse<string[]>(hypothesis.relatedInvestigationIds, []);
     const invariants = invariantIds.map((id) => getInvariant(this.options.database, id)).filter((item) => item?.scanId === scan.id);
     const investigations = investigationIds.map((id) => getInvestigation(this.options.database, id)).filter((item) => item?.scanId === scan.id);
     const extraEvidence: Evidence[] = [];
     for (const invariant of invariants) for (const item of parse<unknown[]>(invariant!.sourceEvidence, [])) {
       if (!item || typeof item !== "object") continue; const record = item as Record<string, unknown>;
-      const parsed = sourceEvidenceSchema.safeParse({ filePath: record.filePath, contract: record.contract, functionName: record.functionName, startLine: record.startLine, endLine: record.endLine }); if (parsed.success && repositorySolidityPathSchema.safeParse(parsed.data.filePath).success && validateEvidence(repositoryPath, parsed.data).valid) extraEvidence.push(parsed.data);
+      const parsed = sourceEvidenceSchema.safeParse({ filePath: record.filePath, contract: record.contract, functionName: record.functionName, startLine: record.startLine, endLine: record.endLine }); if (parsed.success && repositorySolidityPathSchema.safeParse(parsed.data.filePath).success && (authoritySources ? authoritySources.has(parsed.data.filePath) : validateEvidence(repositoryPath!, parsed.data).valid)) extraEvidence.push(parsed.data);
     }
     for (const investigation of investigations) if (investigation?.primaryFilePath) {
       const item = { filePath: investigation.primaryFilePath, contract: investigation.primaryContract, functionName: investigation.primaryFunction, startLine: investigation.startLine, endLine: investigation.endLine };
-      const parsed = sourceEvidenceSchema.safeParse(item); if (parsed.success && repositorySolidityPathSchema.safeParse(parsed.data.filePath).success && validateEvidence(repositoryPath, parsed.data).valid) extraEvidence.push(parsed.data);
+      const parsed = sourceEvidenceSchema.safeParse(item); if (parsed.success && repositorySolidityPathSchema.safeParse(parsed.data.filePath).success && (authoritySources ? authoritySources.has(parsed.data.filePath) : validateEvidence(repositoryPath!, parsed.data).valid)) extraEvidence.push(parsed.data);
     }
-    const context = new VerificationPlanContextBuilder({ maxSourceBytes: this.options.maxSourceBytes, maxFiles: this.options.maxFiles, maxFileBytes: this.options.maxFileBytes }).build(repositoryPath, [...new Set([...evidence, ...extraEvidence].map((item) => item.filePath))], {
+    const contextBuilder = new VerificationPlanContextBuilder({ maxSourceBytes: this.options.maxSourceBytes, maxFiles: this.options.maxFiles, maxFileBytes: this.options.maxFileBytes });
+    const contextModel = {
       trustedCompilerVersions: compilers,
       hypothesis: { title: hypothesis.title, category: hypothesis.category, summary: hypothesis.summary, rootCause: hypothesis.rootCause, preconditions: parse(hypothesis.preconditions, []), attackPath: parse(hypothesis.attackPath, []), impact: hypothesis.impact, affectedContracts: parse(hypothesis.affectedContracts, []), affectedFunctions: parse(hypothesis.affectedFunctions, []), evidence, verificationStrategy: parse(hypothesis.verificationStrategy, []) },
       protocol: { name: analysis.protocolName, types: parse(analysis.protocolTypes, []), summary: analysis.summary, architectureSummary: analysis.architectureSummary, limitations: parse(analysis.limitations, []) },
       invariants: invariants.map((item) => item && ({ id: item.id, title: item.title, description: item.description, relatedContracts: parse(item.relatedContracts, []), relatedFunctions: parse(item.relatedFunctions, []), testability: item.testability })),
       investigations: investigations.map((item) => item && ({ id: item.id, title: item.title, category: item.category, summary: parse(item.reasons, []), contract: item.primaryContract, functionName: item.primaryFunction, filePath: item.primaryFilePath })),
-    });
+    };
+    let context: ReturnType<VerificationPlanContextBuilder["build"]>;
+    if (authority.kind === "authoritative") {
+      try { context = contextBuilder.buildFromAuthoritativeClosure(authority.closure, contextModel); }
+      catch { throw new VerificationPlanGenerationError("missing_context", "Authoritative source exceeds the configured planning context limits."); }
+    } else context = contextBuilder.build(repositoryPath!, [...new Set([...evidence, ...extraEvidence].map((item) => item.filePath))], contextModel);
     if (!context.manifest.files.length) throw new VerificationPlanGenerationError("missing_context", "No bounded source context is available for verification planning.");
     const started = Date.now();
     if (compilers.length !== 1) {
@@ -168,6 +187,7 @@ export class VerificationPlanGenerationService {
       return { status: "failed", plan: null, rationale: null, limitations: [], notPlannableReasons: [], failureCode: "ambiguous_trusted_compiler", provenance: provenance(this.options, context, null, started) };
     }
     const trustedCompilerVersion = compilers[0];
+    if (authority.kind === "authoritative" && trustedCompilerVersion !== authority.closure.compilerIdentity.version) throw new VerificationPlanGenerationError("invalid_state", "Authoritative compiler identity differs from the trusted scan compiler.");
     let response: VerificationPlanProviderResult;
     try {
       response = await this.options.provider.generateVerificationPlan({ model: this.options.requestedModel, promptVersion: VERIFICATION_PLAN_PROMPT_VERSION, systemPrompt: selectedStrategy ? `${VERIFICATION_PLAN_SYSTEM_PROMPT}\nSELECTED STRATEGY: structured-verification. Return only the existing bounded structured verification semantics; ContractHunter supplies all authoritative identity.` : VERIFICATION_PLAN_SYSTEM_PROMPT, context, timeoutMs: this.options.timeoutMs });
@@ -201,7 +221,8 @@ export class VerificationPlanGenerationService {
     }
     const plan = parsedPlan.data;
     try {
-      await validateStaticPlan(plan, repositoryPath, new Set(context.manifest.files.map((file) => file.path)));
+      if (authority.kind === "authoritative" && (plan.primarySourcePath !== authority.closure.targetSourceUnit || plan.primaryContract !== authority.targetContract)) reject("invalid_plan_source", "unaligned_target");
+      await validateStaticPlan(plan, repositoryPath, new Set(context.manifest.files.map((file) => file.path)), authoritySources);
       const limitations = [...proposal.data.limitations, ...(context.manifest.truncated ? ["The bounded source context was truncated; review the proposal against the repository before execution."] : [])];
       return { ...proposal.data, plan, limitations, failureCode: null, provenance: provenance(this.options, context, response, started) };
     } catch (error) {

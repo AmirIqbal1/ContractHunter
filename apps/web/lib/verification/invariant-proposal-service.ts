@@ -15,6 +15,7 @@ import {
 } from "@contracthunter/db";
 import { ExecutableInvariantGenerator, extractSolidityPragmas, SolidityFunctionValidationError, validateEchidnaPlanCompatibility, type EchidnaCompatibility } from "@contracthunter/scanners";
 import { OpenAIProvider } from "@/lib/ai/openai-provider";
+import { AuthoritativeSourceError, evidenceFor, sourceAuthorityForHypothesis, textSources } from "./authoritative-source-authority";
 
 export class InvariantProposalRequestError extends Error {
   constructor(readonly code: "unknown_hypothesis" | "unknown_proposal" | "invalid_state", message: string) { super(message); this.name = "InvariantProposalRequestError"; }
@@ -94,19 +95,26 @@ export class InvariantProposalService {
     let writing = false;
     const finish = (value: InvariantProposalGenerationResult) => { writing = true; return { proposal: this.record(hypothesisId, scan.id, value, { ...context.manifest, sourceHashes }, response?.requestId ?? null, selectedStrategy), result: value }; };
     try {
-      const repository = await safeRepository(this.options.repositoryRoot, scan.id);
-      const evidence = sourceEvidence(repository, hypothesis, this.options.database, scan.id);
+      const authority = sourceAuthorityForHypothesis(this.options.database, hypothesis);
+      const repository = authority.kind === "legacy" ? await safeRepository(this.options.repositoryRoot, scan.id) : null;
+      const evidence = authority.kind === "authoritative" ? evidenceFor(hypothesis).filter((item) => item.filePath === authority.closure.targetSourceUnit && item.contract === authority.targetContract) : sourceEvidence(repository!, hypothesis, this.options.database, scan.id);
       if (!evidence.length) return finish(result("failed", "invalid_invariant_source"));
       const analysis = getCurrentProtocolAnalysis(this.options.database, scan.id);
       if (!analysis || analysis.id !== hypothesis.protocolAnalysisId) return finish(result("failed", "invalid_invariant_source"));
-      context = new VerificationPlanContextBuilder({ maxSourceBytes: this.options.maxSourceBytes, maxFiles: this.options.maxFiles, maxFileBytes: this.options.maxFileBytes }).build(repository, [...new Set(evidence.map((item) => item.filePath))], {
+      const contextBuilder = new VerificationPlanContextBuilder({ maxSourceBytes: this.options.maxSourceBytes, maxFiles: this.options.maxFiles, maxFileBytes: this.options.maxFileBytes });
+      const contextModel = {
         hypothesis: { title: hypothesis.title, summary: hypothesis.summary, rootCause: hypothesis.rootCause, affectedContracts: parse(hypothesis.affectedContracts, []), affectedFunctions: parse(hypothesis.affectedFunctions, []), evidence },
         protocol: { name: analysis.protocolName, summary: analysis.summary, architectureSummary: analysis.architectureSummary }, invariants: [], investigations: [],
-      }, invariantCapabilityProfile);
+      };
+      context = authority.kind === "authoritative" ? contextBuilder.buildFromAuthoritativeClosure(authority.closure, contextModel, invariantCapabilityProfile)
+        : contextBuilder.build(repository!, [...new Set(evidence.map((item) => item.filePath))], contextModel, invariantCapabilityProfile);
       if (!context.manifest.files.length || context.manifest.truncated) return finish(result("failed", "invalid_invariant_source"));
-      const sources = await sourcesFor(repository, context);
-      sourceHashes = Object.fromEntries([...sources].map(([file, source]) => [file, createHash("sha256").update(source).digest("hex")]));
-      const compiler = selectedCompiler(scan.compilerVersions, sources);
+      const sources = authority.kind === "authoritative" ? textSources(authority.closure) : await sourcesFor(repository!, context);
+      sourceHashes = authority.kind === "authoritative" ? Object.fromEntries(authority.closure.files.map((file) => [file.sourceUnitName, file.rawSha256]))
+        : Object.fromEntries([...sources].map(([file, source]) => [file, createHash("sha256").update(source).digest("hex")]));
+      const compiler = authority.kind === "authoritative" ? authority.closure.compilerIdentity.version : selectedCompiler(scan.compilerVersions, sources);
+      const trusted = stableCompilerVersionSchema.array().safeParse(parse(scan.compilerVersions, null));
+      if (authority.kind === "authoritative" && (!compiler || !trusted.success || !trusted.data.includes(compiler))) return finish(result("failed", "ambiguous_trusted_compiler"));
       if (!compiler) return finish(result("failed", "ambiguous_trusted_compiler"));
       const requiredMode = selectedStrategy === "foundry-fuzz-property" ? "fuzz-property" : selectedStrategy ? "stateful-invariant" : null;
       const selectedProfile = verificationCapabilityProfiles.find((profile) => profile.strategy === selectedStrategy);
@@ -123,7 +131,7 @@ export class InvariantProposalService {
       const semantics = parsed.data.semantics!;
       if (requiredMode && semantics.mode !== requiredMode) return finish(result("failed", "strategy_plan_mode_mismatch"));
       const primaryPaths = [...new Set(evidence.filter((item) => item.contract === semantics.primaryContract && sources.has(item.filePath)).map((item) => item.filePath))];
-      if (primaryPaths.length !== 1) return finish(result("failed", "invalid_invariant_source"));
+      if (primaryPaths.length !== 1 || authority.kind === "authoritative" && semantics.primaryContract !== authority.targetContract) return finish(result("failed", "invalid_invariant_source"));
       const setup = semantics.setup.map((operation) => operation.kind === "call" ? { ...operation, caller: operation.caller ?? undefined } : operation);
       const actions = semantics.mode === "fuzz-property" ? { fuzzAction: { ...semantics.fuzzAction, caller: semantics.fuzzAction.caller ?? undefined } } : { handlerActions: semantics.handlerActions.map((action) => ({ ...action, caller: action.caller ?? undefined })) };
       const plan = executableInvariantPlanSchema.safeParse({ ...semantics, ...actions, setup, schemaVersion: EXECUTABLE_INVARIANT_SCHEMA_VERSION, hypothesisId, scanId: scan.id, resolvedCommit: scan.resolvedCommit, compilerVersion: compiler, primarySourcePath: primaryPaths[0], sourceFiles: [primaryPaths[0]] });
@@ -142,10 +150,16 @@ export class InvariantProposalService {
     if (!parsed.success || invariantPlanHash(parsed.data) !== row.planHash) throw new InvariantProposalRequestError("invalid_state", "Persisted invariant plan is invalid.");
     const plan = parsed.data, hypothesis = getVulnerabilityHypothesis(this.options.database, hypothesisId), scan = hypothesis ? getScan(this.options.database, hypothesis.scanId) : null;
     if (!hypothesis || hypothesis.status === "rejected" || !scan || scan.status !== "completed" || scan.resolvedCommit !== plan.resolvedCommit || scan.id !== plan.scanId || plan.hypothesisId !== hypothesisId || !["ready", "cached"].includes(scan.compilerStatus)) throw new InvariantProposalRequestError("invalid_state", "Persisted invariant identity is stale.");
-    const repository = await safeRepository(this.options.repositoryRoot, scan.id), contextManifest = parse<InvariantProposalContext["manifest"] & { sourceHashes?: Record<string, string> }>(row.contextManifest, emptyManifest);
+    let authority: ReturnType<typeof sourceAuthorityForHypothesis>;
+    try { authority = sourceAuthorityForHypothesis(this.options.database, hypothesis, { sourceUnitName: plan.primarySourcePath, contract: plan.primaryContract }); }
+    catch (error) { if (error instanceof AuthoritativeSourceError) throw new InvariantProposalRequestError("invalid_state", `Authoritative source is unavailable: ${error.code}.`); throw error; }
+    const repository = authority.kind === "legacy" ? await safeRepository(this.options.repositoryRoot, scan.id) : null;
+    const contextManifest = parse<InvariantProposalContext["manifest"] & { sourceHashes?: Record<string, string> }>(row.contextManifest, emptyManifest);
     const context: InvariantProposalContext = { content: "", manifest: contextManifest };
-    const sources = await sourcesFor(repository, context).catch(() => { throw new InvariantProposalRequestError("invalid_state", "Invariant source is no longer safe."); });
-    if (!contextManifest.sourceHashes || Object.keys(contextManifest.sourceHashes).length !== sources.size || [...sources].some(([file, source]) => contextManifest.sourceHashes?.[file] !== createHash("sha256").update(source).digest("hex")) || selectedCompiler(scan.compilerVersions, sources) !== plan.compilerVersion || !sources.has(plan.primarySourcePath)) throw new InvariantProposalRequestError("invalid_state", "Trusted compiler or source mapping changed.");
+    const sources = authority.kind === "authoritative" ? textSources(authority.closure) : await sourcesFor(repository!, context).catch(() => { throw new InvariantProposalRequestError("invalid_state", "Invariant source is no longer safe."); });
+    const hashes = authority.kind === "authoritative" ? Object.fromEntries(authority.closure.files.map((file) => [file.sourceUnitName, file.rawSha256]))
+      : Object.fromEntries([...sources].map(([file, source]) => [file, createHash("sha256").update(source).digest("hex")]));
+    if (!contextManifest.sourceHashes || JSON.stringify(contextManifest.sourceHashes) !== JSON.stringify(hashes) || (authority.kind === "authoritative" ? authority.closure.compilerIdentity.version : selectedCompiler(scan.compilerVersions, sources)) !== plan.compilerVersion || !sources.has(plan.primarySourcePath)) throw new InvariantProposalRequestError("invalid_state", "Trusted compiler or source mapping changed.");
     try { new ExecutableInvariantGenerator().generate(plan, sources); }
     catch { throw new InvariantProposalRequestError("invalid_state", "Invariant source validation failed."); }
     return { plan, planHash: row.planHash, compatibility: { foundry: { compatible: true, reasons: [] }, echidna: validateEchidnaPlanCompatibility(plan, sources) } };

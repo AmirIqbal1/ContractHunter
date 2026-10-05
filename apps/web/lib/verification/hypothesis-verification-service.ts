@@ -1,6 +1,6 @@
 import { lstat, realpath } from "node:fs/promises";
 import path from "node:path";
-import { loadConfig, sourceEvidenceSchema, stableCompilerVersionSchema, validateEvidence, verificationHarnessPlanSchema, type VerificationHarnessManifest, type VerificationHarnessPlan } from "@contracthunter/core";
+import { loadConfig, sourceEvidenceSchema, stableCompilerVersionSchema, validateEvidence, verificationHarnessPlanSchema, type VerificationHarnessManifest, type VerificationHarnessPlan, type ResolvedAuthoritativeSourceClosure } from "@contracthunter/core";
 import {
   completeHypothesisVerificationRun, createHypothesisVerificationRun, failHypothesisVerificationRun, getActiveHypothesisVerificationRun,
   getDatabase, getScan, getVulnerabilityHypothesis, markHypothesisVerificationRunRunning,
@@ -10,6 +10,7 @@ import {
   VerificationWorkerClient, VerificationWorkspaceBuilder, interpretVerificationResult, validateVerificationWorkspaceIntegrity,
   type BuiltVerificationWorkspace, type FoundryVerificationInput, type FoundryVerificationResult,
 } from "@contracthunter/scanners";
+import { sourceAuthorityForHypothesis } from "./authoritative-source-authority";
 
 export type HypothesisVerificationRequestResult =
   | { status: "completed" | "failed"; run: HypothesisVerificationRunRow }
@@ -21,7 +22,7 @@ export class HypothesisVerificationRequestError extends Error {
   }
 }
 
-type WorkspaceBuilder = { build(input: { verificationRunId: string; repositoryPath: string; plan: VerificationHarnessPlan }): Promise<BuiltVerificationWorkspace> };
+type WorkspaceBuilder = { build(input: { verificationRunId: string; repositoryPath: string; plan: VerificationHarnessPlan; authoritativeClosure?: ResolvedAuthoritativeSourceClosure }): Promise<BuiltVerificationWorkspace> };
 type VerificationRunner = { run(input: FoundryVerificationInput): Promise<FoundryVerificationResult> };
 
 export type HypothesisVerificationServiceOptions = {
@@ -65,7 +66,7 @@ export class HypothesisVerificationService {
     this.validateIntegrity = options.validateIntegrity ?? validateVerificationWorkspaceIntegrity;
   }
 
-  private async bind(hypothesisId: string, rawPlan: unknown): Promise<{ plan: VerificationHarnessPlan; repositoryPath: string; compilers: string[] }> {
+  private async bind(hypothesisId: string, rawPlan: unknown): Promise<{ plan: VerificationHarnessPlan; repositoryPath: string; compilers: string[]; authoritativeClosure?: ResolvedAuthoritativeSourceClosure }> {
     const parsed = verificationHarnessPlanSchema.safeParse(rawPlan);
     if (!parsed.success) throw new HypothesisVerificationRequestError("invalid_plan", "The verification plan is invalid.");
     const plan = parsed.data;
@@ -78,6 +79,11 @@ export class HypothesisVerificationService {
     if (scan.compilerStatus !== "ready" && scan.compilerStatus !== "cached") throw new HypothesisVerificationRequestError("invalid_state", "The scan compiler state is not trusted and ready.");
     const compilers = acceptedCompilerVersions(scan.compilerVersions);
     if (!compilers.includes(plan.compilerVersion)) throw new HypothesisVerificationRequestError("state_mismatch", "The verification compiler was not accepted for this scan.");
+    const authority = sourceAuthorityForHypothesis(this.options.database, hypothesis, { sourceUnitName: plan.primarySourcePath, contract: plan.primaryContract });
+    if (authority.kind === "authoritative") {
+      if (authority.closure.compilerIdentity.version !== plan.compilerVersion || plan.sourceFiles.some((file) => !authority.closure.files.some((source) => source.sourceUnitName === file))) throw new HypothesisVerificationRequestError("state_mismatch", "The plan source or compiler differs from authoritative compilation.");
+      return { plan, repositoryPath: path.join(this.options.repositoryRoot, scan.id), compilers, authoritativeClosure: authority.closure };
+    }
     const root = await realpath(this.options.repositoryRoot).catch(() => { throw new HypothesisVerificationRequestError("invalid_state", "The repository root is unavailable."); });
     const expected = path.join(root, scan.id);
     const info = await lstat(expected).catch(() => { throw new HypothesisVerificationRequestError("invalid_state", "The prepared scanned repository is unavailable."); });
@@ -107,7 +113,7 @@ export class HypothesisVerificationService {
     const startedAt = Date.now(); let built: BuiltVerificationWorkspace | undefined; let result: FoundryVerificationResult | undefined;
     markHypothesisVerificationRunRunning(this.options.database, run.id);
     try {
-      built = await this.options.workspaceBuilder(bound.compilers).build({ verificationRunId: run.id, repositoryPath: bound.repositoryPath, plan: bound.plan });
+      built = await this.options.workspaceBuilder(bound.compilers).build({ verificationRunId: run.id, repositoryPath: bound.repositoryPath, plan: bound.plan, ...(bound.authoritativeClosure ? { authoritativeClosure: bound.authoritativeClosure } : {}) });
       const validatedManifest = await this.validateIntegrity(built.workspacePath);
       if (JSON.stringify(validatedManifest) !== JSON.stringify(built.manifest)) throw new Error("workspace_manifest_mismatch");
       result = await this.options.runner.run({ workspacePath: built.workspacePath, scanId: bound.plan.scanId, hypothesisId, resolvedCommit: bound.plan.resolvedCommit, compilerVersion: bound.plan.compilerVersion, timeoutMs: this.options.timeoutMs, maxOutputBytes: this.options.maxOutputBytes });

@@ -133,7 +133,7 @@ export const INVARIANT_HARNESS_MANIFEST = ".contracthunter-invariant.json";
 const executableInvariantManifestShapeSchema = z.object({
   formatVersion: z.literal(1), workspaceId: z.string().uuid(), planKind: z.literal("executable-invariant"), mode: z.enum(["fuzz-property", "stateful-invariant"]), schemaVersion: z.literal(EXECUTABLE_INVARIANT_SCHEMA_VERSION),
   planHash: z.string().regex(/^[a-f0-9]{64}$/), hypothesisId: z.string().uuid(), scanId: z.string().uuid(), resolvedCommit: z.string().regex(/^[a-f0-9]{40}$/), compilerVersion: stableCompilerVersionSchema,
-  generatorVersion: stableCompilerVersionSchema, generatedBy: z.literal("contracthunter"), sourceManifest: z.array(z.object({ originalPath: repositorySolidityPathSchema, workspacePath: z.string().regex(/^src\/[A-Za-z0-9_@+./-]+\.sol$/), byteLength: z.number().int().nonnegative().max(10_485_760), sha256: z.string().regex(/^[a-f0-9]{64}$/) }).strict().refine((entry) => entry.workspacePath === `src/${entry.originalPath}`)).min(1).max(200),
+  generatorVersion: stableCompilerVersionSchema, generatedBy: z.literal("contracthunter"), sourceLayout: z.literal("authoritative-source-unit-v1").optional(), sourceManifest: z.array(z.object({ originalPath: repositorySolidityPathSchema, workspacePath: z.string().regex(/^(?:src|contracts)\/[A-Za-z0-9_@+./-]+\.sol$/), byteLength: z.number().int().nonnegative().max(10_485_760), sha256: z.string().regex(/^[a-f0-9]{64}$/) }).strict().refine((entry) => entry.workspacePath === `src/${entry.originalPath}` || entry.workspacePath === entry.originalPath)).min(1).max(200),
   generatedHarnessPath: z.literal("test/ContractHunterInvariant.t.sol"), generatedHarnessSha256: z.string().regex(/^[a-f0-9]{64}$/), foundryConfigSha256: z.string().regex(/^[a-f0-9]{64}$/),
   foundry: z.object({ fuzzRuns: z.literal(128), invariantRuns: z.literal(64), invariantDepth: z.literal(32), invariantFailOnRevert: z.literal(false), seed: z.string().regex(/^0x[a-f0-9]{64}$/) }).strict(), contentFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
 }).strict();
@@ -146,6 +146,7 @@ export const executableInvariantManifestSchema = executableInvariantManifestShap
   const { contentFingerprint, ...base } = manifest;
   if (contentFingerprint !== invariantManifestFingerprint(base)) context.addIssue({ code: z.ZodIssueCode.custom, message: "Invariant manifest fingerprint is invalid." });
   const paths = manifest.sourceManifest.map((entry) => entry.originalPath);
+  if (manifest.sourceManifest.some((entry) => entry.workspacePath !== (manifest.sourceLayout ? entry.originalPath : `src/${entry.originalPath}`))) context.addIssue({ code: z.ZodIssueCode.custom, message: "Invariant source layout mismatch." });
   if (new Set(paths).size !== paths.length) context.addIssue({ code: z.ZodIssueCode.custom, message: "Duplicate source manifest paths." });
 });
 
@@ -162,6 +163,7 @@ export const executableInvariantExecutionManifestSchema = executableInvariantMan
   const { contentFingerprint, ...base } = manifest;
   if (contentFingerprint !== invariantManifestFingerprint(base)) issue("Invariant manifest fingerprint is invalid.");
   const paths = manifest.sourceManifest.map((entry) => entry.originalPath);
+  if (manifest.sourceManifest.some((entry) => entry.workspacePath !== (manifest.sourceLayout ? entry.originalPath : `src/${entry.originalPath}`))) issue("Invariant source layout mismatch.");
   if (new Set(paths).size !== paths.length) issue("Duplicate source manifest paths.");
 });
 export type ExecutableInvariantExecutionManifest = z.infer<typeof executableInvariantExecutionManifestSchema>;

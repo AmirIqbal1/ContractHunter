@@ -25,8 +25,8 @@ export const echidnaInvariantManifestSchema = z.object({
   formatVersion: z.literal(3), engine: z.literal("echidna"), planKind: z.literal("executable-invariant"), workspaceId: uuid,
   schemaVersion: z.literal(EXECUTABLE_INVARIANT_SCHEMA_VERSION), plan: executableInvariantPlanSchema, planHash: sha,
   hypothesisId: uuid, scanId: uuid, resolvedCommit: z.string().regex(/^[a-f0-9]{40}$/), compilerVersion: stableCompilerVersionSchema,
-  generatorVersion: stableCompilerVersionSchema, generatedBy: z.literal("contracthunter"),
-  sourceManifest: z.array(z.object({ originalPath: repositorySolidityPathSchema, workspacePath: z.string().regex(/^src\/[A-Za-z0-9_@+./-]+\.sol$/), byteLength: z.number().int().nonnegative().max(10_485_760), sha256: sha }).strict().refine((entry) => entry.workspacePath === `src/${entry.originalPath}`)).min(1).max(200),
+  generatorVersion: stableCompilerVersionSchema, generatedBy: z.literal("contracthunter"), sourceLayout: z.literal("authoritative-source-unit-v1").optional(),
+  sourceManifest: z.array(z.object({ originalPath: repositorySolidityPathSchema, workspacePath: z.string().regex(/^(?:src|contracts)\/[A-Za-z0-9_@+./-]+\.sol$/), byteLength: z.number().int().nonnegative().max(10_485_760), sha256: sha }).strict().refine((entry) => entry.workspacePath === `src/${entry.originalPath}` || entry.workspacePath === entry.originalPath)).min(1).max(200),
   harnessPath: z.literal(ECHIDNA_HARNESS_FILE), harnessHash: sha, configPath: z.literal(ECHIDNA_CONFIG_FILE), configHash: sha,
   echidnaVersion: z.literal(ECHIDNA_UPSTREAM_VERSION), compatibilityVersion: z.literal(ECHIDNA_COMPAT_VERSION), buildId: z.literal(ECHIDNA_BUILD_ID), binaryHash: z.literal(ECHIDNA_BINARY_SHA256),
   settings, executionLimits: z.object({ wallClockTimeoutMs: z.literal(ECHIDNA_LIMITS.wallClockTimeoutMs), maxOutputBytes: z.literal(ECHIDNA_LIMITS.maxOutputBytes), maxVirtualMemoryBytes: z.literal(ECHIDNA_LIMITS.maxVirtualMemoryBytes), maxProcesses: z.literal(64), maxOpenFiles: z.literal(256), maxFileSizeBytes: z.literal(ECHIDNA_LIMITS.maxFileSizeBytes) }).strict(),
@@ -38,6 +38,7 @@ export const echidnaInvariantManifestSchema = z.object({
   if (manifest.schemaVersion !== manifest.plan.schemaVersion || manifest.hypothesisId !== manifest.plan.hypothesisId || manifest.scanId !== manifest.plan.scanId || manifest.resolvedCommit !== manifest.plan.resolvedCommit || manifest.compilerVersion !== manifest.plan.compilerVersion) fail("Echidna manifest identity differs from plan.");
   if (manifest.settings.seed !== echidnaSeed(manifest.planHash)) fail("Echidna seed differs from plan hash.");
   if (new Set(manifest.sourceManifest.map((entry) => entry.originalPath)).size !== manifest.sourceManifest.length) fail("Duplicate Echidna source paths.");
+  if (manifest.sourceManifest.some((entry) => entry.workspacePath !== (manifest.sourceLayout ? entry.originalPath : `src/${entry.originalPath}`))) fail("Echidna source layout mismatch.");
   const { contentFingerprint, ...base } = manifest;
   if (contentFingerprint !== invariantManifestFingerprint(base)) fail("Echidna manifest fingerprint differs.");
 });
