@@ -12,6 +12,7 @@ export * from "./verification-harness-generator";
 export * from "./verification-result-interpreter";
 export * from "./verification-workspace-builder";
 export * from "./scan-source-snapshot";
+export * from "./authoritative-compilation";
 export * from "./verification-workspace-integrity";
 export * from "./process-runner";
 export * from "./scanner-runner";

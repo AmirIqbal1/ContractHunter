@@ -4,8 +4,8 @@ import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/better-sqlite3";
-import type { ExecutableInvariantPlan, ExecutableInvariantEvidence, InvariantProposalGenerationResult, InvariantReplayPlan, AIAnalysisStatus, CompilerStatus, CompleteHypothesisVerificationRunInput, CreateHypothesisVerificationRunInput, CreateScanInput, DependencyStatus, DynamicEvidence, FailHypothesisVerificationRunInput, FindingStatus, HypothesisStatus, InvariantCategory, InvariantStatus, InvariantTestability, InvestigationStatus, NewFinding, ProtocolAnalysisResult, ReviewRunStatus, ReviewStageStatus, ScannerStatus, ScanStatus, SecurityReviewPlan, Severity, ValidatedEvidence, VerificationTargetHypothesis, VerificationTargetInvestigation, VerificationStrategyAssessment, VerificationPlanGenerationResult, VerificationStrategy } from "@contracthunter/core";
-import { ECHIDNA_LIMITS, INVARIANT_COUNTEREXAMPLE_PARSER_VERSION, SCAN_SOURCE_LIMITS, SCAN_SOURCE_ROOTS, SCAN_SOURCE_SNAPSHOT_SCHEMA, assessVerificationStrategies, executableInvariantPlanSchema, executableInvariantEvidenceSchema, invariantPlanHash, invariantReplayPlanHash, invariantReplayPlanSchema, assertTransition, assertVerificationRunTransition, buildInvestigations, buildInvariantPropertyTargets, buildVerificationTargetGroups, completeHypothesisVerificationRunSchema, correlateHypotheses, createHypothesisVerificationRunSchema, dynamicEvidenceSchema, failHypothesisVerificationRunSchema, findingSchema, investigationSchema, loadConfig, repositorySolidityPathSchema, scanSourceFileMetadataSchema, scanSchema, type ScanSourceCaptureFile } from "@contracthunter/core";
+import type { CompilationManifest, CompilationUnsupportedReason, ScannerSourceAlignment, ExecutableInvariantPlan, ExecutableInvariantEvidence, InvariantProposalGenerationResult, InvariantReplayPlan, AIAnalysisStatus, CompilerStatus, CompleteHypothesisVerificationRunInput, CreateHypothesisVerificationRunInput, CreateScanInput, DependencyStatus, DynamicEvidence, FailHypothesisVerificationRunInput, FindingStatus, HypothesisStatus, InvariantCategory, InvariantStatus, InvariantTestability, InvestigationStatus, NewFinding, ProtocolAnalysisResult, ReviewRunStatus, ReviewStageStatus, ScannerStatus, ScanStatus, SecurityReviewPlan, Severity, ValidatedEvidence, VerificationTargetHypothesis, VerificationTargetInvestigation, VerificationStrategyAssessment, VerificationPlanGenerationResult, VerificationStrategy } from "@contracthunter/core";
+import { ECHIDNA_LIMITS, INVARIANT_COUNTEREXAMPLE_PARSER_VERSION, SCAN_SOURCE_LIMITS, SCAN_SOURCE_ROOTS, SCAN_SOURCE_SNAPSHOT_SCHEMA, assessVerificationStrategies, compilationManifestSchema, compilationUnsupportedReasons, executableInvariantPlanSchema, executableInvariantEvidenceSchema, invariantPlanHash, invariantReplayPlanHash, invariantReplayPlanSchema, assertTransition, assertVerificationRunTransition, buildInvestigations, buildInvariantPropertyTargets, buildVerificationTargetGroups, completeHypothesisVerificationRunSchema, correlateHypotheses, createHypothesisVerificationRunSchema, dynamicEvidenceSchema, failHypothesisVerificationRunSchema, findingSchema, investigationSchema, loadConfig, repositorySolidityPathSchema, scanSourceFileMetadataSchema, scanSchema, type ScanSourceCaptureFile } from "@contracthunter/core";
 import { authoritativeInvariantEvidence, executableInvariantProposals, executableInvariantRuns, invariantEvidenceReviews, invariantReplayArtifacts, invariantReplayRuns, hypothesisLifecycleTransitions, findings, hypothesisGroupMembers, hypothesisGroups, hypothesisVerificationRuns, verificationPlanAttempts, scanSourceSnapshots, scanSourceSnapshotFiles, investigationFindings, investigations, invariants, protocolAnalyses, scans, scanScanners, securityReviewerRuns, securityReviewPlans, vulnerabilityHypotheses, type ExecutableInvariantProposalRow, type ExecutableInvariantRunRow, type InvariantReplayArtifactRow, type InvariantReplayRunRow, type InvariantEvidenceReviewRow, type FindingRow, type HypothesisGroupRow, type HypothesisVerificationRunRow, type InvariantRow, type InvestigationRow, type ProtocolAnalysisRow, type ScanRow, type ScanScannerRow, type SecurityReviewerRunRow, type SecurityReviewPlanRow, type VulnerabilityHypothesisRow } from "./schema";
 
 export * from "./schema";
@@ -267,9 +267,47 @@ export function createDatabase(databasePath: string) {
     })(); }
     catch (error) { throw new Error(`Database migration 0005_v0_2_2_scan_source_snapshots failed without committing changes: ${error instanceof Error ? error.message : String(error)}`); }
   }
+  if (!sqlite.prepare("SELECT 1 FROM schema_migrations WHERE id = ?").get("0006_v0_2_2_compilation_provenance")) {
+    try { sqlite.transaction(() => {
+      sqlite.exec(`CREATE TABLE scan_compilation_provenance (
+        scan_id TEXT PRIMARY KEY REFERENCES scans(id) ON DELETE CASCADE,
+        resolved_commit TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('supported','unsupported')),
+        unsupported_reason TEXT, schema TEXT, profile_kind TEXT, compiler_version TEXT, compiler_artifact_sha256 TEXT,
+        source_roots TEXT, library_roots TEXT, remappings TEXT, finalized_at INTEGER,
+        CHECK((status='supported' AND unsupported_reason IS NULL AND schema='contracthunter-compilation-manifest-v1' AND profile_kind IS NOT NULL AND compiler_version IS NOT NULL AND compiler_artifact_sha256 IS NOT NULL AND source_roots IS NOT NULL AND library_roots IS NOT NULL AND remappings IS NOT NULL)
+           OR (status='unsupported' AND unsupported_reason IS NOT NULL AND schema IS NULL AND profile_kind IS NULL AND compiler_version IS NULL AND compiler_artifact_sha256 IS NULL AND source_roots IS NULL AND library_roots IS NULL AND remappings IS NULL))
+      );
+      CREATE TABLE scan_compilation_source_units (
+        scan_id TEXT NOT NULL REFERENCES scan_compilation_provenance(scan_id) ON DELETE CASCADE,
+        source_unit_name TEXT NOT NULL, snapshot_source_key TEXT NOT NULL, raw_sha256 TEXT NOT NULL,
+        byte_length INTEGER NOT NULL, contract_names TEXT NOT NULL,
+        PRIMARY KEY(scan_id, source_unit_name), UNIQUE(scan_id, snapshot_source_key),
+        FOREIGN KEY(scan_id, snapshot_source_key) REFERENCES scan_source_snapshot_files(scan_id, source_key)
+      );
+      CREATE TABLE scan_scanner_alignment (
+        finding_id TEXT PRIMARY KEY REFERENCES findings(id) ON DELETE CASCADE,
+        scan_id TEXT NOT NULL REFERENCES scans(id) ON DELETE CASCADE,
+        scanner_id TEXT NOT NULL, scanner_version TEXT, detector_id TEXT, reported_source_identity TEXT,
+        status TEXT NOT NULL CHECK(status IN ('aligned','unaligned','unknown')),
+        source_unit_name TEXT, snapshot_source_key TEXT, target_resolved INTEGER NOT NULL CHECK(target_resolved IN (0,1)),
+        CHECK((status='aligned' AND source_unit_name IS NOT NULL AND snapshot_source_key IS NOT NULL)
+           OR (status<>'aligned' AND source_unit_name IS NULL AND snapshot_source_key IS NULL AND target_resolved=0)),
+        FOREIGN KEY(scan_id, source_unit_name) REFERENCES scan_compilation_source_units(scan_id, source_unit_name)
+      );
+      CREATE TRIGGER scan_compilation_provenance_immutable BEFORE UPDATE ON scan_compilation_provenance WHEN OLD.finalized_at IS NOT NULL BEGIN SELECT RAISE(ABORT,'compilation provenance is immutable'); END;
+      CREATE TRIGGER scan_compilation_provenance_no_delete BEFORE DELETE ON scan_compilation_provenance WHEN EXISTS(SELECT 1 FROM scans WHERE id=OLD.scan_id) BEGIN SELECT RAISE(ABORT,'compilation provenance is immutable'); END;
+      CREATE TRIGGER scan_compilation_source_unit_closed BEFORE INSERT ON scan_compilation_source_units WHEN (SELECT finalized_at FROM scan_compilation_provenance WHERE scan_id=NEW.scan_id) IS NOT NULL BEGIN SELECT RAISE(ABORT,'finalized compilation membership is closed'); END;
+      CREATE TRIGGER scan_compilation_source_unit_immutable BEFORE UPDATE ON scan_compilation_source_units BEGIN SELECT RAISE(ABORT,'compilation source unit is immutable'); END;
+      CREATE TRIGGER scan_compilation_source_unit_no_delete BEFORE DELETE ON scan_compilation_source_units WHEN EXISTS(SELECT 1 FROM scans WHERE id=OLD.scan_id) BEGIN SELECT RAISE(ABORT,'compilation source unit is immutable'); END;
+      CREATE TRIGGER scan_scanner_alignment_immutable BEFORE UPDATE ON scan_scanner_alignment BEGIN SELECT RAISE(ABORT,'scanner alignment is immutable'); END;
+      CREATE TRIGGER scan_scanner_alignment_no_delete BEFORE DELETE ON scan_scanner_alignment WHEN EXISTS(SELECT 1 FROM scans WHERE id=OLD.scan_id) BEGIN SELECT RAISE(ABORT,'scanner alignment is immutable'); END;`);
+      sqlite.prepare("INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)").run("0006_v0_2_2_compilation_provenance", Date.now());
+    })(); }
+    catch (error) { throw new Error(`Database migration 0006_v0_2_2_compilation_provenance failed without committing changes: ${error instanceof Error ? error.message : String(error)}`); }
+  }
   const integrity = sqlite.pragma("quick_check") as Array<{ quick_check: string }>;
   const foreignKeyViolations = sqlite.pragma("foreign_key_check") as unknown[];
-  const requiredTables = ["scans", "scan_source_snapshots", "scan_source_snapshot_files", "findings", "scan_scanners", "investigations", "investigation_findings", "protocol_analyses", "invariants", "security_review_plans", "security_reviewer_runs", "vulnerability_hypotheses", "hypothesis_verification_runs", "verification_plan_attempts", "executable_invariant_runs", "executable_invariant_proposals", "invariant_replay_artifacts", "invariant_replay_runs", "authoritative_invariant_evidence", "invariant_evidence_reviews", "hypothesis_lifecycle_transitions", "hypothesis_groups", "hypothesis_group_members"];
+  const requiredTables = ["scans", "scan_source_snapshots", "scan_source_snapshot_files", "scan_compilation_provenance", "scan_compilation_source_units", "scan_scanner_alignment", "findings", "scan_scanners", "investigations", "investigation_findings", "protocol_analyses", "invariants", "security_review_plans", "security_reviewer_runs", "vulnerability_hypotheses", "hypothesis_verification_runs", "verification_plan_attempts", "executable_invariant_runs", "executable_invariant_proposals", "invariant_replay_artifacts", "invariant_replay_runs", "authoritative_invariant_evidence", "invariant_evidence_reviews", "hypothesis_lifecycle_transitions", "hypothesis_groups", "hypothesis_group_members"];
   const presentTables = new Set((sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as Array<{ name: string }>).map((row) => row.name));
   const runColumns = new Set((sqlite.prepare("PRAGMA table_info(executable_invariant_runs)").all() as Array<{name:string}>).map((row) => row.name));
   const replayColumns = new Set((sqlite.prepare("PRAGMA table_info(invariant_replay_artifacts)").all() as Array<{name:string}>).map((row) => row.name));
@@ -278,9 +316,10 @@ export function createDatabase(databasePath: string) {
   const snapshotColumns = new Set((sqlite.prepare("PRAGMA table_info(scan_source_snapshots)").all() as Array<{name:string}>).map((row) => row.name));
   const snapshotFileColumns = new Set((sqlite.prepare("PRAGMA table_info(scan_source_snapshot_files)").all() as Array<{name:string}>).map((row) => row.name));
   const snapshotTriggers = new Set((sqlite.prepare("SELECT name FROM sqlite_master WHERE type='trigger' AND name LIKE 'scan_source_snapshot_%'").all() as Array<{name:string}>).map((row) => row.name));
+  const compilationTriggers = new Set((sqlite.prepare("SELECT name FROM sqlite_master WHERE type='trigger' AND name LIKE 'scan_compilation_%' OR type='trigger' AND name LIKE 'scan_scanner_alignment_%'").all() as Array<{name:string}>).map((row) => row.name));
   const invalidEngine = sqlite.prepare("SELECT 1 FROM executable_invariant_runs WHERE engine NOT IN ('foundry', 'echidna') LIMIT 1").get();
   const invalidReplayEngine = sqlite.prepare("SELECT 1 FROM invariant_replay_artifacts WHERE source_engine NOT IN ('foundry', 'echidna') LIMIT 1").get();
-  if (integrity.length !== 1 || integrity[0]?.quick_check !== "ok" || foreignKeyViolations.length || requiredTables.some((table) => !presentTables.has(table)) || !runColumns.has("engine") || !runColumns.has("engine_metadata") || !runColumns.has("proposal_id") || !replayColumns.has("source_engine") || !proposalColumns.has("selected_strategy") || ["id", "hypothesis_id", "scan_id", "selected_strategy", "status", "plan", "failure_code", "result", "created_at"].some((column) => !planAttemptColumns.has(column)) || ["scan_id", "schema", "resolved_commit", "file_count", "total_bytes", "finalized_at"].some((column) => !snapshotColumns.has(column)) || ["scan_id", "source_key", "raw_bytes", "raw_sha256", "byte_length"].some((column) => !snapshotFileColumns.has(column)) || ["scan_source_snapshot_finalized_immutable", "scan_source_snapshot_file_immutable", "scan_source_snapshot_file_closed", "scan_source_snapshot_file_no_delete", "scan_source_snapshot_no_delete"].some((trigger) => !snapshotTriggers.has(trigger)) || invalidEngine || invalidReplayEngine || sqlite.prepare("SELECT 1 FROM executable_invariant_runs r LEFT JOIN executable_invariant_proposals p ON p.id=r.proposal_id WHERE r.proposal_id IS NOT NULL AND (p.id IS NULL OR p.hypothesis_id<>r.hypothesis_id OR p.scan_id<>r.scan_id OR p.plan_hash<>r.plan_hash) LIMIT 1").get()) {
+  if (integrity.length !== 1 || integrity[0]?.quick_check !== "ok" || foreignKeyViolations.length || requiredTables.some((table) => !presentTables.has(table)) || !runColumns.has("engine") || !runColumns.has("engine_metadata") || !runColumns.has("proposal_id") || !replayColumns.has("source_engine") || !proposalColumns.has("selected_strategy") || ["id", "hypothesis_id", "scan_id", "selected_strategy", "status", "plan", "failure_code", "result", "created_at"].some((column) => !planAttemptColumns.has(column)) || ["scan_id", "schema", "resolved_commit", "file_count", "total_bytes", "finalized_at"].some((column) => !snapshotColumns.has(column)) || ["scan_id", "source_key", "raw_bytes", "raw_sha256", "byte_length"].some((column) => !snapshotFileColumns.has(column)) || ["scan_source_snapshot_finalized_immutable", "scan_source_snapshot_file_immutable", "scan_source_snapshot_file_closed", "scan_source_snapshot_file_no_delete", "scan_source_snapshot_no_delete"].some((trigger) => !snapshotTriggers.has(trigger)) || ["scan_compilation_provenance_immutable", "scan_compilation_provenance_no_delete", "scan_compilation_source_unit_closed", "scan_compilation_source_unit_immutable", "scan_compilation_source_unit_no_delete", "scan_scanner_alignment_immutable", "scan_scanner_alignment_no_delete"].some((trigger) => !compilationTriggers.has(trigger)) || invalidEngine || invalidReplayEngine || sqlite.prepare("SELECT 1 FROM executable_invariant_runs r LEFT JOIN executable_invariant_proposals p ON p.id=r.proposal_id WHERE r.proposal_id IS NOT NULL AND (p.id IS NULL OR p.hypothesis_id<>r.hypothesis_id OR p.scan_id<>r.scan_id OR p.plan_hash<>r.plan_hash) LIMIT 1").get()) {
     throw new Error("Database validation failed after migration; no application access was started.");
   }
   sqlite.exec("COMMIT");
@@ -370,6 +409,104 @@ export function getScanSource(database: DatabaseClient, scanId: string, sourceKe
   if (!row) throw new Error("Persisted scan source membership is incomplete.");
   if (!Buffer.isBuffer(row.rawBytes) || row.rawBytes.length !== row.byteLength || !scanSourceFileMetadataSchema.safeParse({ sourceKey, rawSha256: row.rawSha256, byteLength: row.byteLength }).success || createHash("sha256").update(row.rawBytes).digest("hex") !== row.rawSha256) throw new Error("Persisted scan source bytes failed integrity validation.");
   return { available: true, sourceKey, rawBytes: Buffer.from(row.rawBytes), rawSha256: row.rawSha256, byteLength: row.byteLength };
+}
+
+export type ScanCompilationAvailability = { status: "legacy_or_unavailable" } | { status: "unsupported"; reason: CompilationUnsupportedReason; resolvedCommit: string } | { status: "supported"; manifest: CompilationManifest };
+
+/** Persist one finalized, snapshot-bound result. No historical checkout backfill. */
+export function finalizeScanCompilation(database: DatabaseClient, scanId: string, resolvedCommit: string,
+  result: { status: "supported"; manifest: CompilationManifest } | { status: "unsupported"; reason: CompilationUnsupportedReason }): void {
+  const scan = getScan(database, scanId), snapshot = getScanSourceSnapshot(database, scanId);
+  if (!scan || scan.resolvedCommit !== resolvedCommit || (snapshot.available && snapshot.resolvedCommit !== resolvedCommit) || (result.status === "supported" && !snapshot.available) || (!snapshot.available && result.status === "unsupported" && result.reason !== "source_snapshot_unavailable")) throw new Error("Compilation provenance is not bound to a finalized scan snapshot.");
+  if (result.status === "unsupported" && !compilationUnsupportedReasons.includes(result.reason)) throw new Error("Invalid compilation unsupported reason.");
+  const manifest = result.status === "supported" ? compilationManifestSchema.parse(result.manifest) : null;
+  if (manifest) {
+    if (!snapshot.available || manifest.scanId !== scanId || manifest.resolvedCommit !== resolvedCommit || manifest.sourceUnits.length !== snapshot.fileCount) throw new Error("Compilation manifest identity or membership is invalid.");
+    const files = listScanSources(database, scanId), byKey = new Map(files.map((file) => [file.sourceKey, file]));
+    for (const unit of manifest.sourceUnits) {
+      const file = byKey.get(unit.snapshotSourceKey);
+      if (!file || file.rawSha256 !== unit.rawSha256 || file.byteLength !== unit.byteLength) throw new Error("Compilation unit is not bound to captured source bytes.");
+    }
+  }
+  database.sqlite.transaction(() => {
+    database.sqlite.prepare(`INSERT INTO scan_compilation_provenance
+      (scan_id,resolved_commit,status,unsupported_reason,schema,profile_kind,compiler_version,compiler_artifact_sha256,source_roots,library_roots,remappings,finalized_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`).run(scanId, resolvedCommit, result.status,
+      result.status === "unsupported" ? result.reason : null, manifest?.schema ?? null, manifest?.compilationProfileKind ?? null,
+      manifest?.compiler.version ?? null, manifest?.compiler.artifactSha256 ?? null,
+      manifest ? JSON.stringify(manifest.sourceRoots) : null, manifest ? JSON.stringify(manifest.libraryRoots) : null,
+      manifest ? JSON.stringify(manifest.remappings) : null, null);
+    if (manifest) {
+      const insert = database.sqlite.prepare(`INSERT INTO scan_compilation_source_units
+        (scan_id,source_unit_name,snapshot_source_key,raw_sha256,byte_length,contract_names) VALUES (?,?,?,?,?,?)`);
+      for (const unit of manifest.sourceUnits) insert.run(scanId, unit.sourceUnitName, unit.snapshotSourceKey, unit.rawSha256, unit.byteLength, JSON.stringify(unit.contractNames));
+    }
+    database.sqlite.prepare("UPDATE scan_compilation_provenance SET finalized_at=? WHERE scan_id=? AND finalized_at IS NULL").run(Date.now(), scanId);
+  })();
+}
+
+export function getScanCompilation(database: DatabaseClient, scanId: string): ScanCompilationAvailability {
+  const row = database.sqlite.prepare(`SELECT resolved_commit AS resolvedCommit,status,unsupported_reason AS reason,schema,
+    profile_kind AS profileKind,compiler_version AS compilerVersion,compiler_artifact_sha256 AS compilerArtifactSha256,
+    source_roots AS sourceRoots,library_roots AS libraryRoots,remappings,finalized_at AS finalizedAt FROM scan_compilation_provenance WHERE scan_id=?`).get(scanId) as Record<string, string | null> | undefined;
+  if (!row) return { status: "legacy_or_unavailable" };
+  if (row.finalizedAt === null) throw new Error("Compilation provenance was not finalized.");
+  const scan = getScan(database, scanId), snapshot = getScanSourceSnapshot(database, scanId);
+  if (!scan || row.resolvedCommit !== scan.resolvedCommit || (snapshot.available && row.resolvedCommit !== snapshot.resolvedCommit)) throw new Error("Persisted compilation provenance lost its scan/snapshot binding.");
+  if (row.status === "unsupported") {
+    if (!compilationUnsupportedReasons.includes(row.reason as CompilationUnsupportedReason) || (!snapshot.available && row.reason !== "source_snapshot_unavailable")) throw new Error("Invalid persisted compilation status.");
+    return { status: "unsupported", reason: row.reason as CompilationUnsupportedReason, resolvedCommit: row.resolvedCommit! };
+  }
+  if (row.status !== "supported") throw new Error("Invalid persisted compilation status.");
+  if (!snapshot.available) throw new Error("Supported compilation provenance has no source snapshot.");
+  const units = database.sqlite.prepare(`SELECT source_unit_name AS sourceUnitName,snapshot_source_key AS snapshotSourceKey,
+    raw_sha256 AS rawSha256,byte_length AS byteLength,contract_names AS contractNames
+    FROM scan_compilation_source_units WHERE scan_id=? ORDER BY source_unit_name`).all(scanId) as Array<{sourceUnitName:string;snapshotSourceKey:string;rawSha256:string;byteLength:number;contractNames:string}>;
+  const manifest = compilationManifestSchema.parse({ schema: row.schema, scanId, resolvedCommit: row.resolvedCommit,
+    compilationProfileKind: row.profileKind, compiler: { version: row.compilerVersion, artifactSha256: row.compilerArtifactSha256 },
+    sourceRoots: JSON.parse(row.sourceRoots!), libraryRoots: JSON.parse(row.libraryRoots!), remappings: JSON.parse(row.remappings!),
+    sourceUnits: units.map((unit) => ({ ...unit, contractNames: JSON.parse(unit.contractNames) })) });
+  const files = listScanSources(database, scanId), byKey = new Map(files.map((file) => [file.sourceKey, file]));
+  if (manifest.sourceUnits.length !== snapshot.fileCount || manifest.sourceUnits.some((unit) => {
+    const file = byKey.get(unit.snapshotSourceKey);
+    return !file || file.rawSha256 !== unit.rawSha256 || file.byteLength !== unit.byteLength;
+  })) throw new Error("Persisted compilation source units failed snapshot validation.");
+  return { status: "supported", manifest };
+}
+
+export function insertScannerAlignment(database: DatabaseClient, scanId: string, alignment: ScannerSourceAlignment): void {
+  const provenance = getScanCompilation(database, scanId);
+  if (provenance.status !== "supported") throw new Error("Scanner alignment requires supported compilation provenance.");
+  const finding = database.sqlite.prepare("SELECT scan_id AS scanId,source,detector_id AS detectorId,contract FROM findings WHERE id=?").get(alignment.findingId) as {scanId:string;source:string;detectorId:string|null;contract:string|null}|undefined;
+  if (!finding || finding.scanId !== scanId || finding.source !== alignment.scannerId || finding.detectorId !== alignment.detectorId || alignment.reportedSourceIdentity && (alignment.reportedSourceIdentity.length > 500 || path.isAbsolute(alignment.reportedSourceIdentity))) throw new Error("Scanner alignment identity is invalid.");
+  const unit = provenance.manifest.sourceUnits.find((item) => item.sourceUnitName === alignment.sourceUnitName && item.snapshotSourceKey === alignment.snapshotSourceKey);
+  if (alignment.status === "aligned" ? !unit || alignment.targetResolved !== (!!finding.contract && unit.contractNames.includes(finding.contract)) : !!alignment.sourceUnitName || !!alignment.snapshotSourceKey || alignment.targetResolved) throw new Error("Scanner alignment target is invalid.");
+  database.sqlite.prepare(`INSERT INTO scan_scanner_alignment
+    (finding_id,scan_id,scanner_id,scanner_version,detector_id,reported_source_identity,status,source_unit_name,snapshot_source_key,target_resolved)
+    VALUES (?,?,?,?,?,?,?,?,?,?)`).run(alignment.findingId, scanId, alignment.scannerId, alignment.scannerVersion, alignment.detectorId,
+    alignment.reportedSourceIdentity, alignment.status, alignment.sourceUnitName, alignment.snapshotSourceKey, alignment.targetResolved ? 1 : 0);
+}
+
+export function listScannerAlignments(database: DatabaseClient, scanId: string): ScannerSourceAlignment[] {
+  return (database.sqlite.prepare(`SELECT finding_id AS findingId,scanner_id AS scannerId,scanner_version AS scannerVersion,
+    detector_id AS detectorId,reported_source_identity AS reportedSourceIdentity,status,source_unit_name AS sourceUnitName,
+    snapshot_source_key AS snapshotSourceKey,target_resolved AS targetResolved FROM scan_scanner_alignment WHERE scan_id=? ORDER BY finding_id`).all(scanId) as Array<Omit<ScannerSourceAlignment,"targetResolved"> & {targetResolved:number}>).map((row) => ({ ...row, targetResolved: row.targetResolved === 1 }));
+}
+
+export type FindingCompilationEligibility = { eligible: true; sourceUnitName: string; snapshotSourceKey: string } | {
+  eligible: false; reason: "legacy_or_unavailable" | "unsupported_compilation" | "scanner_source_unmappable" | "ambiguous_target";
+};
+/** Advisory gate for future snapshot-backed planning; existing planners do not call this yet. */
+export function getFindingCompilationEligibility(database: DatabaseClient, findingId: string): FindingCompilationEligibility {
+  const finding = database.sqlite.prepare("SELECT scan_id AS scanId FROM findings WHERE id=?").get(findingId) as {scanId:string}|undefined;
+  if (!finding) return { eligible: false, reason: "legacy_or_unavailable" };
+  const provenance = getScanCompilation(database, finding.scanId);
+  if (provenance.status === "legacy_or_unavailable") return { eligible: false, reason: "legacy_or_unavailable" };
+  if (provenance.status === "unsupported") return { eligible: false, reason: "unsupported_compilation" };
+  const alignment = listScannerAlignments(database, finding.scanId).find((row) => row.findingId === findingId);
+  if (!alignment || alignment.status !== "aligned" || !alignment.sourceUnitName || !alignment.snapshotSourceKey) return { eligible: false, reason: "scanner_source_unmappable" };
+  if (!alignment.targetResolved) return { eligible: false, reason: "ambiguous_target" };
+  return { eligible: true, sourceUnitName: alignment.sourceUnitName, snapshotSourceKey: alignment.snapshotSourceKey };
 }
 
 export function listScans(database: DatabaseClient, limit = 100): ScanRow[] {

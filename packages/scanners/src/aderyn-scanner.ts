@@ -17,6 +17,7 @@ export class AderynScanner implements Scanner {
   readonly id = "aderyn";
   readonly name = "Aderyn";
   private readonly processRunner: ProcessRunner;
+  private scannerVersion: string | null = null;
   constructor(private readonly options: AderynScannerOptions) { this.processRunner = options.processRunner ?? runBoundedProcess; }
 
   private environment(): NodeJS.ProcessEnv {
@@ -41,6 +42,7 @@ export class AderynScanner implements Scanner {
   async isAvailable(): Promise<boolean> {
     try {
       const result = await this.processRunner({ command: "aderyn", args: ["--version"], timeoutMs: Math.min(this.options.timeoutMs, 10_000), maxOutputBytes: 65_536, env: this.environment() });
+      this.scannerVersion = result.exitCode === 0 ? `${result.stdout}\n${result.stderr}`.match(/\b\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?\b/)?.[0] ?? null : null;
       return result.exitCode === 0;
     } catch { return false; }
   }
@@ -60,7 +62,9 @@ export class AderynScanner implements Scanner {
       try { raw = await readFile(reportPath, "utf8"); }
       catch { throw new AderynParseError("Aderyn did not produce its JSON report."); }
       const report = parseAderynJson(raw);
-      return { scannerId: this.id, findings: normaliseAderynFindings(report, context.scan.id, cwd), warnings: [], durationMs: Date.now() - started };
+      const reportedSources = new Map<string, string | null>();
+      const findings = normaliseAderynFindings(report, context.scan.id, cwd, reportedSources);
+      return { scannerId: this.id, findings, scannerVersion: this.scannerVersion, reportedSourceIdentities: Object.fromEntries(reportedSources), warnings: [], durationMs: Date.now() - started };
     } catch (error) {
       if (error instanceof ProcessTimeoutError) throw new Error(`Aderyn timed out after ${this.options.timeoutMs} ms.`);
       if (error instanceof ProcessOutputLimitError) throw new Error("Aderyn output exceeded the configured limit.");

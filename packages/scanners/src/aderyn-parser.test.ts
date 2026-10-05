@@ -23,12 +23,14 @@ describe("Aderyn JSON parsing and normalization", () => {
       [{ title: "Unchecked Call", description: "Return value is unchecked.", detector_name: "unchecked-call", references: ["https://example.com/reference"], instances: [{ contract_path: "src/Vault.sol", line_no: 12, end_line: 14, contract_name: "Vault", function_name: "withdraw", src: "100:20" }, { contract_path: "src/Vault.sol", line_no: 30 }] }],
       [{ title: "Low Signal", detector_name: "low-signal", instances: [{ contract_path: "src/Vault.sol", line_no: 5 }] }],
     ));
-    const findings = normaliseAderynFindings(parsed, scanId, repository);
+    const reportedSources = new Map<string, string | null>();
+    const findings = normaliseAderynFindings(parsed, scanId, repository, reportedSources);
     expect(findings).toHaveLength(3);
     expect(findings[0]).toMatchObject({ title: "Unchecked Call", detectorId: "unchecked-call", source: "aderyn", severity: "high", confidence: 40, filePath: "src/Vault.sol", startLine: 12, endLine: 14, contract: "Vault", functionName: "withdraw", attackScenario: "", impact: "" });
     expect(findings[0].evidence).toContain("Source range: 100:20");
     expect(findings[0].evidence).toContain("https://example.com/reference");
     expect(findings[2].severity).toBe("low");
+    expect(reportedSources.get(findings[0].fingerprint)).toBe("src/Vault.sol");
   });
 
   it("handles missing optional issue and location fields conservatively", async () => {

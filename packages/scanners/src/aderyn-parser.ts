@@ -88,7 +88,7 @@ function references(issue: AderynIssue): string[] {
   return [...new Set([...(issue.references ?? []), issue.reference, issue.wiki_url].filter((value): value is string => typeof value === "string" && /^https:\/\/[^\s]+$/i.test(value)))];
 }
 
-export function normaliseAderynFindings(report: AderynReport, scanId: string, repositoryPath: string): NewFinding[] {
+export function normaliseAderynFindings(report: AderynReport, scanId: string, repositoryPath: string, reportedSources?: Map<string, string | null>): NewFinding[] {
   const groups: Array<[string, AderynIssue[]]> = [
     ["high", report.high_issues?.issues ?? []],
     ["medium", report.medium_issues?.issues ?? []],
@@ -108,6 +108,7 @@ export function normaliseAderynFindings(report: AderynReport, scanId: string, re
         const functionName = instance.function_name?.trim().slice(0, 200) || null;
         const fingerprint = createHash("sha256").update(JSON.stringify([scanId, "aderyn", detectorId, filePath, startLine, endLine, contract, functionName])).digest("hex");
         if (findings.has(fingerprint)) continue;
+        reportedSources?.set(fingerprint, instance.contract_path ?? null);
         const description = issue.description?.trim() || `Aderyn detector: ${detectorId}`;
         const referenceText = references(issue).map((reference) => `Reference: ${reference}`).join("\n");
         const sourceEvidence = [instance.src ? `Source range: ${instance.src}` : "", referenceText].filter(Boolean).join("\n");

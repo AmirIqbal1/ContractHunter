@@ -23,3 +23,4 @@ export * from "./verification-strategy-assessment";
 export * from "./verification-targets";
 export * from "./invariant-property-targets";
 export * from "./scan-source-snapshot";
+export * from "./compilation-provenance";

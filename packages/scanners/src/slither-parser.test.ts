@@ -35,13 +35,15 @@ describe("Slither JSON parsing and mappings", () => {
         type_specific_fields: { parent: { name: "Vault" }, future: true },
       }],
     }]));
-    const [finding] = normaliseSlitherFindings(parsed, scanId, repositoryPath);
+    const reportedSources = new Map<string, string | null>();
+    const [finding] = normaliseSlitherFindings(parsed, scanId, repositoryPath, reportedSources);
     expect(finding).toMatchObject({
       title: "Reentrancy ETH", detectorId: "reentrancy-eth", source: "slither", severity: "high", confidence: 70,
       contract: "Vault", functionName: "withdraw(uint256)", filePath: "contracts/Vault.sol", startLine: 18, endLine: 20,
       attackScenario: "", impact: "",
     });
     expect(finding.evidence).not.toContain(repositoryPath);
+    expect(reportedSources.get(finding.fingerprint)).toBe("contracts/Vault.sol");
   });
 
   it("supports informational findings and removes duplicate detector locations", () => {
