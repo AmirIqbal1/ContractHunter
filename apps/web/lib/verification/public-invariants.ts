@@ -6,6 +6,7 @@ export type PublicInvariantProposal = {
   id: string; selectedStrategy: ExecutableInvariantProposalRow["selectedStrategy"]; status: ExecutableInvariantProposalRow["status"]; plan: ExecutableInvariantPlan | null; planHash: string | null; hypothesisExpectation: ExecutableInvariantProposalRow["hypothesisExpectation"]; relationRationale: string | null;
   rationale: string | null; limitations: string[]; notPlannableReasons: string[]; failureCode: string | null;
   provider: string; model: string; promptVersion: string; sourceFileCount: number; totalSourceBytes: number; contextTruncated: boolean;
+  sourceClosureFingerprint: { schema: string; sha256: string; fileCount: number; totalBytes: number } | null;
   inputTokens: number | null; outputTokens: number | null; totalTokens: number | null; estimatedCostUsd: number | null; durationMs: number; createdAt: string;
 };
 export type PublicInvariantRun = {
@@ -24,6 +25,7 @@ export function toPublicInvariantProposal(row: ExecutableInvariantProposalRow): 
   return { id: row.id, selectedStrategy: row.selectedStrategy, status: row.status, plan: parsedPlan.success ? parsedPlan.data : null, planHash: row.planHash, hypothesisExpectation: row.hypothesisExpectation, relationRationale: row.relationRationale, rationale: row.rationale,
     limitations: Array.isArray(parse(row.limitations)) ? parse(row.limitations) as string[] : [], notPlannableReasons: Array.isArray(parse(row.notPlannableReasons)) ? parse(row.notPlannableReasons) as string[] : [], failureCode: row.failureCode,
     provider: row.provider, model: row.actualModel ?? row.requestedModel, promptVersion: row.promptVersion, sourceFileCount: manifest?.files?.length ?? 0, totalSourceBytes: manifest?.totalSourceBytes ?? 0, contextTruncated: manifest?.truncated ?? false,
+    sourceClosureFingerprint: row.sourceClosureFingerprintSha256 ? { schema: row.sourceClosureFingerprintSchema!, sha256: row.sourceClosureFingerprintSha256, fileCount: row.sourceClosureFingerprintFileCount!, totalBytes: row.sourceClosureFingerprintTotalBytes! } : null,
     inputTokens: row.inputTokens, outputTokens: row.outputTokens, totalTokens: row.totalTokens, estimatedCostUsd: row.estimatedCostUsd, durationMs: row.durationMs, createdAt: row.createdAt.toISOString() };
 }
 export function toPublicInvariantReplayArtifact(row: InvariantReplayArtifactRow): PublicInvariantReplayArtifact {

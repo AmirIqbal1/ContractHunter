@@ -7,6 +7,7 @@ export function toPublicVerificationPlanAttempt(row: ReturnType<typeof listVerif
   const raw = JSON.parse(row.result) as VerificationPlanGenerationResult;
   const plan = raw.plan ? verificationHarnessPlanSchema.safeParse(raw.plan) : null;
   if (raw.status !== row.status || raw.failureCode !== row.failureCode || (raw.status === "generated" && !plan?.success) || (raw.failureCode && !verificationPlanGenerationFailureCodes.includes(raw.failureCode))) throw new Error("Persisted verification planning attempt is invalid.");
-  return { id: row.id, selectedStrategy: row.selectedStrategy, status: row.status, failureCode: row.failureCode, result: { ...raw, plan: plan?.success ? plan.data : null }, createdAt: row.createdAt.toISOString() };
+  return { id: row.id, selectedStrategy: row.selectedStrategy, status: row.status, failureCode: row.failureCode, result: { ...raw, plan: plan?.success ? plan.data : null },
+    sourceClosureFingerprint: row.sourceClosureFingerprintSha256 ? { schema: row.sourceClosureFingerprintSchema!, sha256: row.sourceClosureFingerprintSha256, fileCount: row.sourceClosureFingerprintFileCount!, totalBytes: row.sourceClosureFingerprintTotalBytes! } : null,
+    createdAt: row.createdAt.toISOString() };
 }
-

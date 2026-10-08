@@ -2,6 +2,7 @@ import { lstat, readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import {
   VERIFICATION_PLAN_PROMPT_VERSION, VERIFICATION_PLAN_SYSTEM_PROMPT, VerificationPlanContextBuilder, loadConfig,
+  fingerprintAuthoritativeSourceClosure, type SourceClosureFingerprint,
   repositorySolidityPathSchema, sourceEvidenceSchema, stableCompilerVersionSchema, validateEvidence,
   verificationHarnessPlanSchema, verificationPlanProposalSchema, type VerificationHarnessPlan, type VerificationPlanGenerationResult,
   type VerificationPlanGenerationFailureCode,
@@ -113,8 +114,10 @@ export class VerificationPlanGenerationService {
 
   async generate(hypothesisId: string, selectedStrategy?: "structured-verification"): Promise<VerificationPlanGenerationResult> {
     let result: VerificationPlanGenerationResult;
-    try { result = await this.generateInternal(hypothesisId, selectedStrategy); }
+    const source = { fingerprint: null as SourceClosureFingerprint | null };
+    try { result = await this.generateInternal(hypothesisId, selectedStrategy, source); }
     catch (error) {
+      if (error instanceof VerificationPlanGenerationError && error.message.startsWith("Authoritative source is unavailable:")) throw error;
       const hypothesis = getVulnerabilityHypothesis(this.options.database, hypothesisId);
       if (!selectedStrategy || !(error instanceof VerificationPlanGenerationError) || !hypothesis || hypothesis.status === "rejected" || error.code === "unknown_hypothesis" || error.code === "strategy_not_compatible") throw error;
       result = { status: "failed", plan: null, rationale: null, limitations: [], notPlannableReasons: [], failureCode: "strategy_concrete_plan_incompatible",
@@ -123,15 +126,13 @@ export class VerificationPlanGenerationService {
           inputTokens: null, outputTokens: null, totalTokens: null, durationMs: 0, sourceFileCount: 0,
           totalSourceBytes: 0, sourceContextTruncated: false } };
     }
-    if (selectedStrategy) {
-      const hypothesis = getVulnerabilityHypothesis(this.options.database, hypothesisId);
-      if (!hypothesis) throw new VerificationPlanGenerationError("unknown_hypothesis", "Vulnerability hypothesis not found.");
-      createVerificationPlanAttempt(this.options.database, { hypothesisId, scanId: hypothesis.scanId, selectedStrategy, result });
-    }
+    const hypothesis = getVulnerabilityHypothesis(this.options.database, hypothesisId);
+    if (!hypothesis) throw new VerificationPlanGenerationError("unknown_hypothesis", "Vulnerability hypothesis not found.");
+    createVerificationPlanAttempt(this.options.database, { hypothesisId, scanId: hypothesis.scanId, selectedStrategy: selectedStrategy ?? "structured-verification", result, sourceClosureFingerprint: source.fingerprint });
     return result;
   }
 
-  private async generateInternal(hypothesisId: string, selectedStrategy?: "structured-verification"): Promise<VerificationPlanGenerationResult> {
+  private async generateInternal(hypothesisId: string, selectedStrategy: "structured-verification" | undefined, source: { fingerprint: SourceClosureFingerprint | null }): Promise<VerificationPlanGenerationResult> {
     const hypothesis = getVulnerabilityHypothesis(this.options.database, hypothesisId);
     if (!hypothesis) throw new VerificationPlanGenerationError("unknown_hypothesis", "Vulnerability hypothesis not found.");
     if (selectedStrategy) {
@@ -147,6 +148,7 @@ export class VerificationPlanGenerationService {
     let authority: ReturnType<typeof sourceAuthorityForHypothesis>;
     try { authority = sourceAuthorityForHypothesis(this.options.database, hypothesis); }
     catch (error) { if (error instanceof AuthoritativeSourceError) throw new VerificationPlanGenerationError("missing_context", `Authoritative source is unavailable: ${error.code}.`); throw error; }
+    if (authority.kind === "authoritative") source.fingerprint = fingerprintAuthoritativeSourceClosure(authority.closure);
     const repositoryPath = authority.kind === "legacy" ? await repositoryFor(this.options.repositoryRoot, scan.id) : null;
     let authoritySources: Map<string, string> | undefined;
     if (authority.kind === "authoritative") {

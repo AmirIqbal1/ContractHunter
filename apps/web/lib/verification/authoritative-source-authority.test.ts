@@ -3,8 +3,8 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { COMPILATION_MANIFEST_SCHEMA, counterexampleHash, executableInvariantPlanSchema, invariantPlanHash, invariantReplayPlanSchema, validAIOutput, type ProtocolAnalysisResult, type VerificationPlanProvider, type InvariantProposalProvider, type VerificationHarnessPlan } from "@contracthunter/core";
-import { closeDatabase, createDatabase, createProtocolAnalysis, createScan, createSecurityReviewPlan, createSecurityReviewerRun, finalizeScanCompilation, finalizeScanSourceSnapshot, getVulnerabilityHypothesis, insertFindings, insertScannerAlignment, insertVulnerabilityHypotheses, reconcileInvestigations, type DatabaseClient } from "@contracthunter/db";
+import { COMPILATION_MANIFEST_SCHEMA, SOURCE_CLOSURE_FINGERPRINT_SCHEMA, counterexampleHash, executableInvariantPlanSchema, invariantPlanHash, invariantReplayPlanSchema, validAIOutput, type ProtocolAnalysisResult, type VerificationPlanProvider, type InvariantProposalProvider, type VerificationHarnessPlan } from "@contracthunter/core";
+import { closeDatabase, createDatabase, createProtocolAnalysis, createScan, createSecurityReviewPlan, createSecurityReviewerRun, createVerificationPlanAttempt, finalizeScanCompilation, finalizeScanSourceSnapshot, getVulnerabilityHypothesis, insertFindings, insertScannerAlignment, insertVulnerabilityHypotheses, listVerificationPlanAttempts, listExecutableInvariantProposals, reconcileInvestigations, type DatabaseClient } from "@contracthunter/db";
 import { VerificationWorkspaceBuilder } from "@contracthunter/scanners";
 import { InvariantProposalService } from "./invariant-proposal-service";
 import { VerificationPlanGenerationService } from "./verification-plan-generation-service";
@@ -28,11 +28,11 @@ function setup(content: string | Buffer = original, aligned = true) {
   const analysis = createProtocolAnalysis(database, { scanId, provider: "mock", requestedModel: "mock", actualModel: "mock", promptVersion: "protocol-analysis-v1", result: validAIOutput as unknown as ProtocolAnalysisResult, coverageStatus: "complete", contextManifest: {}, durationMs: 1, inputTokens: 1, outputTokens: 1, totalTokens: 2, requestId: "analysis" });
   const review = createSecurityReviewPlan(database, { scanId, protocolAnalysisId: analysis.id, plan: { selected: [], skipped: [], estimatedRequestCount: 0 }, estimatedSourceBytes: 0 });
   const reviewer = createSecurityReviewerRun(database, { planId: review.id, scanId, protocolAnalysisId: analysis.id, reviewerId: "counter", reviewerName: "Counter", selectionReason: "Fixture", promptVersion: "security-review-counter-v1", provider: "mock", requestedModel: "mock", contextManifest: {} });
-  const [finding] = insertFindings(database, scanId, [{ title: "Counter rule", severity: "medium", confidence: 80, source: "slither", detectorId: "counter-rule", fingerprint: "e".repeat(64), contract: "Counter", functionName: "increment", filePath: "contracts/Counter.sol", startLine: 1, endLine: 1, rootCause: "Counter transition", attackScenario: "", impact: "", evidence: "fixture", status: "candidate" }]);
+  const [finding] = insertFindings(database, scanId, [{ title: "Counter rule", severity: "medium", confidence: 80, source: "slither", detectorId: "divide-before-multiply", fingerprint: randomUUID().replaceAll("-", "").padEnd(64, "0"), contract: "Counter", functionName: "increment", filePath: "contracts/Counter.sol", startLine: 1, endLine: 1, rootCause: "Counter transition", attackScenario: "", impact: "", evidence: "fixture", status: "candidate" }]);
   findingId = finding.id;
   const investigation = reconcileInvestigations(database, scanId)[0];
   hypothesisId = insertVulnerabilityHypotheses(database, [{ scanId, protocolAnalysisId: analysis.id, reviewerId: "counter", reviewerRunId: reviewer.id, title: "Counter transition", category: "state-transition", severity: "low", severityJustification: "Fixture", confidence: 60, summary: "Counter changes after increment.", rootCause: "Counter transition under review.", preconditions: "[]", attackPath: "[]", impact: "Fixture", affectedAssets: "[]", affectedContracts: JSON.stringify(["Counter"]), affectedFunctions: JSON.stringify(["increment", "count"]), evidence: JSON.stringify([{ filePath: "contracts/Counter.sol", contract: "Counter", functionName: "increment", startLine: 1, endLine: 1 }]), violatedInvariantIds: "[]", relatedInvestigationIds: JSON.stringify([investigation.id]), falsePositiveRisks: "[]", verificationStrategy: "[]" }])[0].id;
-  insertScannerAlignment(database, scanId, { findingId, scannerId: "slither", scannerVersion: "0.11.0", detectorId: "counter-rule", reportedSourceIdentity: "contracts/Counter.sol", status: aligned ? "aligned" : "unaligned", sourceUnitName: aligned ? "contracts/Counter.sol" : null, snapshotSourceKey: aligned ? "contracts/Counter.sol" : null, targetResolved: aligned });
+  insertScannerAlignment(database, scanId, { findingId, scannerId: "slither", scannerVersion: "0.11.0", detectorId: "divide-before-multiply", reportedSourceIdentity: "contracts/Counter.sol", status: aligned ? "aligned" : "unaligned", sourceUnitName: aligned ? "contracts/Counter.sol" : null, snapshotSourceKey: aligned ? "contracts/Counter.sol" : null, targetResolved: aligned });
 }
 function structuredProvider() { const calls: unknown[] = []; const provider: VerificationPlanProvider = { id: "fixture", async generateVerificationPlan(input) { calls.push(input); return { proposal: { status: "not_plannable", plan: null, rationale: "Fixture", limitations: [], notPlannableReasons: ["insufficient_source_evidence"] }, actualModel: "fixture", requestId: "fixture", inputTokens: 1, outputTokens: 1, totalTokens: 2, durationMs: 1 }; } }; return { calls, provider }; }
 function invariantProvider() { const calls: unknown[] = []; const provider: InvariantProposalProvider = { id: "fixture", async generateInvariantProposal(input) { calls.push(input); return { proposal: { status: "not_plannable", semantics: null, hypothesisExpectation: null, relationRationale: null, rationale: "Fixture", limitations: [], notPlannableReasons: ["insufficient_source_evidence"] }, actualModel: "fixture", requestId: "fixture", inputTokens: 1, outputTokens: 1, totalTokens: 2, durationMs: 1 }; } }; return { calls, provider }; }
@@ -46,6 +46,56 @@ beforeEach(() => { root = mkdtempSync(path.join(tmpdir(), "ch-closure-consumer-"
 afterEach(() => { closeDatabase(database); rmSync(root, { recursive: true, force: true }); });
 
 describe("authoritative source consumers", () => {
+  it("persists the same verified closure fingerprint across both planners and all invariant strategies", async () => {
+    setup(); rmSync(repository, { recursive: true, force: true });
+    const p = planners();
+    await p.plan.generate(hypothesisId);
+    await p.plan.generate(hypothesisId, "structured-verification");
+    await p.propose.generate(hypothesisId);
+    for (const strategy of ["foundry-fuzz-property", "foundry-stateful-invariant", "echidna-stateful-invariant"] as const)
+      await p.propose.generate(hypothesisId, strategy);
+    const attempts = listVerificationPlanAttempts(database, hypothesisId), proposals = listExecutableInvariantProposals(database, hypothesisId);
+    expect(attempts).toHaveLength(2); expect(proposals).toHaveLength(4);
+    expect(p.structured.calls).toHaveLength(2); expect(p.invariant.calls).toHaveLength(4);
+    const hashes = [...attempts, ...proposals].map((row) => row.sourceClosureFingerprintSha256);
+    expect(new Set(hashes).size).toBe(1);
+    expect(hashes[0]).toMatch(/^[a-f0-9]{64}$/);
+    for (const row of [...attempts, ...proposals]) {
+      expect(row).toMatchObject({ sourceClosureFingerprintSchema: SOURCE_CLOSURE_FINGERPRINT_SCHEMA, sourceClosureFingerprintFileCount: 2,
+        sourceClosureFingerprintTotalBytes: sourceRows.reduce((sum, file) => sum + file.byteLength, 0) });
+      expect(() => database.sqlite.prepare(`UPDATE ${"result" in row ? "verification_plan_attempts" : "executable_invariant_proposals"} SET source_closure_fingerprint_sha256=? WHERE id=?`).run("f".repeat(64), row.id)).toThrow("immutable");
+    }
+    expect(database.sqlite.prepare("SELECT count(*) AS count FROM hypothesis_verification_runs").get()).toEqual({ count: 0 });
+    expect(database.sqlite.prepare("SELECT count(*) AS count FROM executable_invariant_runs").get()).toEqual({ count: 0 });
+    expect(database.sqlite.prepare("SELECT count(*) AS count FROM hypothesis_lifecycle_transitions").get()).toEqual({ count: 0 });
+  });
+  it("retains attempt A when a later authoritative scan has changed source bytes", async () => {
+    setup(); const firstHypothesis = hypothesisId; const first = planners();
+    await first.plan.generate(firstHypothesis); await first.propose.generate(firstHypothesis);
+    const a = listVerificationPlanAttempts(database, firstHypothesis)[0].sourceClosureFingerprintSha256;
+    setup(`${original} `); const secondHypothesis = hypothesisId; const second = planners();
+    await second.plan.generate(secondHypothesis); await second.propose.generate(secondHypothesis);
+    const b = listVerificationPlanAttempts(database, secondHypothesis)[0].sourceClosureFingerprintSha256;
+    expect(a).not.toBe(b);
+    expect(listVerificationPlanAttempts(database, firstHypothesis)[0].sourceClosureFingerprintSha256).toBe(a);
+    expect(listExecutableInvariantProposals(database, firstHypothesis)[0].sourceClosureFingerprintSha256).toBe(a);
+    expect(listExecutableInvariantProposals(database, secondHypothesis)[0].sourceClosureFingerprintSha256).toBe(b);
+  });
+  it("stores authoritative provider failures with the precomputed fingerprint and rejects a null insert", async () => {
+    setup();
+    const failedStructured = new VerificationPlanGenerationService({ database, repositoryRoot, provider: { id: "rejecting", async generateVerificationPlan() { throw new Error("provider failed"); } }, requestedModel: "fixture", timeoutMs: 1000, maxSourceBytes: 10_000, maxFiles: 5, maxFileBytes: 5_000 });
+    const failedInvariant = new InvariantProposalService({ database, repositoryRoot, provider: { id: "rejecting", async generateInvariantProposal() { throw new Error("provider failed"); } }, requestedModel: "fixture", timeoutMs: 1000, maxSourceBytes: 10_000, maxFiles: 5, maxFileBytes: 5_000 });
+    const structuredResult = await failedStructured.generate(hypothesisId);
+    const invariantResult = await failedInvariant.generate(hypothesisId);
+    expect(structuredResult.failureCode).toBe("plan_generation_failed");
+    expect(invariantResult.result.failureCode).toBe("invariant_generation_unavailable");
+    const attempt = listVerificationPlanAttempts(database, hypothesisId)[0], proposal = listExecutableInvariantProposals(database, hypothesisId)[0];
+    expect(attempt.sourceClosureFingerprintSha256).toBe(proposal.sourceClosureFingerprintSha256);
+    expect(attempt.sourceClosureFingerprintSha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(() => createVerificationPlanAttempt(database, { hypothesisId, scanId, selectedStrategy: "structured-verification", result: structuredResult })).toThrow("fingerprint");
+    expect(() => database.sqlite.prepare("INSERT INTO verification_plan_attempts (id,hypothesis_id,scan_id,selected_strategy,status,plan,failure_code,result,created_at) SELECT ?,hypothesis_id,scan_id,selected_strategy,status,plan,failure_code,result,created_at FROM verification_plan_attempts WHERE id=?").run(randomUUID(), attempt.id)).toThrow("invalid planning source closure fingerprint");
+    expect(database.sqlite.prepare("SELECT count(*) AS count FROM verification_plan_attempts").get()).toEqual({ count: 1 });
+  });
   it("uses identical snapshot source context for both planners after checkout deletion and materializes exact bytes", async () => {
     setup(); rmSync(repository, { recursive: true, force: true });
     const p = planners();
@@ -87,7 +137,7 @@ describe("authoritative source consumers", () => {
   });
   it("rejects unaligned findings before either provider request", async () => {
     setup(original, false); const p = planners(); await expect(p.plan.generate(hypothesisId)).rejects.toMatchObject({ code: "missing_context" });
-    expect((await p.propose.generate(hypothesisId)).result).toMatchObject({ status: "failed", failureCode: "invalid_invariant_source" });
+    await expect(p.propose.generate(hypothesisId)).rejects.toMatchObject({ code: "invalid_state" });
     expect(p.structured.calls).toHaveLength(0); expect(p.invariant.calls).toHaveLength(0);
   });
   it("rejects a hypothesis with two different aligned contracts in one source", async () => {
@@ -98,7 +148,7 @@ describe("authoritative source consumers", () => {
     const investigationIds = (database.sqlite.prepare("SELECT id FROM investigations WHERE scan_id=?").all(scanId) as Array<{ id: string }>).map((row) => row.id);
     database.sqlite.prepare("UPDATE vulnerability_hypotheses SET related_investigation_ids=?,evidence=? WHERE id=?").run(JSON.stringify(investigationIds), JSON.stringify([{ filePath: "contracts/Counter.sol", contract: "Counter", functionName: null, startLine: 1, endLine: 1 }, { filePath: "contracts/Counter.sol", contract: "Other", functionName: null, startLine: 1, endLine: 1 }]), hypothesisId);
     const p = planners(); await expect(p.plan.generate(hypothesisId)).rejects.toMatchObject({ code: "missing_context" });
-    expect((await p.propose.generate(hypothesisId)).result.failureCode).toBe("invalid_invariant_source");
+    await expect(p.propose.generate(hypothesisId)).rejects.toMatchObject({ code: "invalid_state" });
     expect(p.structured.calls).toHaveLength(0); expect(p.invariant.calls).toHaveLength(0);
   });
   it("rejects missing and changed snapshot rows before either provider request", async () => {
@@ -110,7 +160,7 @@ describe("authoritative source consumers", () => {
       if (mutation === "missing") { database.sqlite.pragma("foreign_keys = OFF"); database.sqlite.prepare("DELETE FROM scan_source_snapshot_files WHERE scan_id=? AND source_key=?").run(scanId, "contracts/Math.sol"); database.sqlite.pragma("foreign_keys = ON"); }
       else database.sqlite.prepare("UPDATE scan_source_snapshot_files SET raw_bytes=? WHERE scan_id=? AND source_key=?").run(Buffer.from("poison"), scanId, "contracts/Counter.sol");
       const p = planners(); await expect(p.plan.generate(hypothesisId)).rejects.toMatchObject({ code: "missing_context" });
-      expect((await p.propose.generate(hypothesisId)).result.failureCode).toBe("invalid_invariant_source");
+      await expect(p.propose.generate(hypothesisId)).rejects.toMatchObject({ code: "invalid_state" });
       expect(p.structured.calls).toHaveLength(0); expect(p.invariant.calls).toHaveLength(0);
       if (mutation === "missing") database.sqlite.prepare("INSERT INTO scan_source_snapshot_files (scan_id,source_key,raw_bytes,raw_sha256,byte_length) VALUES (?,?,?,?,?)").run(scanId, sourceRows[1].sourceKey, sourceRows[1].rawBytes, sourceRows[1].rawSha256, sourceRows[1].byteLength);
     }
@@ -119,7 +169,7 @@ describe("authoritative source consumers", () => {
     for (const content of [Buffer.from([0xff]), 'pragma solidity 0.8.24; import "forge-std/Test.sol"; contract Counter {}']) {
       setup(content); const p = planners();
       await expect(p.plan.generate(hypothesisId)).rejects.toMatchObject({ code: "missing_context" });
-      expect((await p.propose.generate(hypothesisId)).result.failureCode).toBe("invalid_invariant_source");
+      await expect(p.propose.generate(hypothesisId)).rejects.toMatchObject({ code: "invalid_state" });
       expect(p.structured.calls).toHaveLength(0); expect(p.invariant.calls).toHaveLength(0);
       database.sqlite.prepare("DELETE FROM scans WHERE id=?").run(scanId);
     }

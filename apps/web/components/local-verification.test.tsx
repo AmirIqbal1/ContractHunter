@@ -57,8 +57,8 @@ describe("local verification UI", () => {
     expect(renderToStaticMarkup(<PlanGenerationView generating={false} result={notPlannable} />)).toContain("could not safely express this hypothesis");
     expect(renderToStaticMarkup(<PlanGenerationView generating={false} result={failed} />)).toContain("planning provider could not produce");
     const attempts: PublicVerificationPlanAttempt[] = [
-      { id: crypto.randomUUID(), selectedStrategy: "structured-verification", status: "failed", failureCode: "strategy_concrete_plan_incompatible", result: { ...failed, failureCode: "strategy_concrete_plan_incompatible" }, createdAt: provenance.generatedAt },
-      { id: crypto.randomUUID(), selectedStrategy: "structured-verification", status: "generated", failureCode: null, result: generated, createdAt: provenance.generatedAt },
+      { id: crypto.randomUUID(), selectedStrategy: "structured-verification", status: "failed", failureCode: "strategy_concrete_plan_incompatible", result: { ...failed, failureCode: "strategy_concrete_plan_incompatible" }, sourceClosureFingerprint: null, createdAt: provenance.generatedAt },
+      { id: crypto.randomUUID(), selectedStrategy: "structured-verification", status: "generated", failureCode: null, result: generated, sourceClosureFingerprint: null, createdAt: provenance.generatedAt },
     ];
     const history = renderToStaticMarkup(<LocalVerification hypothesisId={base.hypothesisId} hypothesisStatus="candidate" initialRuns={[]} initialAttempts={attempts} />);
     expect(history).toContain("Strategy planning history");

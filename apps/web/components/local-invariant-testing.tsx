@@ -75,6 +75,7 @@ export function LocalInvariantTesting({ hypothesisId, hypothesisStatus, initialP
     {generating && <div className="plan-proposal"><span className="badge blue">Generating</span></div>}
     {latest && <div className="plan-proposal"><h3>AI invariant proposal</h3><span className={`badge ${latest.status === "generated" ? "green" : latest.status === "failed" ? "red" : "amber"}`}>{latest.status === "generated" ? "Generated proposal" : latest.status === "not_plannable" ? "Not plannable" : "Failed"}</span>
       <p><strong>Planned via:</strong> {latest.selectedStrategy ? strategyNames[latest.selectedStrategy] : "Legacy manual planning"}</p>
+      <p><strong>Generation source closure:</strong> {latest.sourceClosureFingerprint ? <span className="mono">{latest.sourceClosureFingerprint.sha256.slice(0, 16)}… ({latest.sourceClosureFingerprint.fileCount} files)</span> : "Unavailable (legacy)"}</p>
       {latest.selectedStrategy && <p><strong>Selected strategy:</strong> {strategyNames[latest.selectedStrategy]}</p>}
       {latest.plan && <p><strong>Mode:</strong> {latest.plan.mode}</p>}
       {latest.selectedStrategy === "echidna-stateful-invariant" && latest.status === "generated" && <p><strong>Concrete Echidna compatibility:</strong> Passed during generation; validate against current trusted source before execution.</p>}

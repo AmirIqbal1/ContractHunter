@@ -25,3 +25,4 @@ export * from "./invariant-property-targets";
 export * from "./scan-source-snapshot";
 export * from "./compilation-provenance";
 export * from "./authoritative-source-closure";
+export * from "./source-closure-fingerprint";

@@ -178,6 +178,8 @@ export const executableInvariantRuns = sqliteTable("executable_invariant_runs", 
 export const executableInvariantProposals = sqliteTable("executable_invariant_proposals", {
   id: text("id").primaryKey(), hypothesisId: text("hypothesis_id").notNull().references(() => vulnerabilityHypotheses.id, { onDelete: "cascade" }), scanId: text("scan_id").notNull().references(() => scans.id, { onDelete: "cascade" }),
   selectedStrategy: text("selected_strategy", { enum: verificationStrategies }),
+  sourceClosureFingerprintSchema: text("source_closure_fingerprint_schema"), sourceClosureFingerprintSha256: text("source_closure_fingerprint_sha256"),
+  sourceClosureFingerprintFileCount: integer("source_closure_fingerprint_file_count"), sourceClosureFingerprintTotalBytes: integer("source_closure_fingerprint_total_bytes"),
   status: text("status", { enum: ["generated", "not_plannable", "failed"] }).notNull(), plan: text("plan"), planHash: text("plan_hash"), hypothesisExpectation: text("hypothesis_expectation", { enum: ["hypothesis-predicts-property-violation"] }), relationRationale: text("relation_rationale"), rationale: text("rationale"), limitations: text("limitations").notNull(), notPlannableReasons: text("not_plannable_reasons").notNull(), failureCode: text("failure_code"),
   provider: text("provider").notNull(), requestedModel: text("requested_model").notNull(), actualModel: text("actual_model"), promptVersion: text("prompt_version").notNull(), contextManifest: text("context_manifest").notNull(),
   inputTokens: integer("input_tokens"), outputTokens: integer("output_tokens"), totalTokens: integer("total_tokens"), estimatedCostUsd: real("estimated_cost_usd"), durationMs: integer("duration_ms").notNull(), requestId: text("request_id"), createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
@@ -186,6 +188,8 @@ export const executableInvariantProposals = sqliteTable("executable_invariant_pr
 export const verificationPlanAttempts = sqliteTable("verification_plan_attempts", {
   id: text("id").primaryKey(), hypothesisId: text("hypothesis_id").notNull().references(() => vulnerabilityHypotheses.id, { onDelete: "cascade" }), scanId: text("scan_id").notNull().references(() => scans.id, { onDelete: "cascade" }),
   selectedStrategy: text("selected_strategy", { enum: ["structured-verification"] }).notNull(),
+  sourceClosureFingerprintSchema: text("source_closure_fingerprint_schema"), sourceClosureFingerprintSha256: text("source_closure_fingerprint_sha256"),
+  sourceClosureFingerprintFileCount: integer("source_closure_fingerprint_file_count"), sourceClosureFingerprintTotalBytes: integer("source_closure_fingerprint_total_bytes"),
   status: text("status", { enum: ["generated", "not_plannable", "failed"] }).notNull(),
   plan: text("plan"), failureCode: text("failure_code"), result: text("result").notNull(),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),

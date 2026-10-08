@@ -11,6 +11,7 @@ const strategyNames = {
 const reasonNames = {
   "matching-persisted-validation": "Matching source, strategy and persisted validation history",
   "validation-not-recorded": "Validation is not recorded in planning history",
+  "source-fingerprint-unavailable": "Generation-time source closure fingerprint unavailable",
   "stale-scan": "Scan identity changed",
   "stale-commit": "Commit identity changed",
   "stale-source": "Source target changed",
@@ -27,7 +28,7 @@ function Candidate({ candidate }: { candidate: PlanningCandidate }) {
   const label = candidate.artifactType === "structured-plan" ? "structured plan" : "invariant proposal";
   return <li>
     <strong>{strategyNames[candidate.strategy]} {label}</strong> · {candidate.validationState === "validated-at-execution" ? "Validated before a recorded execution" : candidate.validationState === "generated" ? "Generated; validation not recorded" : "Invalid"} · {candidate.eligibility === "eligible" ? "Eligible for future explicit reuse" : candidate.eligibility === "stale" ? "Stale; cannot reuse" : "Not eligible for reuse"}
-    <br /><span className="muted">{candidate.reasons.map((reason) => reasonNames[reason]).join("; ")} · From <Link className="muted-link" href={`/hypotheses/${candidate.hypothesisId}`}>{shortId(candidate.hypothesisId)}</Link> · Artifact {shortId(candidate.artifactId)}</span>
+    <br /><span className="muted">{candidate.reasons.map((reason) => reasonNames[reason]).join("; ")} · Source fingerprint {candidate.sourceClosureFingerprintRecorded ? "recorded" : "unavailable"} · From <Link className="muted-link" href={`/hypotheses/${candidate.hypothesisId}`}>{shortId(candidate.hypothesisId)}</Link> · Artifact {shortId(candidate.artifactId)}</span>
   </li>;
 }
 

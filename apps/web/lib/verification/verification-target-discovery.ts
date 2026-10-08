@@ -2,13 +2,14 @@ import { executableInvariantPlanSchema, invariantPlanHash, toPublicVerificationT
 import { getScan, getVulnerabilityHypothesis, listExecutableInvariantProposals, listExecutableInvariantRuns, listHypothesisVerificationRuns, listPersistedInvariantPropertyTargets, listPersistedVerificationTargetGroups, listVerificationPlanAttempts, type DatabaseClient } from "@contracthunter/db";
 
 export type CandidateEligibility = "eligible" | "stale" | "incompatible";
-export type CandidateReason = "matching-persisted-validation" | "validation-not-recorded" | "stale-scan" | "stale-commit" | "stale-source" | "stale-compiler" | "strategy-not-compatible" | "strategy-mode-mismatch" | "property-target-unproven" | "legacy-unknown-strategy" | "invalid-plan";
+export type CandidateReason = "matching-persisted-validation" | "validation-not-recorded" | "source-fingerprint-unavailable" | "stale-scan" | "stale-commit" | "stale-source" | "stale-compiler" | "strategy-not-compatible" | "strategy-mode-mismatch" | "property-target-unproven" | "legacy-unknown-strategy" | "invalid-plan";
 export type PlanningCandidate = {
   artifactId: string; artifactType: "structured-plan" | "invariant-proposal"; hypothesisId: string;
   strategy: VerificationStrategy | "legacy-unknown-strategy"; propertyTargetIds: string[];
   eligibility: CandidateEligibility; reasons: CandidateReason[];
   validationState: "generated" | "validated-at-execution" | "invalid";
   executionHistoryExists: boolean; createdAt: string;
+  sourceClosureFingerprintRecorded: boolean;
 };
 export type PublicVerificationTargetSummary = {
   targetId: string; rootCauseFamily: VerificationTargetGroup["rootCauseFamily"]; familyLabel: string;
@@ -51,6 +52,7 @@ export function discoverVerificationTarget(database: DatabaseClient, hypothesisI
       if (attempt.status !== "generated") continue;
       const plan = verificationHarnessPlanSchema.safeParse(parsed(attempt.plan));
       const reasons: CandidateReason[] = [];
+      if (!attempt.sourceClosureFingerprintSha256) reasons.push("source-fingerprint-unavailable");
       if (!plan.success) reasons.push("invalid-plan");
       else {
         if (plan.data.scanId !== hypothesis.scanId || attempt.scanId !== hypothesis.scanId) reasons.push("stale-scan");
@@ -62,7 +64,7 @@ export function discoverVerificationTarget(database: DatabaseClient, hypothesisI
       const executionHistoryExists = plan.success && structuredRuns.some((run) => run.scanId === attempt.scanId && run.resolvedCommit === plan.data.resolvedCommit && run.compilerVersion === plan.data.compilerVersion && JSON.stringify(parsed(run.verificationPlan)) === JSON.stringify(plan.data));
       if (!executionHistoryExists) reasons.push("validation-not-recorded");
       candidates.push({ artifactId: attempt.id, artifactType: "structured-plan", hypothesisId: memberId, strategy: "structured-verification", propertyTargetIds: [],
-        eligibility: classify(reasons), reasons: reasons.length ? reasons : ["matching-persisted-validation"], validationState: reasons.includes("invalid-plan") ? "invalid" : executionHistoryExists ? "validated-at-execution" : "generated", executionHistoryExists: !!executionHistoryExists, createdAt: attempt.createdAt.toISOString() });
+        eligibility: classify(reasons), reasons: reasons.length ? reasons : ["matching-persisted-validation"], validationState: reasons.includes("invalid-plan") ? "invalid" : executionHistoryExists ? "validated-at-execution" : "generated", executionHistoryExists: !!executionHistoryExists, sourceClosureFingerprintRecorded: !!attempt.sourceClosureFingerprintSha256, createdAt: attempt.createdAt.toISOString() });
     }
     const runs = listExecutableInvariantRuns(database, memberId);
     for (const proposal of listExecutableInvariantProposals(database, memberId)) {
@@ -71,6 +73,7 @@ export function discoverVerificationTarget(database: DatabaseClient, hypothesisI
       const strategy = proposal.selectedStrategy;
       const ids = [...new Set(propertyIds.get(proposal.id) ?? [])].sort();
       const reasons: CandidateReason[] = [];
+      if (!proposal.sourceClosureFingerprintSha256) reasons.push("source-fingerprint-unavailable");
       if (!plan.success || !proposal.planHash || plan.success && invariantPlanHash(plan.data) !== proposal.planHash) reasons.push("invalid-plan");
       if (!strategy || strategy === "structured-verification") reasons.push("legacy-unknown-strategy");
       else if (!strategyReadiness.compatible.includes(strategy)) reasons.push("strategy-not-compatible");
@@ -86,7 +89,7 @@ export function discoverVerificationTarget(database: DatabaseClient, hypothesisI
       const executionHistoryExists = !!strategy && strategy !== "structured-verification" && !!proposal.planHash && plan.success && runs.some((run) => run.proposalId === proposal.id && run.planHash === proposal.planHash && run.engine === expectedEngine(strategy) && run.mode === expectedMode(strategy) && run.scanId === proposal.scanId && run.resolvedCommit === plan.data.resolvedCommit && run.compilerVersion === plan.data.compilerVersion);
       if (!executionHistoryExists) reasons.push("validation-not-recorded");
       candidates.push({ artifactId: proposal.id, artifactType: "invariant-proposal", hypothesisId: memberId, strategy: strategy && strategy !== "structured-verification" ? strategy : "legacy-unknown-strategy", propertyTargetIds: ids,
-        eligibility: classify(reasons), reasons: reasons.length ? reasons : ["matching-persisted-validation"], validationState: reasons.includes("invalid-plan") ? "invalid" : executionHistoryExists ? "validated-at-execution" : "generated", executionHistoryExists, createdAt: proposal.createdAt.toISOString() });
+        eligibility: classify(reasons), reasons: reasons.length ? reasons : ["matching-persisted-validation"], validationState: reasons.includes("invalid-plan") ? "invalid" : executionHistoryExists ? "validated-at-execution" : "generated", executionHistoryExists, sourceClosureFingerprintRecorded: !!proposal.sourceClosureFingerprintSha256, createdAt: proposal.createdAt.toISOString() });
     }
   }
   const eligibilityOrder = { eligible: 0, stale: 1, incompatible: 2 };

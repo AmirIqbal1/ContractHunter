@@ -107,7 +107,7 @@ export function LocalVerification({ hypothesisId, hypothesisStatus, initialRuns,
     {latest && <VerificationDetails run={latest} />}
     <p className="verification-safety">Runs entirely locally with no live chain or wallet. Execution requires the local isolation backend; if isolation is unavailable, ContractHunter refuses to execute.</p>
     <div className="plan-generation"><button className="button" type="button" disabled={generating || hypothesisStatus === "rejected"} onClick={() => void generatePlan()}>{generating ? "GENERATING…" : "Generate verification plan"}</button><span className="hint">Creates a reviewable structured proposal only. It never starts verification.</span></div>
-    {selectedAttempt && <p><strong>Planned via:</strong> {strategyNames[selectedAttempt.selectedStrategy]}</p>}
+    {selectedAttempt && <p><strong>Planned via:</strong> {strategyNames[selectedAttempt.selectedStrategy]}<br /><strong>Generation source closure:</strong> {selectedAttempt.sourceClosureFingerprint ? <span className="mono">{selectedAttempt.sourceClosureFingerprint.sha256.slice(0, 16)}… ({selectedAttempt.sourceClosureFingerprint.fileCount} files)</span> : "Unavailable (legacy)"}</p>}
     <PlanGenerationView generating={generating} result={visibleGeneration} />
     <details className="plan-panel">
       <summary>Open developer verification-plan input</summary>

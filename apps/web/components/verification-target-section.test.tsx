@@ -8,7 +8,7 @@ const second = "22222222-2222-4222-8222-222222222222";
 const target: PublicVerificationTargetSummary = { targetId: "opaque", rootCauseFamily: "access-control", familyLabel: "Access control", representativeHypothesisId: first,
   currentHypothesisIsRepresentative: false, relatedHypotheses: [first], relatedHypothesisCount: 1, representativeReason: "stable-id-tiebreak", reason: "Stable identifier tie-break", groupingConfidence: "exact",
   strategyReadiness: { compatible: ["structured-verification"], incompatible: ["echidna-stateful-invariant"], unknown: ["foundry-fuzz-property", "foundry-stateful-invariant"] },
-  candidates: [{ artifactId: second, artifactType: "invariant-proposal", hypothesisId: first, strategy: "foundry-stateful-invariant", propertyTargetIds: ["property"], eligibility: "eligible", reasons: ["matching-persisted-validation"], validationState: "validated-at-execution", executionHistoryExists: true, createdAt: "2026-01-01T00:00:00.000Z" }], candidateCount: 1 };
+  candidates: [{ artifactId: second, artifactType: "invariant-proposal", hypothesisId: first, strategy: "foundry-stateful-invariant", propertyTargetIds: ["property"], eligibility: "eligible", reasons: ["matching-persisted-validation"], validationState: "validated-at-execution", executionHistoryExists: true, sourceClosureFingerprintRecorded: true, createdAt: "2026-01-01T00:00:00.000Z" }], candidateCount: 1 };
 
 describe("advisory verification target UI", () => {
   it("shows a navigation link without redirecting or exposing internal target hashes", () => {

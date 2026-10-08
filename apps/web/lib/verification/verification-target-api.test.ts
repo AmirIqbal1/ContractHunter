@@ -86,8 +86,8 @@ describe("read-only verification target and planning candidate discovery", () =>
     link(); const own = proposal(ids[0]); const related = proposal(ids[1]);
     const run = createExecutableInvariantRun(database, { plan: related.plan, proposalId: related.row.id, engine: "foundry" });
     const target = discoverVerificationTarget(database, ids[0])!;
-    expect(target.candidates.find((item) => item.artifactId === related.row.id)).toMatchObject({ eligibility: "eligible", validationState: "validated-at-execution", executionHistoryExists: true });
-    expect(target.candidates.find((item) => item.artifactId === own.row.id)).toMatchObject({ eligibility: "incompatible", validationState: "generated", reasons: ["validation-not-recorded"] });
+    expect(target.candidates.find((item) => item.artifactId === related.row.id)).toMatchObject({ eligibility: "incompatible", validationState: "validated-at-execution", executionHistoryExists: true, reasons: ["source-fingerprint-unavailable"] });
+    expect(target.candidates.find((item) => item.artifactId === own.row.id)).toMatchObject({ eligibility: "incompatible", validationState: "generated", reasons: ["source-fingerprint-unavailable", "validation-not-recorded"] });
     database.sqlite.prepare("UPDATE executable_invariant_runs SET status='completed' WHERE id=?").run(run.id);
     const changed = proposal(ids[1], "1"); createExecutableInvariantRun(database, { plan: changed.plan, proposalId: changed.row.id, engine: "foundry" });
     expect(discoverVerificationTarget(database, ids[0])!.candidates.find((item) => item.artifactId === changed.row.id)).toMatchObject({ eligibility: "incompatible" });
@@ -118,7 +118,7 @@ describe("read-only verification target and planning candidate discovery", () =>
     const attempt = createVerificationPlanAttempt(database, { hypothesisId: ids[1], scanId, selectedStrategy: "structured-verification", result: result as never });
     expect(discoverVerificationTarget(database, ids[0])!.candidates.find((item) => item.artifactId === attempt.id)).toMatchObject({ validationState: "generated", eligibility: "incompatible" });
     createHypothesisVerificationRun(database, { hypothesisId: ids[1], scanId, resolvedCommit: commit, compilerVersion: "0.8.36", verificationPlan: plan, verifierId: "local-verifier", toolName: "forge", toolVersion: null, verificationStrategy: plan.verificationSteps });
-    expect(discoverVerificationTarget(database, ids[0])!.candidates.find((item) => item.artifactId === attempt.id)).toMatchObject({ validationState: "validated-at-execution", eligibility: "eligible" });
+    expect(discoverVerificationTarget(database, ids[0])!.candidates.find((item) => item.artifactId === attempt.id)).toMatchObject({ validationState: "validated-at-execution", eligibility: "incompatible", reasons: ["source-fingerprint-unavailable"] });
   });
   it("drops a candidate after a TOCTOU target split and orders candidates deterministically", () => {
     link(); proposal(ids[0]); const related = proposal(ids[1]); createExecutableInvariantRun(database, { plan: related.plan, proposalId: related.row.id, engine: "foundry" });
