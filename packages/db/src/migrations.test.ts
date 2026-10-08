@@ -16,7 +16,18 @@ import {
 
 const commit = "a".repeat(40);
 const directories: string[] = [];
+function rewindReuseMigration(database: Database.Database) {
+  for (const table of ["verification_plan_attempts", "executable_invariant_proposals"]) {
+    database.exec(`DROP TRIGGER ${table}_reuse_valid; DROP TRIGGER ${table}_reuse_immutable`);
+    for (const column of ["reuse_source_artifact_type", "reuse_source_artifact_id", "reuse_target_id", "reuse_compiler_artifact_sha256", "reuse_created_at"])
+      database.exec(`ALTER TABLE ${table} DROP COLUMN ${column}`);
+  }
+  database.exec("DELETE FROM schema_migrations WHERE id='0008_v0_2_2_planning_reuse_provenance'");
+}
 function rewindFingerprintMigration(database: Database.Database) {
+  if (database.prepare("SELECT 1 FROM schema_migrations WHERE id='0008_v0_2_2_planning_reuse_provenance'").get()) {
+    rewindReuseMigration(database);
+  }
   if (!database.prepare("SELECT 1 FROM schema_migrations WHERE id='0007_v0_2_2_source_closure_fingerprints'").get()) return;
   for (const table of ["verification_plan_attempts", "executable_invariant_proposals"]) {
     database.exec(`DROP TRIGGER ${table}_source_fingerprint_immutable; DROP TRIGGER ${table}_source_fingerprint_valid`);
@@ -150,7 +161,7 @@ describe("v0.1.9 to v0.2.0 migration", () => {
       { id: ids.verificationIds[0], status: "completed", error: null },
       { id: ids.verificationIds[1], status: "failed", error: "Historical failed retry." },
     ]);
-    expect((upgraded.sqlite.prepare("SELECT id FROM schema_migrations").pluck().all() as string[])).toEqual(["0001_v0_2_0_release_schema", "0002_v0_2_1_echidna_public", "0003_v0_2_1_run_proposal_binding", "0004_v0_2_2_strategy_planning", "0005_v0_2_2_scan_source_snapshots", "0006_v0_2_2_compilation_provenance", "0007_v0_2_2_source_closure_fingerprints"]);
+    expect((upgraded.sqlite.prepare("SELECT id FROM schema_migrations").pluck().all() as string[])).toEqual(["0001_v0_2_0_release_schema", "0002_v0_2_1_echidna_public", "0003_v0_2_1_run_proposal_binding", "0004_v0_2_2_strategy_planning", "0005_v0_2_2_scan_source_snapshots", "0006_v0_2_2_compilation_provenance", "0007_v0_2_2_source_closure_fingerprints", "0008_v0_2_2_planning_reuse_provenance"]);
 
     const plan = invariantPlan(ids.scanId, ids.hypothesisId), planHash = invariantPlanHash(plan);
     expect(() => createExecutableInvariantRun(upgraded, { plan, proposalId: crypto.randomUUID() })).toThrow("Invariant plan does not match persisted scan identity");
@@ -208,7 +219,7 @@ describe("v0.1.9 to v0.2.0 migration", () => {
     expect(echidnaReplay.sourceEngine).toBe("echidna"); expect(echidnaReplay.invariantRunId).toBe(replayableEchidna.id);
     closeDatabase(migrated);
     const reopened = createDatabase(v020Path);
-    expect((reopened.sqlite.prepare("SELECT id FROM schema_migrations ORDER BY id").pluck().all() as string[])).toEqual(["0001_v0_2_0_release_schema", "0002_v0_2_1_echidna_public", "0003_v0_2_1_run_proposal_binding", "0004_v0_2_2_strategy_planning", "0005_v0_2_2_scan_source_snapshots", "0006_v0_2_2_compilation_provenance", "0007_v0_2_2_source_closure_fingerprints"]);
+    expect((reopened.sqlite.prepare("SELECT id FROM schema_migrations ORDER BY id").pluck().all() as string[])).toEqual(["0001_v0_2_0_release_schema", "0002_v0_2_1_echidna_public", "0003_v0_2_1_run_proposal_binding", "0004_v0_2_2_strategy_planning", "0005_v0_2_2_scan_source_snapshots", "0006_v0_2_2_compilation_provenance", "0007_v0_2_2_source_closure_fingerprints", "0008_v0_2_2_planning_reuse_provenance"]);
     expect(getExecutableInvariantRun(reopened, run.id)?.engine).toBe("foundry"); closeDatabase(reopened);
 
     expect(snapshot(sourcePath)).toEqual(before);
@@ -297,5 +308,43 @@ describe("v0.2.2 generation-time source fingerprint migration", () => {
     expect(getVulnerabilityHypothesis(upgraded, ids.hypothesisId)?.status).toBe("verified");
     expect(upgraded.sqlite.prepare("SELECT count(*) AS count FROM hypothesis_verification_runs").get()).toEqual({ count: 2 });
     closeDatabase(upgraded);
+  });
+});
+
+describe("v0.2.2 explicit planning reuse provenance migration", () => {
+  it("adds nullable provenance to current development history without changing prior rows or lifecycle", () => {
+    const directory = mkdtempSync(path.join(tmpdir(), "contracthunter-reuse-upgrade-")); directories.push(directory);
+    const file = path.join(directory, "development.db"), ids = seedV019Shape(file), current = createDatabase(file);
+    const provenance = { provider: "mock", requestedModel: "mock", actualModel: null, promptVersion: "fixture", generatedAt: new Date().toISOString(), inputTokens: null, outputTokens: null, totalTokens: null, durationMs: 1, sourceFileCount: 0, totalSourceBytes: 0, sourceContextTruncated: false };
+    const attempt = createVerificationPlanAttempt(current, { hypothesisId: ids.hypothesisId, scanId: ids.scanId, selectedStrategy: "structured-verification", result: { status: "failed", plan: null, rationale: null, limitations: [], notPlannableReasons: [], failureCode: "plan_generation_failed", provenance } });
+    const proposal = createExecutableInvariantProposal(current, { hypothesisId: ids.hypothesisId, scanId: ids.scanId, result: { status: "failed", plan: null, planHash: null, hypothesisExpectation: null, relationRationale: null, rationale: null, limitations: [], notPlannableReasons: [], failureCode: "invariant_generation_unavailable", provenance: { ...provenance, estimatedCostUsd: null } }, contextManifest: {}, requestId: null });
+    closeDatabase(current);
+    const old = new Database(file); rewindReuseMigration(old);
+    const original = Object.fromEntries(["scans", "findings", "vulnerability_hypotheses", "investigations", "verification_plan_attempts", "executable_invariant_proposals", "hypothesis_verification_runs", "executable_invariant_runs", "invariant_replay_artifacts", "authoritative_invariant_evidence", "hypothesis_lifecycle_transitions"].map((table) => [table, old.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all()]));
+    old.close();
+    const upgraded = createDatabase(file);
+    for (const [table, rows] of Object.entries(original)) {
+      const actual = upgraded.sqlite.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all();
+      if (table === "verification_plan_attempts" || table === "executable_invariant_proposals") {
+        const restored = actual.map((row) => { const item = { ...(row as Record<string, unknown>) }; for (const name of ["reuse_source_artifact_type", "reuse_source_artifact_id", "reuse_target_id", "reuse_compiler_artifact_sha256", "reuse_created_at"]) { expect(item[name]).toBeNull(); delete item[name]; } return item; });
+        expect(restored, table).toEqual(rows);
+      } else expect(actual, table).toEqual(rows);
+    }
+    expect(upgraded.sqlite.prepare("SELECT reuse_source_artifact_id AS source FROM verification_plan_attempts WHERE id=?").get(attempt.id)).toEqual({ source: null });
+    expect(upgraded.sqlite.prepare("SELECT reuse_source_artifact_id AS source FROM executable_invariant_proposals WHERE id=?").get(proposal.id)).toEqual({ source: null });
+    expect(getVulnerabilityHypothesis(upgraded, ids.hypothesisId)?.status).toBe("verified");
+    closeDatabase(upgraded);
+  });
+
+  it("rolls back a conflicting reuse migration without adding any partial provenance columns", () => {
+    const directory = mkdtempSync(path.join(tmpdir(), "contracthunter-reuse-conflict-")); directories.push(directory);
+    const file = path.join(directory, "conflict.db"); closeDatabase(createDatabase(file));
+    const old = new Database(file); rewindReuseMigration(old);
+    old.exec("ALTER TABLE executable_invariant_proposals ADD COLUMN reuse_source_artifact_type TEXT"); old.close();
+    expect(() => createDatabase(file)).toThrow("0008_v0_2_2_planning_reuse_provenance");
+    const check = new Database(file, { readonly: true });
+    expect((check.prepare("PRAGMA table_info(verification_plan_attempts)").all() as Array<{ name: string }>).some((column) => column.name === "reuse_source_artifact_type")).toBe(false);
+    expect(check.prepare("SELECT 1 FROM schema_migrations WHERE id='0008_v0_2_2_planning_reuse_provenance'").get()).toBeUndefined();
+    check.close();
   });
 });

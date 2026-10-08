@@ -91,6 +91,11 @@ async function validateStaticPlan(plan: VerificationHarnessPlan, repositoryPath:
       reject("invalid_plan_source", "source_unavailable");
     }
   }
+  validateStaticPlanSources(plan, sources, allowlist);
+}
+
+function validateStaticPlanSources(plan: VerificationHarnessPlan, sources: ReadonlyMap<string, string>, allowlist: ReadonlySet<string>): void {
+  if (plan.sourceFiles.some((file) => !allowlist.has(file)) || !allowlist.has(plan.primarySourcePath)) reject("invalid_plan_source", "source_not_allowlisted");
   try {
     validateSolidityFunctionUses(sources.get(plan.primarySourcePath)!, [...sources.values()], plan.primaryContract,
       plan.operations.filter((op) => op.kind === "call" || op.kind === "read-uint" || op.kind === "read-address").map((op) => ({
@@ -107,6 +112,11 @@ async function validateStaticPlan(plan: VerificationHarnessPlan, repositoryPath:
   if (plan.assertions.some((assertion) => assertion.description.trim().length < 12 || /^(?:check|test|assert|verify)(?: it)?[.!]?$/i.test(assertion.description.trim()))) reject("invalid_harness_plan", "vague_assertion");
   try { new VerificationHarnessGenerator().generate(plan); }
   catch { reject("invalid_harness_plan", "harness_generation_rejected"); }
+}
+
+/** Current snapshot-backed semantic and harness validation without checkout reads. */
+export function validateAuthoritativeStaticPlan(plan: VerificationHarnessPlan, sources: ReadonlyMap<string, string>): void {
+  validateStaticPlanSources(plan, sources, new Set(sources.keys()));
 }
 
 export class VerificationPlanGenerationService {

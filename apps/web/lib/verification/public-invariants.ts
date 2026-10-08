@@ -4,6 +4,7 @@ import type { ExecutableInvariantProposalRow, ExecutableInvariantRunRow, Invaria
 const parse = (value: string | null): unknown => { try { return JSON.parse(value ?? "null") as unknown; } catch { return null; } };
 export type PublicInvariantProposal = {
   id: string; selectedStrategy: ExecutableInvariantProposalRow["selectedStrategy"]; status: ExecutableInvariantProposalRow["status"]; plan: ExecutableInvariantPlan | null; planHash: string | null; hypothesisExpectation: ExecutableInvariantProposalRow["hypothesisExpectation"]; relationRationale: string | null;
+  origin: "generated" | "legacy" | "reused"; reuseSourceArtifactId: string | null; reuseTargetId: string | null;
   rationale: string | null; limitations: string[]; notPlannableReasons: string[]; failureCode: string | null;
   provider: string; model: string; promptVersion: string; sourceFileCount: number; totalSourceBytes: number; contextTruncated: boolean;
   sourceClosureFingerprint: { schema: string; sha256: string; fileCount: number; totalBytes: number } | null;
@@ -22,7 +23,9 @@ export function toPublicInvariantProposal(row: ExecutableInvariantProposalRow): 
   const parsedPlan = executableInvariantPlanSchema.safeParse(parse(row.plan));
   if (row.status === "generated" && (!parsedPlan.success || row.selectedStrategy === "foundry-fuzz-property" && parsedPlan.data.mode !== "fuzz-property" || (row.selectedStrategy === "foundry-stateful-invariant" || row.selectedStrategy === "echidna-stateful-invariant") && parsedPlan.data.mode !== "stateful-invariant")) throw new Error("Persisted proposal strategy provenance is invalid.");
   const manifest = parse(row.contextManifest) as { files?: unknown[]; totalSourceBytes?: number; truncated?: boolean } | null;
+  if (row.reuseSourceArtifactId && (row.provider || row.requestedModel || row.actualModel || row.promptVersion || row.requestId || row.inputTokens !== null || row.outputTokens !== null || row.totalTokens !== null || row.estimatedCostUsd !== null)) throw new Error("Persisted reused proposal has provider metadata.");
   return { id: row.id, selectedStrategy: row.selectedStrategy, status: row.status, plan: parsedPlan.success ? parsedPlan.data : null, planHash: row.planHash, hypothesisExpectation: row.hypothesisExpectation, relationRationale: row.relationRationale, rationale: row.rationale,
+    origin: row.reuseSourceArtifactId ? "reused" : row.sourceClosureFingerprintSha256 ? "generated" : "legacy", reuseSourceArtifactId: row.reuseSourceArtifactId, reuseTargetId: row.reuseTargetId,
     limitations: Array.isArray(parse(row.limitations)) ? parse(row.limitations) as string[] : [], notPlannableReasons: Array.isArray(parse(row.notPlannableReasons)) ? parse(row.notPlannableReasons) as string[] : [], failureCode: row.failureCode,
     provider: row.provider, model: row.actualModel ?? row.requestedModel, promptVersion: row.promptVersion, sourceFileCount: manifest?.files?.length ?? 0, totalSourceBytes: manifest?.totalSourceBytes ?? 0, contextTruncated: manifest?.truncated ?? false,
     sourceClosureFingerprint: row.sourceClosureFingerprintSha256 ? { schema: row.sourceClosureFingerprintSchema!, sha256: row.sourceClosureFingerprintSha256, fileCount: row.sourceClosureFingerprintFileCount!, totalBytes: row.sourceClosureFingerprintTotalBytes! } : null,

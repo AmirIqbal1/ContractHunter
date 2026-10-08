@@ -6,7 +6,7 @@ import type { PublicHypothesisVerificationRun } from "@/lib/verification/public-
 import type { PublicVerificationPlanAttempt } from "@/lib/verification/public-strategy-planning";
 import { planningFailureMessage, strategyNames } from "@/lib/verification/public-strategy-planning";
 import { verificationHarnessPlanSchema } from "../../../packages/core/src/hypothesis-verification";
-import type { VerificationPlanGenerationResult } from "../../../packages/core/src/verification-plan-generation";
+import type { VerificationPlanGenerationResult, VerificationPlanReuseResult } from "../../../packages/core/src/verification-plan-generation";
 
 type Props = { hypothesisId: string; hypothesisStatus: HypothesisStatus; initialRuns: PublicHypothesisVerificationRun[]; initialAttempts?: PublicVerificationPlanAttempt[]; selectedAttemptId?: string | null };
 
@@ -107,7 +107,7 @@ export function LocalVerification({ hypothesisId, hypothesisStatus, initialRuns,
     {latest && <VerificationDetails run={latest} />}
     <p className="verification-safety">Runs entirely locally with no live chain or wallet. Execution requires the local isolation backend; if isolation is unavailable, ContractHunter refuses to execute.</p>
     <div className="plan-generation"><button className="button" type="button" disabled={generating || hypothesisStatus === "rejected"} onClick={() => void generatePlan()}>{generating ? "GENERATING…" : "Generate verification plan"}</button><span className="hint">Creates a reviewable structured proposal only. It never starts verification.</span></div>
-    {selectedAttempt && <p><strong>Planned via:</strong> {strategyNames[selectedAttempt.selectedStrategy]}<br /><strong>Generation source closure:</strong> {selectedAttempt.sourceClosureFingerprint ? <span className="mono">{selectedAttempt.sourceClosureFingerprint.sha256.slice(0, 16)}… ({selectedAttempt.sourceClosureFingerprint.fileCount} files)</span> : "Unavailable (legacy)"}</p>}
+    {selectedAttempt && <p><strong>Planned via:</strong> {strategyNames[selectedAttempt.selectedStrategy]}<br /><strong>Origin:</strong> {selectedAttempt.origin === "reused" ? "Reused canonical plan" : selectedAttempt.origin === "legacy" ? "Legacy generation" : "AI generation"}<br /><strong>Generation source closure:</strong> {selectedAttempt.sourceClosureFingerprint ? <span className="mono">{selectedAttempt.sourceClosureFingerprint.sha256.slice(0, 16)}… ({selectedAttempt.sourceClosureFingerprint.fileCount} files)</span> : "Unavailable (legacy)"}</p>}
     <PlanGenerationView generating={generating} result={visibleGeneration} />
     <details className="plan-panel">
       <summary>Open developer verification-plan input</summary>
@@ -123,7 +123,7 @@ export function LocalVerification({ hypothesisId, hypothesisStatus, initialRuns,
   </section>;
 }
 
-export function PlanGenerationView({ generating, result }: { generating: boolean; result: VerificationPlanGenerationResult | null }) {
+export function PlanGenerationView({ generating, result }: { generating: boolean; result: VerificationPlanGenerationResult | VerificationPlanReuseResult | null }) {
   if (generating) return <div className="plan-proposal"><span className="badge blue">Generating</span><p>Building one bounded, tool-free structured proposal from persisted evidence.</p></div>;
   if (!result) return null;
   if (result.status === "not_plannable") return <div className="plan-proposal"><span className="badge amber">Not plannable</span><p>ContractHunter could not safely express this hypothesis using the current local verification capabilities.</p><p>{result.rationale}</p>{result.notPlannableReasons.length > 0 && <ul className="reason-list">{result.notPlannableReasons.map((reason) => <li key={reason}>{title(reason)}</li>)}</ul>}<ProposalMetadata result={result} /></div>;
@@ -131,7 +131,8 @@ export function PlanGenerationView({ generating, result }: { generating: boolean
   return <div className="plan-proposal"><span className="badge green">Generated proposal</span><p>{result.rationale}</p><p className="muted">This proposal has not been executed. Review the JSON and select Validate plan before Verify locally becomes available.</p>{result.limitations.length > 0 && <><h3>Limitations</h3><ul className="reason-list">{result.limitations.map((limitation, index) => <li key={`${index}-${limitation}`}>{limitation}</li>)}</ul></>}<pre>{JSON.stringify(result.plan, null, 2)}</pre><ProposalMetadata result={result} /></div>;
 }
 
-function ProposalMetadata({ result }: { result: VerificationPlanGenerationResult }) {
+function ProposalMetadata({ result }: { result: VerificationPlanGenerationResult | VerificationPlanReuseResult }) {
+  if ("origin" in result) return <p className="muted">Reused locally. No AI provider request was made.</p>;
   return <dl className="proposal-metadata"><dt>Provider</dt><dd>{result.provenance.provider}</dd><dt>Model</dt><dd>{result.provenance.actualModel ?? result.provenance.requestedModel}</dd><dt>Prompt</dt><dd className="mono">{result.provenance.promptVersion}</dd><dt>Context</dt><dd>{result.provenance.sourceFileCount} files · {result.provenance.totalSourceBytes} bytes{result.provenance.sourceContextTruncated ? " · truncated" : ""}</dd><dt>Tokens</dt><dd>{result.provenance.totalTokens ?? "not supplied"}</dd><dt>Duration</dt><dd>{duration(result.provenance.durationMs)}</dd></dl>;
 }
 

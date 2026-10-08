@@ -60,6 +60,12 @@ export type VerificationPlanGenerationResult = {
   };
 };
 
+/** Local canonical-plan reuse has no provider or prompt provenance. */
+export type VerificationPlanReuseResult = {
+  origin: "reused"; status: "generated"; plan: VerificationHarnessPlan;
+  rationale: null; limitations: []; notPlannableReasons: []; failureCode: null;
+};
+
 export const VERIFICATION_PLAN_PROMPT_VERSION = "verification-plan-v4";
 const VERIFICATION_CAPABILITY_CONTRACT = JSON.stringify(verificationCapabilityProfile);
 export const VERIFICATION_PLAN_SYSTEM_PROMPT = `You are a read-only verification planner. Decide whether one supplied hypothesis can be tested using only the supplied bounded VerificationHarnessPlan language. Prefer not_plannable over guessing.

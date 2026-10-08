@@ -178,6 +178,8 @@ export const executableInvariantRuns = sqliteTable("executable_invariant_runs", 
 export const executableInvariantProposals = sqliteTable("executable_invariant_proposals", {
   id: text("id").primaryKey(), hypothesisId: text("hypothesis_id").notNull().references(() => vulnerabilityHypotheses.id, { onDelete: "cascade" }), scanId: text("scan_id").notNull().references(() => scans.id, { onDelete: "cascade" }),
   selectedStrategy: text("selected_strategy", { enum: verificationStrategies }),
+  reuseSourceArtifactType: text("reuse_source_artifact_type", { enum: ["invariant-proposal"] }), reuseSourceArtifactId: text("reuse_source_artifact_id"),
+  reuseTargetId: text("reuse_target_id"), reuseCompilerArtifactSha256: text("reuse_compiler_artifact_sha256"), reuseCreatedAt: integer("reuse_created_at", { mode: "timestamp" }),
   sourceClosureFingerprintSchema: text("source_closure_fingerprint_schema"), sourceClosureFingerprintSha256: text("source_closure_fingerprint_sha256"),
   sourceClosureFingerprintFileCount: integer("source_closure_fingerprint_file_count"), sourceClosureFingerprintTotalBytes: integer("source_closure_fingerprint_total_bytes"),
   status: text("status", { enum: ["generated", "not_plannable", "failed"] }).notNull(), plan: text("plan"), planHash: text("plan_hash"), hypothesisExpectation: text("hypothesis_expectation", { enum: ["hypothesis-predicts-property-violation"] }), relationRationale: text("relation_rationale"), rationale: text("rationale"), limitations: text("limitations").notNull(), notPlannableReasons: text("not_plannable_reasons").notNull(), failureCode: text("failure_code"),
@@ -188,6 +190,8 @@ export const executableInvariantProposals = sqliteTable("executable_invariant_pr
 export const verificationPlanAttempts = sqliteTable("verification_plan_attempts", {
   id: text("id").primaryKey(), hypothesisId: text("hypothesis_id").notNull().references(() => vulnerabilityHypotheses.id, { onDelete: "cascade" }), scanId: text("scan_id").notNull().references(() => scans.id, { onDelete: "cascade" }),
   selectedStrategy: text("selected_strategy", { enum: ["structured-verification"] }).notNull(),
+  reuseSourceArtifactType: text("reuse_source_artifact_type", { enum: ["structured-plan"] }), reuseSourceArtifactId: text("reuse_source_artifact_id"),
+  reuseTargetId: text("reuse_target_id"), reuseCompilerArtifactSha256: text("reuse_compiler_artifact_sha256"), reuseCreatedAt: integer("reuse_created_at", { mode: "timestamp" }),
   sourceClosureFingerprintSchema: text("source_closure_fingerprint_schema"), sourceClosureFingerprintSha256: text("source_closure_fingerprint_sha256"),
   sourceClosureFingerprintFileCount: integer("source_closure_fingerprint_file_count"), sourceClosureFingerprintTotalBytes: integer("source_closure_fingerprint_total_bytes"),
   status: text("status", { enum: ["generated", "not_plannable", "failed"] }).notNull(),

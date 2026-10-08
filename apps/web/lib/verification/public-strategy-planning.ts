@@ -1,4 +1,4 @@
-import type { VerificationPlanGenerationResult, VerificationStrategy } from "@contracthunter/core";
+import type { VerificationPlanGenerationResult, VerificationPlanReuseResult, VerificationStrategy } from "@contracthunter/core";
 
 export const strategyNames: Record<VerificationStrategy, string> = {
   "structured-verification": "Structured verification",
@@ -7,7 +7,9 @@ export const strategyNames: Record<VerificationStrategy, string> = {
   "echidna-stateful-invariant": "Echidna stateful invariant",
 };
 
-export type PublicVerificationPlanAttempt = { id: string; selectedStrategy: "structured-verification"; status: VerificationPlanGenerationResult["status"]; failureCode: VerificationPlanGenerationResult["failureCode"]; result: VerificationPlanGenerationResult; sourceClosureFingerprint: { schema: string; sha256: string; fileCount: number; totalBytes: number } | null; createdAt: string };
+export type PublicVerificationPlanAttempt = { id: string; selectedStrategy: "structured-verification"; status: VerificationPlanGenerationResult["status"]; failureCode: VerificationPlanGenerationResult["failureCode"];
+  origin: "generated" | "legacy" | "reused"; reuseSourceArtifactId: string | null; reuseTargetId: string | null;
+  result: VerificationPlanGenerationResult | VerificationPlanReuseResult; sourceClosureFingerprint: { schema: string; sha256: string; fileCount: number; totalBytes: number } | null; createdAt: string };
 
 export const planningFailureMessages: Record<string, string> = {
   strategy_not_compatible: "Current structured evidence no longer supports this strategy. Review the updated verification options.",
