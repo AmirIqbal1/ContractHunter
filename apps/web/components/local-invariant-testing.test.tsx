@@ -61,4 +61,33 @@ describe("manual invariant workflow UI", () => {
     const html = render([proposal], [run]);
     expect(html).toContain("Echidna"); expect(html).toContain("seed 12345"); expect(html).toContain("Replay unavailable: the Echidna sequence could not be mapped exactly."); expect(html).not.toContain("Generate deterministic replay");
   });
+  it.each(["foundry-fuzz-property", "foundry-stateful-invariant", "echidna-stateful-invariant"] as const)("loads a reused %s proposal for separate review and validation", (strategy) => {
+    if (plan.mode !== "fuzz-property") throw new Error("Fuzz fixture required.");
+    const { fuzzAction, property, ...base } = plan;
+    const selectedPlan = strategy === "foundry-fuzz-property" ? plan : executableInvariantPlanSchema.parse({ ...base,
+      mode: "stateful-invariant", actors: strategy === "echidna-stateful-invariant" ? [] : plan.actors,
+      handlerActions: [{ name: "record", instanceName: "target", functionName: fuzzAction.functionName, parameters: fuzzAction.parameters, args: fuzzAction.args }],
+      properties: [property] });
+    const reused: PublicInvariantProposal = { ...proposal, id: crypto.randomUUID(), selectedStrategy: strategy, plan: selectedPlan,
+      planHash: invariantPlanHash(selectedPlan), origin: "reused", reuseSourceArtifactId: proposal.id, reuseTargetId: "f".repeat(64),
+      provider: "", model: "", promptVersion: "", sourceClosureFingerprint: { schema: "contracthunter-source-closure-fingerprint-v1", sha256: "a".repeat(64), fileCount: 1, totalBytes: 200 } };
+    const html = renderToStaticMarkup(<LocalInvariantTesting hypothesisId={hypothesisId} hypothesisStatus="candidate" initialProposals={[proposal]} incomingProposal={reused} selectedProposalId={reused.id} initialRuns={[baseRun]} />);
+    expect(html).toContain(reused.id);
+    expect(html).toContain(`Reused from:</strong> invariant proposal <span class="mono">${proposal.id}`);
+    expect(html).toContain("Pending explicit validation");
+    expect(html).toContain("Execution for this proposal:</strong> Not run");
+    expect(html).toContain(strategy === "foundry-fuzz-property" ? "fuzz-property" : "stateful-invariant");
+    expect(html).toContain("Validate proposal");
+    expect(html).not.toContain("Run with Foundry"); expect(html).not.toContain("Run with Echidna");
+    expect(html).toContain("Proposal history"); expect(html).toContain(proposal.id);
+    expect(html).not.toContain("mock · model");
+    if (strategy === "echidna-stateful-invariant") expect(html).toContain("Passed during reuse admission");
+  });
+  it("retains separately selectable earlier reused proposals in history", () => {
+    const first = { ...proposal, id: crypto.randomUUID(), origin: "reused" as const, reuseSourceArtifactId: proposal.id };
+    const second = { ...proposal, id: crypto.randomUUID(), origin: "reused" as const, reuseSourceArtifactId: proposal.id };
+    const html = renderToStaticMarkup(<LocalInvariantTesting hypothesisId={hypothesisId} hypothesisStatus="candidate" initialProposals={[proposal]} incomingProposal={second} additionalProposals={[first]} selectedProposalId={second.id} initialRuns={[]} />);
+    expect(html).toContain(first.id.slice(0, 8)); expect(html).toContain(second.id);
+    expect((html.match(/Reused from invariant proposal/g) ?? [])).toHaveLength(2);
+  });
 });

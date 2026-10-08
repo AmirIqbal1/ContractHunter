@@ -28,7 +28,7 @@ describe("local verification UI", () => {
 
   it("renders dynamic evidence, run history, and read-only verified status", () => {
     const older = { ...base, id: crypto.randomUUID(), outcome: "refuted" as const, createdAt: "2026-08-15T10:00:00.000Z" };
-    const html = render([base, older], "verified"); expect(html).toContain("Dynamic evidence"); expect(html).toContain("Balance property"); expect(html).toContain("Expected property"); expect(html).toContain("Observed result"); expect(html).toContain("Vault.withdraw"); expect(html).toContain("Verification history"); expect(html).toContain("15 Aug 2026"); expect(html).not.toContain("Mark verified");
+    const html = render([base, older], "verified"); expect(html).toContain("Dynamic evidence"); expect(html).toContain("Balance property"); expect(html).toContain("Expected property"); expect(html).toContain("Observed result"); expect(html).toContain("Vault.withdraw"); expect(html).toContain("Hypothesis verification history"); expect(html).toContain("15 Aug 2026"); expect(html).not.toContain("Mark verified");
   });
 
   it("explains fail-closed isolation without suggesting unsafe workarounds", () => {
@@ -53,7 +53,7 @@ describe("local verification UI", () => {
     const notPlannable: VerificationPlanGenerationResult = { status: "not_plannable", plan: null, rationale: "Bytes arguments required.", limitations: [], notPlannableReasons: ["unsupported_function_argument_type"], failureCode: null, provenance };
     const failed: VerificationPlanGenerationResult = { status: "failed", plan: null, rationale: null, limitations: [], notPlannableReasons: [], failureCode: "plan_generation_failed", provenance };
     expect(renderToStaticMarkup(<PlanGenerationView generating result={null} />)).toContain("Generating");
-    const preview = renderToStaticMarkup(<PlanGenerationView generating={false} result={generated} />); expect(preview).toContain("Generated proposal"); expect(preview).toContain("Bounded initial state only"); expect(preview).toContain("verification-plan-v1"); expect(preview).toContain("This proposal has not been executed"); expect(preview).not.toContain("<button");
+    const preview = renderToStaticMarkup(<PlanGenerationView generating={false} result={generated} />); expect(preview).toContain("Generated proposal"); expect(preview).toContain("Bounded initial state only"); expect(preview).toContain("verification-plan-v1"); expect(preview).toContain("Validate plan before Verify locally"); expect(preview).not.toContain("<button");
     expect(renderToStaticMarkup(<PlanGenerationView generating={false} result={notPlannable} />)).toContain("could not safely express this hypothesis");
     expect(renderToStaticMarkup(<PlanGenerationView generating={false} result={failed} />)).toContain("planning provider could not produce");
     const attempts: PublicVerificationPlanAttempt[] = [
@@ -65,6 +65,21 @@ describe("local verification UI", () => {
     expect(history).toContain("Structured verification");
     expect((history.match(/· Review/g) ?? [])).toHaveLength(2);
     expect(history).toContain("concrete plan did not pass");
+
+    const reused: PublicVerificationPlanAttempt = { id: crypto.randomUUID(), selectedStrategy: "structured-verification", status: "generated", failureCode: null,
+      result: { origin: "reused", status: "generated", plan, rationale: null, limitations: [], notPlannableReasons: [], failureCode: null },
+      origin: "reused", reuseSourceArtifactId: attempts[1].id, reuseTargetId: "f".repeat(64),
+      sourceClosureFingerprint: { schema: "contracthunter-source-closure-fingerprint-v1", sha256: "a".repeat(64), fileCount: 1, totalBytes: 200 }, createdAt: provenance.generatedAt };
+    const reusedHtml = renderToStaticMarkup(<LocalVerification hypothesisId={base.hypothesisId} hypothesisStatus="candidate" initialRuns={[base]} initialAttempts={[reused, ...attempts]} selectedAttemptId={reused.id} />);
+    expect(reusedHtml).toContain("Reused planning artifact");
+    expect(reusedHtml).toContain(attempts[1].id);
+    expect(reusedHtml).toContain("Pending explicit validation");
+    expect(reusedHtml).toContain("Prior verification runs below belong to this hypothesis");
+    expect(reusedHtml).toMatch(/<button[^>]*disabled[^>]*>Verify locally<\/button>/);
+    expect(reusedHtml).toContain("Validate plan");
+    expect(reusedHtml).toContain("Strategy planning history");
+    expect(reusedHtml).toContain("Reused from structured plan");
+    expect(reusedHtml).not.toContain("<dt>Provider</dt>");
 
   });
 });
