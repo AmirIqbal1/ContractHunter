@@ -9,6 +9,7 @@ import { ECHIDNA_LIMITS, INVARIANT_COUNTEREXAMPLE_PARSER_VERSION, SCAN_SOURCE_LI
 import { authoritativeInvariantEvidence, executableInvariantProposals, executableInvariantRuns, invariantEvidenceReviews, invariantReplayArtifacts, invariantReplayRuns, hypothesisLifecycleTransitions, findings, hypothesisGroupMembers, hypothesisGroups, hypothesisVerificationRuns, verificationPlanAttempts, scanSourceSnapshots, scanSourceSnapshotFiles, investigationFindings, investigations, invariants, protocolAnalyses, scans, scanScanners, securityReviewerRuns, securityReviewPlans, vulnerabilityHypotheses, type ExecutableInvariantProposalRow, type ExecutableInvariantRunRow, type InvariantReplayArtifactRow, type InvariantReplayRunRow, type InvariantEvidenceReviewRow, type FindingRow, type HypothesisGroupRow, type HypothesisVerificationRunRow, type InvariantRow, type InvestigationRow, type ProtocolAnalysisRow, type ScanRow, type ScanScannerRow, type SecurityReviewerRunRow, type SecurityReviewPlanRow, type VulnerabilityHypothesisRow } from "./schema";
 
 export * from "./schema";
+export { recordImpactForkSession, recoverStaleImpactForkSessions } from "./impact-fork-sessions";
 
 export type DatabaseClient = ReturnType<typeof createDatabase>;
 
@@ -366,9 +367,46 @@ export function createDatabase(databasePath: string) {
     })(); }
     catch (error) { throw new Error(`Database migration 0008_v0_2_2_planning_reuse_provenance failed without committing changes: ${error instanceof Error ? error.message : String(error)}`); }
   }
+  if (!sqlite.prepare("SELECT 1 FROM schema_migrations WHERE id = ?").get("0009_v0_3_impact_fork_sessions")) {
+    try { sqlite.transaction(() => {
+      sqlite.exec(`CREATE TABLE impact_fork_sessions (
+        id TEXT PRIMARY KEY,
+        finding_id TEXT REFERENCES findings(id) ON DELETE RESTRICT,
+        hypothesis_id TEXT REFERENCES vulnerability_hypotheses(id) ON DELETE RESTRICT,
+        chain_id INTEGER NOT NULL CHECK (chain_id > 0),
+        network TEXT NOT NULL,
+        upstream_rpc_ref TEXT NOT NULL,
+        target_contracts TEXT NOT NULL,
+        resolved_fork_block INTEGER NOT NULL CHECK (resolved_fork_block >= 0),
+        historical_transaction_hash TEXT,
+        fork_block_hash TEXT,
+        status TEXT NOT NULL CHECK (status IN ('created','starting','ready','failed','stopping','stopped')),
+        local_port INTEGER CHECK (local_port BETWEEN 1024 AND 65535),
+        anvil_version TEXT,
+        anvil_sha256 TEXT,
+        process_pid INTEGER,
+        baseline_snapshot_id TEXT,
+        disposable_accounts TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        started_at INTEGER,
+        stopped_at INTEGER,
+        failure_code TEXT,
+        CHECK ((finding_id IS NOT NULL) <> (hypothesis_id IS NOT NULL))
+      );
+      CREATE INDEX impact_fork_sessions_status_created_idx ON impact_fork_sessions(status, created_at);
+      CREATE TRIGGER impact_fork_sessions_identity_immutable BEFORE UPDATE ON impact_fork_sessions
+        WHEN OLD.finding_id IS NOT NEW.finding_id OR OLD.hypothesis_id IS NOT NEW.hypothesis_id OR
+          OLD.chain_id IS NOT NEW.chain_id OR OLD.network IS NOT NEW.network OR
+          OLD.upstream_rpc_ref IS NOT NEW.upstream_rpc_ref OR OLD.target_contracts IS NOT NEW.target_contracts OR
+          OLD.resolved_fork_block IS NOT NEW.resolved_fork_block OR OLD.historical_transaction_hash IS NOT NEW.historical_transaction_hash OR OLD.created_at IS NOT NEW.created_at
+        BEGIN SELECT RAISE(ABORT, 'impact fork identity is immutable'); END;`);
+      sqlite.prepare("INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)").run("0009_v0_3_impact_fork_sessions", Date.now());
+    })(); }
+    catch (error) { throw new Error(`Database migration 0009_v0_3_impact_fork_sessions failed without committing changes: ${error instanceof Error ? error.message : String(error)}`); }
+  }
   const integrity = sqlite.pragma("quick_check") as Array<{ quick_check: string }>;
   const foreignKeyViolations = sqlite.pragma("foreign_key_check") as unknown[];
-  const requiredTables = ["scans", "scan_source_snapshots", "scan_source_snapshot_files", "scan_compilation_provenance", "scan_compilation_source_units", "scan_scanner_alignment", "findings", "scan_scanners", "investigations", "investigation_findings", "protocol_analyses", "invariants", "security_review_plans", "security_reviewer_runs", "vulnerability_hypotheses", "hypothesis_verification_runs", "verification_plan_attempts", "executable_invariant_runs", "executable_invariant_proposals", "invariant_replay_artifacts", "invariant_replay_runs", "authoritative_invariant_evidence", "invariant_evidence_reviews", "hypothesis_lifecycle_transitions", "hypothesis_groups", "hypothesis_group_members"];
+  const requiredTables = ["scans", "scan_source_snapshots", "scan_source_snapshot_files", "scan_compilation_provenance", "scan_compilation_source_units", "scan_scanner_alignment", "findings", "scan_scanners", "investigations", "investigation_findings", "protocol_analyses", "invariants", "security_review_plans", "security_reviewer_runs", "vulnerability_hypotheses", "hypothesis_verification_runs", "verification_plan_attempts", "executable_invariant_runs", "executable_invariant_proposals", "invariant_replay_artifacts", "invariant_replay_runs", "authoritative_invariant_evidence", "invariant_evidence_reviews", "hypothesis_lifecycle_transitions", "hypothesis_groups", "hypothesis_group_members", "impact_fork_sessions"];
   const presentTables = new Set((sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as Array<{ name: string }>).map((row) => row.name));
   const runColumns = new Set((sqlite.prepare("PRAGMA table_info(executable_invariant_runs)").all() as Array<{name:string}>).map((row) => row.name));
   const replayColumns = new Set((sqlite.prepare("PRAGMA table_info(invariant_replay_artifacts)").all() as Array<{name:string}>).map((row) => row.name));
@@ -401,6 +439,8 @@ let singleton: DatabaseClient | undefined;
 export function getDatabase(): DatabaseClient {
   if (!singleton) {
     singleton = createDatabase(loadConfig().DATABASE_PATH);
+    // Runtime process handles never survive a web-process restart. Persisted rows are audit records, not execution authority.
+    singleton.sqlite.prepare("UPDATE impact_fork_sessions SET status='failed', failure_code='impact_server_restart', stopped_at=? WHERE status IN ('starting','ready','stopping')").run(Date.now());
     backfillInvestigations(singleton);
   }
   return singleton;

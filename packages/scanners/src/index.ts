@@ -29,3 +29,5 @@ export * from "./executable-invariant-result";
 export * from "./invariant-replay-generator";
 export * from "./invariant-replay-workspace-integrity";
 export * from "./invariant-replay-result";
+export * from "./impact-upstream-proxy";
+export * from "./impact-fork-service";

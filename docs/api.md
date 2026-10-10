@@ -1,5 +1,7 @@
 # API reference
 
+Impact Lab Phase A1 has an internal lifecycle service only. There is no public Impact Lab route or generic raw RPC API; PoC execution is not available.
+
 ## Scans
 
 - `POST /api/scans` — validate and enqueue a scan

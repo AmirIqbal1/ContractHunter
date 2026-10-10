@@ -1,6 +1,16 @@
 # ContractHunter v0.3 — Fork & Impact Engine
 
-**User-facing workflow:** Impact Lab. **Status:** planned architecture; no fork, RPC, PoC, export, API or UI implementation is included in this document change.
+**User-facing workflow:** Impact Lab. **Status:** v0.3 Phase A1 internal fork lifecycle and safety boundary implemented; v0.3 is not released. No PoC execution, result export, public API, CLI, or GUI exists yet.
+
+## Phase A1 implementation
+
+`packages/core/src/impact-fork.ts` defines strict finding/hypothesis linkage, chain and network identity, an exact required fork block, target addresses, an `IMPACT_RPC_*` secret reference, and fixed `127.0.0.1` binding. The server resolves the upstream URL only at runtime. `packages/scanners/src/impact-upstream-proxy.ts` creates a random-path loopback proxy and forwards only positively listed read methods; it rejects transaction submission, wallet/admin mutation, malformed or mixed JSON-RPC batches before forwarding, refuses redirects, and bounds request/response size and time. Anvil receives only this proxy URL, never the provider URL or key. This is an application-level filter; Phase A2 must independently constrain egress from any future PoC runtime.
+
+`ImpactForkService` resolves only approved local Anvil paths, checks file ownership/mode and SHA-256, and invokes a fixed Anvil argument vector without a shell or inherited wallet environment. Linux `setpriv --pdeathsig SIGKILL` and a dedicated process group provide parent-crash and explicit-stop cleanup. Anvil binds `127.0.0.1` on a selected ephemeral port. Before ready, the service compares upstream and local chain ID and the exact pinned block hash, checks Anvil client identity, verifies that the owned PID/start token holds the loopback listener socket, reads one Anvil development account address, and creates a baseline snapshot. The central `assertSafeImpactExecutionEndpoint` repeats process, listener, chain, client, and block-hash checks before every local control operation. A localhost address alone is never authority.
+
+The internal service supports additional snapshots, revert, reset to baseline, and address-validated impersonation/stop-impersonation only through that guard. It limits concurrent starting/ready sessions to two, lifetime to 30 minutes, startup to 15 seconds, and captured process output to 64 KiB. Failed readiness, snapshot, or endpoint checks fail closed and attempt process-group cleanup. Migration `0009_v0_3_impact_fork_sessions` stores audit identity, status, port, tool hash/version, block hash, and account addresses but no process handles, upstream URLs, provider secrets, mnemonics, or private keys. Runtime handles and random session tokens remain in memory; persisted active rows are marked failed on restart and cannot authorize RPC use.
+
+There is no public Impact Lab route or generic raw RPC passthrough. The default Compose image does not provision Anvil in A1; a trusted approved local Anvil executable must already exist for a real lifecycle run. No executable was downloaded or installed during this phase.
 
 Impact Lab lets an authorised researcher reproduce a candidate smart-contract vulnerability against a **local fork of pinned deployed state**, measure the observed consequences, and retain reproducible evidence. It follows the existing pipeline:
 
