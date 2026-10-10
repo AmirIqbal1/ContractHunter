@@ -7,17 +7,84 @@ import { counterexampleHash, executableInvariantPlanSchema, invariantPlanHash, i
 import {
   closeDatabase, completeExecutableInvariantRun, completeHypothesisVerificationRun, createDatabase, createExecutableInvariantProposal, createExecutableInvariantRun,
   createHypothesisVerificationRun, createInvariantReplayArtifact, createInvariantReplayRun, createProtocolAnalysis, createScan, createSecurityReviewerRun,
-  createSecurityReviewPlan, finishInvariantReplayRun, getVulnerabilityHypothesis, insertVulnerabilityHypotheses, markExecutableInvariantRunRunning,
+  createSecurityReviewPlan, createVerificationPlanAttempt, finishInvariantReplayRun, getVulnerabilityHypothesis, insertVulnerabilityHypotheses, markExecutableInvariantRunRunning,
   markHypothesisVerificationRunRunning, markInvariantReplayRunRunning,
-  getExecutableInvariantRun, getInvariantReplayArtifact, reviewReproducedInvariantEvidence,
+  getExecutableInvariantProposal, getExecutableInvariantRun, getInvariantReplayArtifact, reviewReproducedInvariantEvidence,
   executableInvariantProposals, insertFindings, reconcileInvestigations, updateInvestigationStatus,
+  getScanSourceSnapshot, getScanCompilation,
 } from "./index";
 
 const commit = "a".repeat(40);
 const directories: string[] = [];
+function rewindReuseMigration(database: Database.Database) {
+  for (const table of ["verification_plan_attempts", "executable_invariant_proposals"]) {
+    database.exec(`DROP TRIGGER ${table}_reuse_valid; DROP TRIGGER ${table}_reuse_immutable`);
+    for (const column of ["reuse_source_artifact_type", "reuse_source_artifact_id", "reuse_target_id", "reuse_compiler_artifact_sha256", "reuse_created_at"])
+      database.exec(`ALTER TABLE ${table} DROP COLUMN ${column}`);
+  }
+  database.exec("DELETE FROM schema_migrations WHERE id='0008_v0_2_2_planning_reuse_provenance'");
+}
+function rewindFingerprintMigration(database: Database.Database) {
+  if (database.prepare("SELECT 1 FROM schema_migrations WHERE id='0008_v0_2_2_planning_reuse_provenance'").get()) {
+    rewindReuseMigration(database);
+  }
+  if (!database.prepare("SELECT 1 FROM schema_migrations WHERE id='0007_v0_2_2_source_closure_fingerprints'").get()) return;
+  for (const table of ["verification_plan_attempts", "executable_invariant_proposals"]) {
+    database.exec(`DROP TRIGGER ${table}_source_fingerprint_immutable; DROP TRIGGER ${table}_source_fingerprint_valid`);
+    for (const column of ["source_closure_fingerprint_schema", "source_closure_fingerprint_sha256", "source_closure_fingerprint_file_count", "source_closure_fingerprint_total_bytes"])
+      database.exec(`ALTER TABLE ${table} DROP COLUMN ${column}`);
+  }
+  database.exec("DELETE FROM schema_migrations WHERE id='0007_v0_2_2_source_closure_fingerprints'");
+}
 afterEach(() => {
   if (process.env.CONTRACTHUNTER_KEEP_UPGRADE_PROBE === "1") return;
   for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true });
+});
+
+describe("v0.2.2 scan source snapshot migration", () => {
+  it("upgrades a v0.2.1-shaped database through strategy planning and snapshot migrations", () => {
+    const directory = mkdtempSync(path.join(tmpdir(), "contracthunter-snapshot-v021-")); directories.push(directory);
+    const file = path.join(directory, "v021.db"), created = createDatabase(file);
+    const scan = createScan(created, { repositoryUrl: "https://github.com/example/legacy", repositoryName: "example/legacy", depth: "quick" });
+    closeDatabase(created);
+    const old = new Database(file); rewindFingerprintMigration(old);
+    old.exec("DROP TABLE scan_scanner_alignment; DROP TABLE scan_compilation_source_units; DROP TABLE scan_compilation_provenance; DROP TABLE scan_source_snapshot_files; DROP TABLE scan_source_snapshots; DROP TABLE verification_plan_attempts; ALTER TABLE executable_invariant_proposals DROP COLUMN selected_strategy; DELETE FROM schema_migrations WHERE id IN ('0004_v0_2_2_strategy_planning', '0005_v0_2_2_scan_source_snapshots', '0006_v0_2_2_compilation_provenance')"); old.close();
+    const upgraded = createDatabase(file);
+    expect(getScanSourceSnapshot(upgraded, scan.id)).toEqual({ available: false, reason: "legacy_or_unavailable" });
+    expect(getScanCompilation(upgraded, scan.id)).toEqual({ status: "legacy_or_unavailable" });
+    expect(upgraded.sqlite.prepare("SELECT id FROM scans WHERE id=?").get(scan.id)).toEqual({ id: scan.id });
+    expect(upgraded.sqlite.prepare("SELECT id FROM schema_migrations WHERE id IN ('0004_v0_2_2_strategy_planning', '0005_v0_2_2_scan_source_snapshots', '0006_v0_2_2_compilation_provenance') ORDER BY id").all()).toEqual([
+      { id: "0004_v0_2_2_strategy_planning" }, { id: "0005_v0_2_2_scan_source_snapshots" }, { id: "0006_v0_2_2_compilation_provenance" },
+    ]);
+    closeDatabase(upgraded);
+  });
+
+  it("upgrades a current development-shaped database and preserves historical scans without backfill", () => {
+    const directory = mkdtempSync(path.join(tmpdir(), "contracthunter-snapshot-upgrade-")); directories.push(directory);
+    const file = path.join(directory, "current.db"), created = createDatabase(file);
+    const scan = createScan(created, { repositoryUrl: "https://github.com/example/legacy", repositoryName: "example/legacy", depth: "quick" });
+    closeDatabase(created);
+    const old = new Database(file); rewindFingerprintMigration(old);
+    old.exec("DROP TABLE scan_scanner_alignment; DROP TABLE scan_compilation_source_units; DROP TABLE scan_compilation_provenance; DROP TABLE scan_source_snapshot_files; DROP TABLE scan_source_snapshots; DELETE FROM schema_migrations WHERE id IN ('0005_v0_2_2_scan_source_snapshots','0006_v0_2_2_compilation_provenance')"); old.close();
+    const upgraded = createDatabase(file);
+    expect(getScanSourceSnapshot(upgraded, scan.id)).toEqual({ available: false, reason: "legacy_or_unavailable" });
+    expect(getScanCompilation(upgraded, scan.id)).toEqual({ status: "legacy_or_unavailable" });
+    expect(upgraded.sqlite.prepare("SELECT id FROM scans WHERE id=?").get(scan.id)).toEqual({ id: scan.id });
+    expect(upgraded.sqlite.prepare("SELECT 1 FROM schema_migrations WHERE id='0005_v0_2_2_scan_source_snapshots'").get()).toEqual({ 1: 1 });
+    closeDatabase(upgraded);
+  });
+
+  it("rolls back a conflicting snapshot migration without a partial file table", () => {
+    const directory = mkdtempSync(path.join(tmpdir(), "contracthunter-snapshot-conflict-")); directories.push(directory);
+    const file = path.join(directory, "conflict.db"); closeDatabase(createDatabase(file));
+    const old = new Database(file); rewindFingerprintMigration(old);
+    old.exec("DROP TABLE scan_scanner_alignment; DROP TABLE scan_compilation_source_units; DROP TABLE scan_compilation_provenance; DROP TABLE scan_source_snapshot_files; DROP TABLE scan_source_snapshots; DELETE FROM schema_migrations WHERE id IN ('0005_v0_2_2_scan_source_snapshots','0006_v0_2_2_compilation_provenance'); CREATE TABLE scan_source_snapshots (scan_id TEXT PRIMARY KEY)"); old.close();
+    expect(() => createDatabase(file)).toThrow("0005_v0_2_2_scan_source_snapshots");
+    const check = new Database(file, { readonly: true });
+    expect(check.prepare("SELECT 1 FROM schema_migrations WHERE id='0005_v0_2_2_scan_source_snapshots'").get()).toBeUndefined();
+    expect(check.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='scan_source_snapshot_files'").get()).toBeUndefined();
+    check.close();
+  });
 });
 
 function verificationPlan(scanId: string, hypothesisId: string) {
@@ -59,6 +126,9 @@ function seedV019Shape(databasePath: string) {
 
   const raw = new Database(databasePath);
   raw.exec(`
+    DROP TABLE scan_scanner_alignment; DROP TABLE scan_compilation_source_units; DROP TABLE scan_compilation_provenance; DROP TABLE scan_source_snapshot_files;
+    DROP TABLE scan_source_snapshots;
+    DROP TABLE verification_plan_attempts;
     DROP TABLE invariant_evidence_reviews;
     DROP TABLE authoritative_invariant_evidence;
     DROP TABLE invariant_replay_runs;
@@ -91,7 +161,7 @@ describe("v0.1.9 to v0.2.0 migration", () => {
       { id: ids.verificationIds[0], status: "completed", error: null },
       { id: ids.verificationIds[1], status: "failed", error: "Historical failed retry." },
     ]);
-    expect((upgraded.sqlite.prepare("SELECT id FROM schema_migrations").pluck().all() as string[])).toEqual(["0001_v0_2_0_release_schema", "0002_v0_2_1_echidna_public", "0003_v0_2_1_run_proposal_binding"]);
+    expect((upgraded.sqlite.prepare("SELECT id FROM schema_migrations").pluck().all() as string[])).toEqual(["0001_v0_2_0_release_schema", "0002_v0_2_1_echidna_public", "0003_v0_2_1_run_proposal_binding", "0004_v0_2_2_strategy_planning", "0005_v0_2_2_scan_source_snapshots", "0006_v0_2_2_compilation_provenance", "0007_v0_2_2_source_closure_fingerprints", "0008_v0_2_2_planning_reuse_provenance"]);
 
     const plan = invariantPlan(ids.scanId, ids.hypothesisId), planHash = invariantPlanHash(plan);
     expect(() => createExecutableInvariantRun(upgraded, { plan, proposalId: crypto.randomUUID() })).toThrow("Invariant plan does not match persisted scan identity");
@@ -113,8 +183,8 @@ describe("v0.1.9 to v0.2.0 migration", () => {
 
     // Model an existing v0.2.0 installation with its invariant/replay/review history.
     const v020Path = path.join(directory, "v0.2.0-shaped.db"); copyFileSync(copyPath, v020Path);
-    const old = new Database(v020Path);
-    old.exec("DROP INDEX executable_invariant_runs_proposal_idx; ALTER TABLE executable_invariant_runs DROP COLUMN proposal_id; ALTER TABLE executable_invariant_runs DROP COLUMN engine_metadata; ALTER TABLE executable_invariant_runs DROP COLUMN engine; ALTER TABLE invariant_replay_artifacts DROP COLUMN source_engine; DELETE FROM schema_migrations WHERE id IN ('0002_v0_2_1_echidna_public', '0003_v0_2_1_run_proposal_binding')");
+    const old = new Database(v020Path); rewindFingerprintMigration(old);
+    old.exec("DROP TABLE scan_scanner_alignment; DROP TABLE scan_compilation_source_units; DROP TABLE scan_compilation_provenance; DROP TABLE scan_source_snapshot_files; DROP TABLE scan_source_snapshots; DROP INDEX verification_plan_attempts_hypothesis_idx; DROP TABLE verification_plan_attempts; ALTER TABLE executable_invariant_proposals DROP COLUMN selected_strategy; DROP INDEX executable_invariant_runs_proposal_idx; ALTER TABLE executable_invariant_runs DROP COLUMN proposal_id; ALTER TABLE executable_invariant_runs DROP COLUMN engine_metadata; ALTER TABLE executable_invariant_runs DROP COLUMN engine; ALTER TABLE invariant_replay_artifacts DROP COLUMN source_engine; DELETE FROM schema_migrations WHERE id IN ('0002_v0_2_1_echidna_public', '0003_v0_2_1_run_proposal_binding', '0004_v0_2_2_strategy_planning', '0005_v0_2_2_scan_source_snapshots', '0006_v0_2_2_compilation_provenance')");
     const historicalRows = (old.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name<>'schema_migrations' ORDER BY name").all() as Array<{ name: string }>).map(({ name }) => {
       const columns = (old.prepare(`PRAGMA table_info(${name})`).all() as Array<{ name: string }>).map((item) => item.name);
       return { name, columns, rows: old.prepare(`SELECT ${columns.join(",")} FROM ${name} ORDER BY rowid`).all() };
@@ -123,6 +193,7 @@ describe("v0.1.9 to v0.2.0 migration", () => {
     const migrated = createDatabase(v020Path);
     for (const table of historicalRows) expect(migrated.sqlite.prepare(`SELECT ${table.columns.join(",")} FROM ${table.name} ORDER BY rowid`).all(), table.name).toEqual(table.rows);
     expect(getExecutableInvariantRun(migrated, run.id)?.engine).toBe("foundry");
+    expect(getExecutableInvariantProposal(migrated, proposal.id)?.selectedStrategy).toBeNull();
     expect(getInvariantReplayArtifact(migrated, artifact.id)?.sourceEngine).toBe("foundry");
     expect(migrated.sqlite.prepare("SELECT count(*) AS count FROM invariant_evidence_reviews").get()).toEqual({ count: 1 });
     expect(migrated.sqlite.prepare("SELECT count(*) AS count FROM authoritative_invariant_evidence").get()).toEqual({ count: 1 });
@@ -148,7 +219,7 @@ describe("v0.1.9 to v0.2.0 migration", () => {
     expect(echidnaReplay.sourceEngine).toBe("echidna"); expect(echidnaReplay.invariantRunId).toBe(replayableEchidna.id);
     closeDatabase(migrated);
     const reopened = createDatabase(v020Path);
-    expect((reopened.sqlite.prepare("SELECT id FROM schema_migrations ORDER BY id").pluck().all() as string[])).toEqual(["0001_v0_2_0_release_schema", "0002_v0_2_1_echidna_public", "0003_v0_2_1_run_proposal_binding"]);
+    expect((reopened.sqlite.prepare("SELECT id FROM schema_migrations ORDER BY id").pluck().all() as string[])).toEqual(["0001_v0_2_0_release_schema", "0002_v0_2_1_echidna_public", "0003_v0_2_1_run_proposal_binding", "0004_v0_2_2_strategy_planning", "0005_v0_2_2_scan_source_snapshots", "0006_v0_2_2_compilation_provenance", "0007_v0_2_2_source_closure_fingerprints", "0008_v0_2_2_planning_reuse_provenance"]);
     expect(getExecutableInvariantRun(reopened, run.id)?.engine).toBe("foundry"); closeDatabase(reopened);
 
     expect(snapshot(sourcePath)).toEqual(before);
@@ -163,8 +234,8 @@ describe("v0.2.0 to v0.2.1 migration failure safety", () => {
     const historical = path.join(directory, "historical.db"), upgraded = path.join(directory, "upgraded.db"), v020 = path.join(directory, "v020.db");
     const ids = seedV019Shape(historical); copyFileSync(historical, upgraded);
     closeDatabase(createDatabase(upgraded)); copyFileSync(upgraded, v020);
-    const old = new Database(v020);
-    old.exec("DROP INDEX executable_invariant_runs_proposal_idx; ALTER TABLE executable_invariant_runs DROP COLUMN proposal_id; ALTER TABLE executable_invariant_runs DROP COLUMN engine_metadata; ALTER TABLE executable_invariant_runs DROP COLUMN engine; ALTER TABLE invariant_replay_artifacts DROP COLUMN source_engine; DELETE FROM schema_migrations WHERE id IN ('0002_v0_2_1_echidna_public', '0003_v0_2_1_run_proposal_binding')");
+    const old = new Database(v020); rewindFingerprintMigration(old);
+    old.exec("DROP TABLE scan_scanner_alignment; DROP TABLE scan_compilation_source_units; DROP TABLE scan_compilation_provenance; DROP TABLE scan_source_snapshot_files; DROP TABLE scan_source_snapshots; DROP INDEX verification_plan_attempts_hypothesis_idx; DROP TABLE verification_plan_attempts; ALTER TABLE executable_invariant_proposals DROP COLUMN selected_strategy; DROP INDEX executable_invariant_runs_proposal_idx; ALTER TABLE executable_invariant_runs DROP COLUMN proposal_id; ALTER TABLE executable_invariant_runs DROP COLUMN engine_metadata; ALTER TABLE executable_invariant_runs DROP COLUMN engine; ALTER TABLE invariant_replay_artifacts DROP COLUMN source_engine; DELETE FROM schema_migrations WHERE id IN ('0002_v0_2_1_echidna_public', '0003_v0_2_1_run_proposal_binding', '0004_v0_2_2_strategy_planning', '0005_v0_2_2_scan_source_snapshots', '0006_v0_2_2_compilation_provenance')");
     old.close();
     const cases: Array<{ name: string; mutate: (database: Database.Database) => void }> = [
       { name: "malformed legacy schema", mutate: (db) => db.exec("ALTER TABLE executable_invariant_runs RENAME COLUMN plan_hash TO broken_plan_hash") },
@@ -183,5 +254,131 @@ describe("v0.2.0 to v0.2.1 migration failure safety", () => {
       expect({ schema: afterDb.prepare("SELECT type, name, sql FROM sqlite_master ORDER BY type, name").all(), migrations: afterDb.prepare("SELECT * FROM schema_migrations ORDER BY id").all(), hypothesis: afterDb.prepare("SELECT status FROM vulnerability_hypotheses WHERE id=?").get(ids.hypothesisId) }, scenario.name).toEqual(before);
       afterDb.close();
     }
+  });
+});
+
+describe("v0.2.1 to v0.2.2 planning provenance migration", () => {
+  it("adds planning history transactionally without rewriting historical evidence", () => {
+    const directory = mkdtempSync(path.join(tmpdir(), "contracthunter-strategy-migration-")); directories.push(directory);
+    const file = path.join(directory, "v021.db");
+    const ids = seedV019Shape(file);
+    const current = createDatabase(file);
+    const plan = invariantPlan(ids.scanId, ids.hypothesisId), planHash = invariantPlanHash(plan);
+    const proposal = createExecutableInvariantProposal(current, { hypothesisId: ids.hypothesisId, scanId: ids.scanId, result: {
+      status: "generated", plan, planHash, hypothesisExpectation: "hypothesis-predicts-property-violation",
+      relationRationale: "Historical invariant relation.", rationale: "Historical proposal.", limitations: [], notPlannableReasons: [], failureCode: null,
+      provenance: { provider: "mock", requestedModel: "mock", actualModel: "mock", promptVersion: "invariant-plan-v1", generatedAt: new Date().toISOString(), inputTokens: 1, outputTokens: 1, totalTokens: 2, estimatedCostUsd: 0, durationMs: 1, sourceFileCount: 1, totalSourceBytes: 100, sourceContextTruncated: false },
+    }, contextManifest: { historical: true }, requestId: "v021-upgrade-probe" });
+    const run = createExecutableInvariantRun(current, { plan, proposalId: proposal.id, engine: "foundry" });
+    markExecutableInvariantRunRunning(current, run.id);
+    const counterexample = { kind: "single" as const, parserVersion: "foundry-1.7.1-json-v1" as const,
+      parameterValues: [{ name: "newOwner", type: "bool" as const, value: true }], summary: "Historical invariant counterexample." };
+    completeExecutableInvariantRun(current, run.id, { evidence: [{ engine: "foundry", planHash, mode: "fuzz-property", propertyName: "ownerStable",
+      configuredRuns: 128, configuredDepth: null, runsExecuted: 1, propertyOutcome: "counterexample-found", hypothesisRelation: "unreviewed",
+      compilerVersion: "0.8.24", isolationProvider: "docker-verification-worker-v1", counterexample, summary: "Historical counterexample." }],
+      testCount: 1, passedCount: 0, failedCount: 1, runsExecuted: 1, stdoutSummary: "bounded", stderrSummary: "",
+      contentFingerprint: "c".repeat(64), isolationMetadata: "{}", exitCode: 1, durationMs: 2 });
+    const replayPlan = invariantReplayPlanSchema.parse({ schemaVersion: "contracthunter-invariant-replay-v1", scanId: ids.scanId,
+      hypothesisId: ids.hypothesisId, resolvedCommit: commit, compilerVersion: "0.8.24", proposalId: proposal.id,
+      invariantRunId: run.id, sourceEngine: "foundry", invariantPlanHash: planHash, propertyName: "ownerStable",
+      hypothesisExpectation: "hypothesis-predicts-property-violation", counterexample, counterexampleHash: counterexampleHash(counterexample) });
+    const artifact = createInvariantReplayArtifact(current, { id: crypto.randomUUID(), proposalId: proposal.id, invariantRunId: run.id,
+      replayPlan, harnessHash: "d".repeat(64), contentFingerprint: "e".repeat(64) });
+    const replayRun = createInvariantReplayRun(current, artifact.id); markInvariantReplayRunRunning(current, replayRun.id);
+    finishInvariantReplayRun(current, replayRun.id, { outcome: "reproduced", exitCode: 0, timedOut: false, errorCode: null,
+      isolationMetadata: "{}", durationMs: 1 });
+    reviewReproducedInvariantEvidence(current, { hypothesisId: ids.hypothesisId, proposalId: proposal.id,
+      invariantRunId: run.id, replayRunId: replayRun.id });
+    closeDatabase(current);
+    const old = new Database(file); rewindFingerprintMigration(old);
+    old.exec("DROP TABLE scan_scanner_alignment; DROP TABLE scan_compilation_source_units; DROP TABLE scan_compilation_provenance; DROP TABLE scan_source_snapshot_files; DROP TABLE scan_source_snapshots; DROP INDEX verification_plan_attempts_hypothesis_idx; DROP TABLE verification_plan_attempts; ALTER TABLE executable_invariant_proposals DROP COLUMN selected_strategy; DELETE FROM schema_migrations WHERE id IN ('0004_v0_2_2_strategy_planning', '0005_v0_2_2_scan_source_snapshots', '0006_v0_2_2_compilation_provenance')");
+    const before = (old.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name<>'schema_migrations' ORDER BY name").all() as Array<{ name: string }>).map(({ name }) => {
+      const columns = (old.prepare(`PRAGMA table_info(${name})`).all() as Array<{ name: string }>).map((column) => column.name);
+      return { name, columns, rows: old.prepare(`SELECT ${columns.join(",")} FROM ${name} ORDER BY rowid`).all() };
+    });
+    old.close();
+    const upgraded = createDatabase(file);
+    for (const table of before) expect(upgraded.sqlite.prepare(`SELECT ${table.columns.join(",")} FROM ${table.name} ORDER BY rowid`).all(), table.name).toEqual(table.rows);
+    expect(getVulnerabilityHypothesis(upgraded, ids.hypothesisId)?.status).toBe("verified");
+    expect(getExecutableInvariantRun(upgraded, run.id)?.engine).toBe("foundry");
+    expect(getInvariantReplayArtifact(upgraded, artifact.id)?.sourceEngine).toBe("foundry");
+    expect(getExecutableInvariantProposal(upgraded, proposal.id)?.selectedStrategy).toBeNull();
+    expect(getScanSourceSnapshot(upgraded, ids.scanId)).toEqual({ available: false, reason: "legacy_or_unavailable" });
+    expect(getScanCompilation(upgraded, ids.scanId)).toEqual({ status: "legacy_or_unavailable" });
+    expect(upgraded.sqlite.prepare("SELECT source_closure_fingerprint_schema AS schema, source_closure_fingerprint_sha256 AS sha, reuse_source_artifact_id AS reuse FROM executable_invariant_proposals WHERE id=?").get(proposal.id)).toEqual({ schema: null, sha: null, reuse: null });
+    expect(upgraded.sqlite.prepare("SELECT count(*) AS count FROM verification_plan_attempts").get()).toEqual({ count: 0 });
+    closeDatabase(upgraded);
+  });
+
+  it("rolls back the added column when the later table creation fails", () => {
+    const directory = mkdtempSync(path.join(tmpdir(), "contracthunter-strategy-migration-failure-")); directories.push(directory);
+    const file = path.join(directory, "v021.db");
+    seedV019Shape(file); closeDatabase(createDatabase(file));
+    const old = new Database(file); rewindFingerprintMigration(old);
+    old.exec("DROP TABLE scan_scanner_alignment; DROP TABLE scan_compilation_source_units; DROP TABLE scan_compilation_provenance; DROP TABLE scan_source_snapshot_files; DROP TABLE scan_source_snapshots; DROP INDEX verification_plan_attempts_hypothesis_idx; DROP TABLE verification_plan_attempts; ALTER TABLE executable_invariant_proposals DROP COLUMN selected_strategy; DELETE FROM schema_migrations WHERE id IN ('0004_v0_2_2_strategy_planning', '0005_v0_2_2_scan_source_snapshots', '0006_v0_2_2_compilation_provenance'); CREATE TABLE verification_plan_attempts (id TEXT PRIMARY KEY)");
+    const before = old.prepare("SELECT type, name, sql FROM sqlite_master ORDER BY type, name").all(); old.close();
+    expect(() => createDatabase(file)).toThrow("0004_v0_2_2_strategy_planning");
+    const after = new Database(file, { readonly: true });
+    expect(after.prepare("SELECT type, name, sql FROM sqlite_master ORDER BY type, name").all()).toEqual(before);
+    expect(after.prepare("SELECT status FROM vulnerability_hypotheses").get()).toEqual({ status: "verified" });
+    after.close();
+  });
+});
+
+describe("v0.2.2 generation-time source fingerprint migration", () => {
+  it("adds nullable columns to existing planning history without backfilling or changing lifecycle rows", () => {
+    const directory = mkdtempSync(path.join(tmpdir(), "contracthunter-fingerprint-upgrade-")); directories.push(directory);
+    const file = path.join(directory, "development.db"), ids = seedV019Shape(file), current = createDatabase(file);
+    const provenance = { provider: "mock", requestedModel: "mock", actualModel: null, promptVersion: "fixture", generatedAt: new Date().toISOString(), inputTokens: null, outputTokens: null, totalTokens: null, durationMs: 1, sourceFileCount: 0, totalSourceBytes: 0, sourceContextTruncated: false };
+    const attempt = createVerificationPlanAttempt(current, { hypothesisId: ids.hypothesisId, scanId: ids.scanId, selectedStrategy: "structured-verification", result: { status: "failed", plan: null, rationale: null, limitations: [], notPlannableReasons: [], failureCode: "plan_generation_failed", provenance } });
+    const proposal = createExecutableInvariantProposal(current, { hypothesisId: ids.hypothesisId, scanId: ids.scanId, result: { status: "failed", plan: null, planHash: null, hypothesisExpectation: null, relationRationale: null, rationale: null, limitations: [], notPlannableReasons: [], failureCode: "invariant_generation_unavailable", provenance: { ...provenance, estimatedCostUsd: null } }, contextManifest: {}, requestId: null });
+    const lifecycleBefore = current.sqlite.prepare("SELECT * FROM hypothesis_lifecycle_transitions").all();
+    closeDatabase(current);
+    const old = new Database(file); rewindFingerprintMigration(old); old.close();
+    const upgraded = createDatabase(file);
+    expect(upgraded.sqlite.prepare("SELECT source_closure_fingerprint_schema AS schema, source_closure_fingerprint_sha256 AS sha FROM verification_plan_attempts WHERE id=?").get(attempt.id)).toEqual({ schema: null, sha: null });
+    expect(upgraded.sqlite.prepare("SELECT source_closure_fingerprint_schema AS schema, source_closure_fingerprint_sha256 AS sha FROM executable_invariant_proposals WHERE id=?").get(proposal.id)).toEqual({ schema: null, sha: null });
+    expect(upgraded.sqlite.prepare("SELECT * FROM hypothesis_lifecycle_transitions").all()).toEqual(lifecycleBefore);
+    expect(getVulnerabilityHypothesis(upgraded, ids.hypothesisId)?.status).toBe("verified");
+    expect(upgraded.sqlite.prepare("SELECT count(*) AS count FROM hypothesis_verification_runs").get()).toEqual({ count: 2 });
+    closeDatabase(upgraded);
+  });
+});
+
+describe("v0.2.2 explicit planning reuse provenance migration", () => {
+  it("adds nullable provenance to current development history without changing prior rows or lifecycle", () => {
+    const directory = mkdtempSync(path.join(tmpdir(), "contracthunter-reuse-upgrade-")); directories.push(directory);
+    const file = path.join(directory, "development.db"), ids = seedV019Shape(file), current = createDatabase(file);
+    const provenance = { provider: "mock", requestedModel: "mock", actualModel: null, promptVersion: "fixture", generatedAt: new Date().toISOString(), inputTokens: null, outputTokens: null, totalTokens: null, durationMs: 1, sourceFileCount: 0, totalSourceBytes: 0, sourceContextTruncated: false };
+    const attempt = createVerificationPlanAttempt(current, { hypothesisId: ids.hypothesisId, scanId: ids.scanId, selectedStrategy: "structured-verification", result: { status: "failed", plan: null, rationale: null, limitations: [], notPlannableReasons: [], failureCode: "plan_generation_failed", provenance } });
+    const proposal = createExecutableInvariantProposal(current, { hypothesisId: ids.hypothesisId, scanId: ids.scanId, result: { status: "failed", plan: null, planHash: null, hypothesisExpectation: null, relationRationale: null, rationale: null, limitations: [], notPlannableReasons: [], failureCode: "invariant_generation_unavailable", provenance: { ...provenance, estimatedCostUsd: null } }, contextManifest: {}, requestId: null });
+    closeDatabase(current);
+    const old = new Database(file); rewindReuseMigration(old);
+    const original = Object.fromEntries(["scans", "findings", "vulnerability_hypotheses", "investigations", "verification_plan_attempts", "executable_invariant_proposals", "hypothesis_verification_runs", "executable_invariant_runs", "invariant_replay_artifacts", "authoritative_invariant_evidence", "hypothesis_lifecycle_transitions"].map((table) => [table, old.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all()]));
+    old.close();
+    const upgraded = createDatabase(file);
+    for (const [table, rows] of Object.entries(original)) {
+      const actual = upgraded.sqlite.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all();
+      if (table === "verification_plan_attempts" || table === "executable_invariant_proposals") {
+        const restored = actual.map((row) => { const item = { ...(row as Record<string, unknown>) }; for (const name of ["reuse_source_artifact_type", "reuse_source_artifact_id", "reuse_target_id", "reuse_compiler_artifact_sha256", "reuse_created_at"]) { expect(item[name]).toBeNull(); delete item[name]; } return item; });
+        expect(restored, table).toEqual(rows);
+      } else expect(actual, table).toEqual(rows);
+    }
+    expect(upgraded.sqlite.prepare("SELECT reuse_source_artifact_id AS source FROM verification_plan_attempts WHERE id=?").get(attempt.id)).toEqual({ source: null });
+    expect(upgraded.sqlite.prepare("SELECT reuse_source_artifact_id AS source FROM executable_invariant_proposals WHERE id=?").get(proposal.id)).toEqual({ source: null });
+    expect(getVulnerabilityHypothesis(upgraded, ids.hypothesisId)?.status).toBe("verified");
+    closeDatabase(upgraded);
+  });
+
+  it("rolls back a conflicting reuse migration without adding any partial provenance columns", () => {
+    const directory = mkdtempSync(path.join(tmpdir(), "contracthunter-reuse-conflict-")); directories.push(directory);
+    const file = path.join(directory, "conflict.db"); closeDatabase(createDatabase(file));
+    const old = new Database(file); rewindReuseMigration(old);
+    old.exec("ALTER TABLE executable_invariant_proposals ADD COLUMN reuse_source_artifact_type TEXT"); old.close();
+    expect(() => createDatabase(file)).toThrow("0008_v0_2_2_planning_reuse_provenance");
+    const check = new Database(file, { readonly: true });
+    expect((check.prepare("PRAGMA table_info(verification_plan_attempts)").all() as Array<{ name: string }>).some((column) => column.name === "reuse_source_artifact_type")).toBe(false);
+    expect(check.prepare("SELECT 1 FROM schema_migrations WHERE id='0008_v0_2_2_planning_reuse_provenance'").get()).toBeUndefined();
+    check.close();
   });
 });

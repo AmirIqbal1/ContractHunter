@@ -179,10 +179,10 @@ export const verificationPlanSemanticsSchema = verificationPlanSemanticsShapeSch
 
 export const verificationSourceManifestEntrySchema = z.object({
   originalPath: repositorySolidityPathSchema,
-  workspacePath: z.string().regex(/^src\/[A-Za-z0-9_@+./-]+\.sol$/).max(504).refine((value) => value.split("/").every((component) => component && component !== "." && component !== ".."), "must remain inside the workspace source directory"),
+  workspacePath: z.string().regex(/^(?:src|contracts)\/[A-Za-z0-9_@+./-]+\.sol$/).max(504).refine((value) => value.split("/").every((component) => component && component !== "." && component !== ".."), "must remain inside the workspace source directory"),
   byteLength: z.number().int().nonnegative().max(10_485_760),
   sha256,
-}).strict().refine((entry) => entry.workspacePath === `src/${entry.originalPath}`, {
+}).strict().refine((entry) => entry.workspacePath === `src/${entry.originalPath}` || entry.workspacePath === entry.originalPath, {
   message: "workspace path must preserve the repository-relative source layout",
   path: ["workspacePath"],
 });
@@ -196,13 +196,16 @@ export const verificationHarnessManifestSchema = z.object({
   compilerVersion: stableCompilerVersionSchema,
   generatorVersion: z.string().regex(/^\d+\.\d+\.\d+$/),
   generatedBy: z.literal("contracthunter"),
+  sourceLayout: z.literal("authoritative-source-unit-v1").optional(),
   createdAt: z.string().datetime({ offset: true }),
   sourceManifest: z.array(verificationSourceManifestEntrySchema).min(1).max(200),
   generatedHarnessPath: z.literal("test/ContractHunterVerification.t.sol"),
   generatedHarnessSha256: sha256,
   foundryConfigSha256: sha256,
   contentFingerprint: sha256,
-}).strict();
+}).strict().superRefine((manifest, ctx) => {
+  if (manifest.sourceManifest.some((entry) => entry.workspacePath !== (manifest.sourceLayout ? entry.originalPath : `src/${entry.originalPath}`))) ctx.addIssue({ code: "custom", message: "Source workspace layout differs from manifest authority." });
+});
 
 export type DynamicEvidence = z.infer<typeof dynamicEvidenceSchema>;
 export type VerificationHarnessManifest = z.infer<typeof verificationHarnessManifestSchema>;

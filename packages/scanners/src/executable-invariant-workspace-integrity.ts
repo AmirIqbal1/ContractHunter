@@ -32,7 +32,7 @@ export async function validateExecutableInvariantWorkspaceIntegrity(workspacePat
     sources.set(entry.originalPath, bytes.toString("utf8")); allowed.add(entry.workspacePath);
   }
   let generated;
-  try { generated = new ExecutableInvariantGenerator().generate(manifest.plan, sources); }
+  try { generated = new ExecutableInvariantGenerator().generate(manifest.plan, sources, !!manifest.sourceLayout); }
   catch { throw new ExecutableInvariantWorkspaceIntegrityError("Invariant harness regeneration failed."); }
   if (generated.planHash !== manifest.planHash || generated.harnessHash !== manifest.generatedHarnessSha256 || generated.configHash !== manifest.foundryConfigSha256 || JSON.stringify(generated.settings) !== JSON.stringify(manifest.foundry)) throw new ExecutableInvariantWorkspaceIntegrityError("Invariant generated content differs from manifest.");
   const harness = await file(root, manifest.generatedHarnessPath, 1_048_576), config = await file(root, "foundry.toml", 16_384);
@@ -42,7 +42,7 @@ export async function validateExecutableInvariantWorkspaceIntegrity(workspacePat
       const absolute = path.join(dir, entry.name), relative = path.relative(root, absolute).split(path.sep).join("/");
       const info = await lstat(absolute);
       if (info.isSymbolicLink()) throw new ExecutableInvariantWorkspaceIntegrityError("Invariant workspace contains a symlink.");
-      if (info.isDirectory()) { if (relative !== "src" && relative !== "test" && relative !== "cache" && relative !== "out" && !relative.startsWith("src/")) throw new ExecutableInvariantWorkspaceIntegrityError("Invariant workspace contains an unexpected directory."); await walk(absolute); }
+      if (info.isDirectory()) { if (relative !== "src" && relative !== "contracts" && relative !== "test" && relative !== "cache" && relative !== "out" && !relative.startsWith("src/") && !(manifest.sourceLayout && relative.startsWith("contracts/"))) throw new ExecutableInvariantWorkspaceIntegrityError("Invariant workspace contains an unexpected directory."); await walk(absolute); }
       else if (!info.isFile() || !allowed.has(relative)) throw new ExecutableInvariantWorkspaceIntegrityError("Invariant workspace contains an unexpected file.");
     }
   }

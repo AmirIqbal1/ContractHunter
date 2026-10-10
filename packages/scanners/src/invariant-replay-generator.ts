@@ -15,10 +15,10 @@ const indent = (lines: string[], spaces = 8) => lines.map((line) => `${" ".repea
 export type GeneratedInvariantReplay = { source: string; foundryConfig: string; replayPlanHash: string; harnessHash: string; configHash: string };
 
 export class InvariantReplayGenerator {
-  generate(rawReplay: InvariantReplayPlan, rawInvariant: ExecutableInvariantPlan, sources: ReadonlyMap<string, string>): GeneratedInvariantReplay {
+  generate(rawReplay: InvariantReplayPlan, rawInvariant: ExecutableInvariantPlan, sources: ReadonlyMap<string, string>, authoritativeLayout = false): GeneratedInvariantReplay {
     const replay = invariantReplayPlanSchema.parse(rawReplay), invariant = executableInvariantPlanSchema.parse(rawInvariant);
     validateReplayAgainstInvariant(replay, invariant);
-    new ExecutableInvariantGenerator().generate(invariant, sources);
+    new ExecutableInvariantGenerator().generate(invariant, sources, authoritativeLayout);
     const actors = new Set(invariant.actors), instances = new Set<string>();
     const address = (source: "actor" | "instance", name: string) => {
       if (source === "actor") { if (!actors.has(name)) throw new Error("Unknown actor."); return `actor_${name}`; }
@@ -49,7 +49,7 @@ export class InvariantReplayGenerator {
     const source = `// SPDX-License-Identifier: UNLICENSED
 pragma solidity ${invariant.compilerVersion};
 
-import { ${invariant.primaryContract} } from "../src/${invariant.primarySourcePath}";
+import { ${invariant.primaryContract} } from "${authoritativeLayout ? "../" : "../src/"}${invariant.primarySourcePath}";
 
 ${vmInterface}
 
@@ -59,7 +59,7 @@ ${indent([...actorLines, ...setup, ...calls, ...observations, `require(!(${condi
     }
 }
 `;
-    const foundryConfig = `${createContractHunterFoundryConfig(invariant.compilerVersion)}auto_detect_remappings = false\n`;
+    const foundryConfig = `${createContractHunterFoundryConfig(invariant.compilerVersion, authoritativeLayout)}${authoritativeLayout ? "" : "auto_detect_remappings = false\n"}`;
     return { source, foundryConfig, replayPlanHash: invariantReplayPlanHash(replay), harnessHash: sha256Bytes(source), configHash: sha256Bytes(foundryConfig) };
   }
 }

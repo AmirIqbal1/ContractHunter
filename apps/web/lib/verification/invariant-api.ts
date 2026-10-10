@@ -35,7 +35,7 @@ function errorResponse(error: unknown): NextResponse {
 export async function readInvariantHistory(_request: Request, context: RouteContext, database: DatabaseClient = getDatabase()) {
   const values = await ids(context); if (!values) return NextResponse.json({ error: "Invalid hypothesis identifier." }, { status: 400 });
   if (!getVulnerabilityHypothesis(database, values.id)) return NextResponse.json({ error: "Hypothesis not found." }, { status: 404 });
-  const proposals = listExecutableInvariantProposals(database, values.id).slice(0, 50);
+  const proposals = listExecutableInvariantProposals(database, values.id);
   const runs = listExecutableInvariantRuns(database, values.id).slice(0, 50);
   const replays = listHypothesisInvariantReplayArtifacts(database, values.id).slice(0, 50).map(toPublicInvariantReplayArtifact).filter((item) => item !== null), replayRuns = listHypothesisInvariantReplayRuns(database, values.id).slice(0, 50).map(toPublicInvariantReplayRun), reviews = listInvariantEvidenceReviews(database, values.id).slice(0, 50).map(toPublicInvariantReview);
   return NextResponse.json({ proposals: proposals.map(toPublicInvariantProposal), runs: runs.map((run) => {

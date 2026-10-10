@@ -42,6 +42,7 @@ export const verificationPlanGenerationFailureCodes = [
   "invalid_function_signature",
   "unsupported_function_signature",
   "invalid_harness_plan",
+  "strategy_concrete_plan_incompatible",
 ] as const;
 export type VerificationPlanGenerationFailureCode = (typeof verificationPlanGenerationFailureCodes)[number];
 
@@ -57,6 +58,12 @@ export type VerificationPlanGenerationResult = {
     generatedAt: string; inputTokens: number | null; outputTokens: number | null; totalTokens: number | null; durationMs: number;
     sourceFileCount: number; totalSourceBytes: number; sourceContextTruncated: boolean;
   };
+};
+
+/** Local canonical-plan reuse has no provider or prompt provenance. */
+export type VerificationPlanReuseResult = {
+  origin: "reused"; status: "generated"; plan: VerificationHarnessPlan;
+  rationale: null; limitations: []; notPlannableReasons: []; failureCode: null;
 };
 
 export const VERIFICATION_PLAN_PROMPT_VERSION = "verification-plan-v4";

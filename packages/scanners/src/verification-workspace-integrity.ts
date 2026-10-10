@@ -68,7 +68,7 @@ export async function validateVerificationWorkspaceIntegrity(workspacePath: stri
   const harness = await regularFile(root, manifest.generatedHarnessPath);
   if (sha256Bytes(harness) !== manifest.generatedHarnessSha256) throw new VerificationWorkspaceIntegrityError("Generated harness integrity check failed.");
   const config = await regularFile(root, "foundry.toml");
-  const expectedConfig = createContractHunterFoundryConfig(manifest.compilerVersion);
+  const expectedConfig = createContractHunterFoundryConfig(manifest.compilerVersion, !!manifest.sourceLayout);
   if (config.toString("utf8") !== expectedConfig || sha256Bytes(config) !== manifest.foundryConfigSha256) throw new VerificationWorkspaceIntegrityError("Foundry configuration integrity check failed.");
   if (verificationContentFingerprint(manifest) !== manifest.contentFingerprint) throw new VerificationWorkspaceIntegrityError("Verification content fingerprint is invalid.");
   const allowedFiles = new Set([VERIFICATION_HARNESS_MANIFEST, "foundry.toml", manifest.generatedHarnessPath, ...sources.map((entry) => entry.workspacePath)]);

@@ -1,12 +1,12 @@
 import Database from "better-sqlite3";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/better-sqlite3";
-import type { ExecutableInvariantPlan, ExecutableInvariantEvidence, InvariantProposalGenerationResult, InvariantReplayPlan, AIAnalysisStatus, CompilerStatus, CompleteHypothesisVerificationRunInput, CreateHypothesisVerificationRunInput, CreateScanInput, DependencyStatus, DynamicEvidence, FailHypothesisVerificationRunInput, FindingStatus, HypothesisStatus, InvariantCategory, InvariantStatus, InvariantTestability, InvestigationStatus, NewFinding, ProtocolAnalysisResult, ReviewRunStatus, ReviewStageStatus, ScannerStatus, ScanStatus, SecurityReviewPlan, Severity, ValidatedEvidence } from "@contracthunter/core";
-import { ECHIDNA_LIMITS, INVARIANT_COUNTEREXAMPLE_PARSER_VERSION, executableInvariantPlanSchema, executableInvariantEvidenceSchema, invariantPlanHash, invariantReplayPlanHash, invariantReplayPlanSchema, assertTransition, assertVerificationRunTransition, buildInvestigations, completeHypothesisVerificationRunSchema, correlateHypotheses, createHypothesisVerificationRunSchema, dynamicEvidenceSchema, failHypothesisVerificationRunSchema, findingSchema, investigationSchema, loadConfig, scanSchema } from "@contracthunter/core";
-import { authoritativeInvariantEvidence, executableInvariantProposals, executableInvariantRuns, invariantEvidenceReviews, invariantReplayArtifacts, invariantReplayRuns, hypothesisLifecycleTransitions, findings, hypothesisGroupMembers, hypothesisGroups, hypothesisVerificationRuns, investigationFindings, investigations, invariants, protocolAnalyses, scans, scanScanners, securityReviewerRuns, securityReviewPlans, vulnerabilityHypotheses, type ExecutableInvariantProposalRow, type ExecutableInvariantRunRow, type InvariantReplayArtifactRow, type InvariantReplayRunRow, type InvariantEvidenceReviewRow, type FindingRow, type HypothesisGroupRow, type HypothesisVerificationRunRow, type InvariantRow, type InvestigationRow, type ProtocolAnalysisRow, type ScanRow, type ScanScannerRow, type SecurityReviewerRunRow, type SecurityReviewPlanRow, type VulnerabilityHypothesisRow } from "./schema";
+import type { CompilationManifest, CompilationUnsupportedReason, ScannerSourceAlignment, SourceClosureFingerprint, ExecutableInvariantPlan, ExecutableInvariantEvidence, InvariantProposalGenerationResult, InvariantReplayPlan, AIAnalysisStatus, CompilerStatus, CompleteHypothesisVerificationRunInput, CreateHypothesisVerificationRunInput, CreateScanInput, DependencyStatus, DynamicEvidence, FailHypothesisVerificationRunInput, FindingStatus, HypothesisStatus, InvariantCategory, InvariantStatus, InvariantTestability, InvestigationStatus, NewFinding, ProtocolAnalysisResult, ReviewRunStatus, ReviewStageStatus, ScannerStatus, ScanStatus, SecurityReviewPlan, Severity, ValidatedEvidence, VerificationTargetHypothesis, VerificationTargetInvestigation, VerificationStrategyAssessment, VerificationHarnessPlan, VerificationPlanGenerationResult, VerificationStrategy } from "@contracthunter/core";
+import { ECHIDNA_LIMITS, INVARIANT_COUNTEREXAMPLE_PARSER_VERSION, SCAN_SOURCE_LIMITS, SCAN_SOURCE_ROOTS, SCAN_SOURCE_SNAPSHOT_SCHEMA, SOURCE_CLOSURE_FINGERPRINT_SCHEMA, assessVerificationStrategies, compilationManifestSchema, compilationUnsupportedReasons, executableInvariantPlanSchema, executableInvariantEvidenceSchema, invariantPlanHash, invariantReplayPlanHash, invariantReplayPlanSchema, verificationHarnessPlanSchema, assertTransition, assertVerificationRunTransition, buildInvestigations, buildInvariantPropertyTargets, buildVerificationTargetGroups, completeHypothesisVerificationRunSchema, correlateHypotheses, createHypothesisVerificationRunSchema, dynamicEvidenceSchema, failHypothesisVerificationRunSchema, findingSchema, investigationSchema, loadConfig, repositorySolidityPathSchema, scanSourceFileMetadataSchema, scanSchema, type ScanSourceCaptureFile } from "@contracthunter/core";
+import { authoritativeInvariantEvidence, executableInvariantProposals, executableInvariantRuns, invariantEvidenceReviews, invariantReplayArtifacts, invariantReplayRuns, hypothesisLifecycleTransitions, findings, hypothesisGroupMembers, hypothesisGroups, hypothesisVerificationRuns, verificationPlanAttempts, scanSourceSnapshots, scanSourceSnapshotFiles, investigationFindings, investigations, invariants, protocolAnalyses, scans, scanScanners, securityReviewerRuns, securityReviewPlans, vulnerabilityHypotheses, type ExecutableInvariantProposalRow, type ExecutableInvariantRunRow, type InvariantReplayArtifactRow, type InvariantReplayRunRow, type InvariantEvidenceReviewRow, type FindingRow, type HypothesisGroupRow, type HypothesisVerificationRunRow, type InvariantRow, type InvestigationRow, type ProtocolAnalysisRow, type ScanRow, type ScanScannerRow, type SecurityReviewerRunRow, type SecurityReviewPlanRow, type VulnerabilityHypothesisRow } from "./schema";
 
 export * from "./schema";
 
@@ -219,19 +219,176 @@ export function createDatabase(databasePath: string) {
     try { migrateV021ProposalBinding(); }
     catch (error) { throw new Error(`Database migration 0003_v0_2_1_run_proposal_binding failed without committing changes: ${error instanceof Error ? error.message : String(error)}`); }
   }
+  const migrateV022StrategyPlanning = sqlite.transaction(() => {
+    sqlite.exec("ALTER TABLE executable_invariant_proposals ADD COLUMN selected_strategy TEXT CHECK (selected_strategy IN ('foundry-fuzz-property', 'foundry-stateful-invariant', 'echidna-stateful-invariant'))");
+    sqlite.exec(`CREATE TABLE verification_plan_attempts (
+      id TEXT PRIMARY KEY,
+      hypothesis_id TEXT NOT NULL REFERENCES vulnerability_hypotheses(id) ON DELETE CASCADE,
+      scan_id TEXT NOT NULL REFERENCES scans(id) ON DELETE CASCADE,
+      selected_strategy TEXT NOT NULL CHECK (selected_strategy = 'structured-verification'),
+      status TEXT NOT NULL CHECK (status IN ('generated', 'not_plannable', 'failed')),
+      plan TEXT, failure_code TEXT, result TEXT NOT NULL, created_at INTEGER NOT NULL
+    )`);
+    sqlite.exec("CREATE INDEX verification_plan_attempts_hypothesis_idx ON verification_plan_attempts(hypothesis_id, created_at)");
+    sqlite.prepare("INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)").run("0004_v0_2_2_strategy_planning", Date.now());
+  });
+  if (!sqlite.prepare("SELECT 1 FROM schema_migrations WHERE id = ?").get("0004_v0_2_2_strategy_planning")) {
+    try { migrateV022StrategyPlanning(); }
+    catch (error) { throw new Error(`Database migration 0004_v0_2_2_strategy_planning failed without committing changes: ${error instanceof Error ? error.message : String(error)}`); }
+  }
+  if (!sqlite.prepare("SELECT 1 FROM schema_migrations WHERE id = ?").get("0005_v0_2_2_scan_source_snapshots")) {
+    try { sqlite.transaction(() => {
+      sqlite.exec(`CREATE TABLE scan_source_snapshots (
+        scan_id TEXT PRIMARY KEY REFERENCES scans(id) ON DELETE CASCADE,
+        schema TEXT NOT NULL CHECK (schema = 'contracthunter-scan-source-snapshot-v1'),
+        resolved_commit TEXT NOT NULL, file_count INTEGER NOT NULL CHECK (file_count BETWEEN 1 AND 100),
+        total_bytes INTEGER NOT NULL CHECK (total_bytes BETWEEN 0 AND 5242880), finalized_at INTEGER
+      );
+      CREATE TABLE scan_source_snapshot_files (
+        scan_id TEXT NOT NULL REFERENCES scan_source_snapshots(scan_id) ON DELETE CASCADE,
+        source_key TEXT NOT NULL, raw_bytes BLOB NOT NULL, raw_sha256 TEXT NOT NULL,
+        byte_length INTEGER NOT NULL CHECK (byte_length BETWEEN 0 AND 2097152), PRIMARY KEY (scan_id, source_key)
+      );
+      CREATE TRIGGER scan_source_snapshot_finalized_immutable BEFORE UPDATE ON scan_source_snapshots
+        WHEN OLD.finalized_at IS NOT NULL OR NEW.finalized_at IS NULL OR NEW.scan_id <> OLD.scan_id OR NEW.resolved_commit <> OLD.resolved_commit OR NEW.schema <> OLD.schema OR NEW.file_count <> OLD.file_count OR NEW.total_bytes <> OLD.total_bytes
+        BEGIN SELECT RAISE(ABORT, 'finalized scan source snapshot is immutable'); END;
+      CREATE TRIGGER scan_source_snapshot_file_immutable BEFORE UPDATE ON scan_source_snapshot_files
+        BEGIN SELECT RAISE(ABORT, 'scan source bytes are immutable'); END;
+      CREATE TRIGGER scan_source_snapshot_file_closed BEFORE INSERT ON scan_source_snapshot_files
+        WHEN (SELECT finalized_at FROM scan_source_snapshots WHERE scan_id = NEW.scan_id) IS NOT NULL
+        BEGIN SELECT RAISE(ABORT, 'finalized scan source snapshot is closed'); END;
+      CREATE TRIGGER scan_source_snapshot_file_no_delete BEFORE DELETE ON scan_source_snapshot_files
+        WHEN EXISTS (SELECT 1 FROM scan_source_snapshots WHERE scan_id = OLD.scan_id)
+        BEGIN SELECT RAISE(ABORT, 'finalized scan source membership is immutable'); END;
+      CREATE TRIGGER scan_source_snapshot_no_delete BEFORE DELETE ON scan_source_snapshots
+        WHEN EXISTS (SELECT 1 FROM scans WHERE id = OLD.scan_id)
+        BEGIN SELECT RAISE(ABORT, 'finalized scan source snapshot is immutable'); END;`);
+      sqlite.prepare("INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)").run("0005_v0_2_2_scan_source_snapshots", Date.now());
+    })(); }
+    catch (error) { throw new Error(`Database migration 0005_v0_2_2_scan_source_snapshots failed without committing changes: ${error instanceof Error ? error.message : String(error)}`); }
+  }
+  if (!sqlite.prepare("SELECT 1 FROM schema_migrations WHERE id = ?").get("0006_v0_2_2_compilation_provenance")) {
+    try { sqlite.transaction(() => {
+      sqlite.exec(`CREATE TABLE scan_compilation_provenance (
+        scan_id TEXT PRIMARY KEY REFERENCES scans(id) ON DELETE CASCADE,
+        resolved_commit TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('supported','unsupported')),
+        unsupported_reason TEXT, schema TEXT, profile_kind TEXT, compiler_version TEXT, compiler_artifact_sha256 TEXT,
+        source_roots TEXT, library_roots TEXT, remappings TEXT, finalized_at INTEGER,
+        CHECK((status='supported' AND unsupported_reason IS NULL AND schema='contracthunter-compilation-manifest-v1' AND profile_kind IS NOT NULL AND compiler_version IS NOT NULL AND compiler_artifact_sha256 IS NOT NULL AND source_roots IS NOT NULL AND library_roots IS NOT NULL AND remappings IS NOT NULL)
+           OR (status='unsupported' AND unsupported_reason IS NOT NULL AND schema IS NULL AND profile_kind IS NULL AND compiler_version IS NULL AND compiler_artifact_sha256 IS NULL AND source_roots IS NULL AND library_roots IS NULL AND remappings IS NULL))
+      );
+      CREATE TABLE scan_compilation_source_units (
+        scan_id TEXT NOT NULL REFERENCES scan_compilation_provenance(scan_id) ON DELETE CASCADE,
+        source_unit_name TEXT NOT NULL, snapshot_source_key TEXT NOT NULL, raw_sha256 TEXT NOT NULL,
+        byte_length INTEGER NOT NULL, contract_names TEXT NOT NULL,
+        PRIMARY KEY(scan_id, source_unit_name), UNIQUE(scan_id, snapshot_source_key),
+        FOREIGN KEY(scan_id, snapshot_source_key) REFERENCES scan_source_snapshot_files(scan_id, source_key)
+      );
+      CREATE TABLE scan_scanner_alignment (
+        finding_id TEXT PRIMARY KEY REFERENCES findings(id) ON DELETE CASCADE,
+        scan_id TEXT NOT NULL REFERENCES scans(id) ON DELETE CASCADE,
+        scanner_id TEXT NOT NULL, scanner_version TEXT, detector_id TEXT, reported_source_identity TEXT,
+        status TEXT NOT NULL CHECK(status IN ('aligned','unaligned','unknown')),
+        source_unit_name TEXT, snapshot_source_key TEXT, target_resolved INTEGER NOT NULL CHECK(target_resolved IN (0,1)),
+        CHECK((status='aligned' AND source_unit_name IS NOT NULL AND snapshot_source_key IS NOT NULL)
+           OR (status<>'aligned' AND source_unit_name IS NULL AND snapshot_source_key IS NULL AND target_resolved=0)),
+        FOREIGN KEY(scan_id, source_unit_name) REFERENCES scan_compilation_source_units(scan_id, source_unit_name)
+      );
+      CREATE TRIGGER scan_compilation_provenance_immutable BEFORE UPDATE ON scan_compilation_provenance WHEN OLD.finalized_at IS NOT NULL BEGIN SELECT RAISE(ABORT,'compilation provenance is immutable'); END;
+      CREATE TRIGGER scan_compilation_provenance_no_delete BEFORE DELETE ON scan_compilation_provenance WHEN EXISTS(SELECT 1 FROM scans WHERE id=OLD.scan_id) BEGIN SELECT RAISE(ABORT,'compilation provenance is immutable'); END;
+      CREATE TRIGGER scan_compilation_source_unit_closed BEFORE INSERT ON scan_compilation_source_units WHEN (SELECT finalized_at FROM scan_compilation_provenance WHERE scan_id=NEW.scan_id) IS NOT NULL BEGIN SELECT RAISE(ABORT,'finalized compilation membership is closed'); END;
+      CREATE TRIGGER scan_compilation_source_unit_immutable BEFORE UPDATE ON scan_compilation_source_units BEGIN SELECT RAISE(ABORT,'compilation source unit is immutable'); END;
+      CREATE TRIGGER scan_compilation_source_unit_no_delete BEFORE DELETE ON scan_compilation_source_units WHEN EXISTS(SELECT 1 FROM scans WHERE id=OLD.scan_id) BEGIN SELECT RAISE(ABORT,'compilation source unit is immutable'); END;
+      CREATE TRIGGER scan_scanner_alignment_immutable BEFORE UPDATE ON scan_scanner_alignment BEGIN SELECT RAISE(ABORT,'scanner alignment is immutable'); END;
+      CREATE TRIGGER scan_scanner_alignment_no_delete BEFORE DELETE ON scan_scanner_alignment WHEN EXISTS(SELECT 1 FROM scans WHERE id=OLD.scan_id) BEGIN SELECT RAISE(ABORT,'scanner alignment is immutable'); END;`);
+      sqlite.prepare("INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)").run("0006_v0_2_2_compilation_provenance", Date.now());
+    })(); }
+    catch (error) { throw new Error(`Database migration 0006_v0_2_2_compilation_provenance failed without committing changes: ${error instanceof Error ? error.message : String(error)}`); }
+  }
+  if (!sqlite.prepare("SELECT 1 FROM schema_migrations WHERE id = ?").get("0007_v0_2_2_source_closure_fingerprints")) {
+    try { sqlite.transaction(() => {
+      for (const table of ["verification_plan_attempts", "executable_invariant_proposals"]) {
+        sqlite.exec(`ALTER TABLE ${table} ADD COLUMN source_closure_fingerprint_schema TEXT`);
+        sqlite.exec(`ALTER TABLE ${table} ADD COLUMN source_closure_fingerprint_sha256 TEXT`);
+        sqlite.exec(`ALTER TABLE ${table} ADD COLUMN source_closure_fingerprint_file_count INTEGER`);
+        sqlite.exec(`ALTER TABLE ${table} ADD COLUMN source_closure_fingerprint_total_bytes INTEGER`);
+        sqlite.exec(`CREATE TRIGGER ${table}_source_fingerprint_immutable BEFORE UPDATE ON ${table}
+          WHEN OLD.source_closure_fingerprint_schema IS NOT NEW.source_closure_fingerprint_schema
+            OR OLD.source_closure_fingerprint_sha256 IS NOT NEW.source_closure_fingerprint_sha256
+            OR OLD.source_closure_fingerprint_file_count IS NOT NEW.source_closure_fingerprint_file_count
+            OR OLD.source_closure_fingerprint_total_bytes IS NOT NEW.source_closure_fingerprint_total_bytes
+          BEGIN SELECT RAISE(ABORT, 'planning source closure fingerprint is immutable'); END`);
+        sqlite.exec(`CREATE TRIGGER ${table}_source_fingerprint_valid BEFORE INSERT ON ${table}
+          WHEN NOT ((NEW.source_closure_fingerprint_schema IS NULL AND NEW.source_closure_fingerprint_sha256 IS NULL
+                     AND NEW.source_closure_fingerprint_file_count IS NULL AND NEW.source_closure_fingerprint_total_bytes IS NULL)
+                    OR (NEW.source_closure_fingerprint_schema IS NOT NULL AND NEW.source_closure_fingerprint_sha256 IS NOT NULL
+                        AND NEW.source_closure_fingerprint_file_count IS NOT NULL AND NEW.source_closure_fingerprint_total_bytes IS NOT NULL
+                        AND NEW.source_closure_fingerprint_schema = '${SOURCE_CLOSURE_FINGERPRINT_SCHEMA}'
+                        AND length(NEW.source_closure_fingerprint_sha256) = 64
+                        AND NEW.source_closure_fingerprint_sha256 NOT GLOB '*[^0-9a-f]*'
+                        AND NEW.source_closure_fingerprint_file_count BETWEEN 1 AND 100
+                        AND NEW.source_closure_fingerprint_total_bytes BETWEEN 0 AND 5242880))
+            OR (coalesce((SELECT status FROM scan_compilation_provenance WHERE scan_id=NEW.scan_id), '')='supported') IS NOT (NEW.source_closure_fingerprint_schema IS NOT NULL)
+          BEGIN SELECT RAISE(ABORT, 'invalid planning source closure fingerprint'); END`);
+      }
+      sqlite.prepare("INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)").run("0007_v0_2_2_source_closure_fingerprints", Date.now());
+    })(); }
+    catch (error) { throw new Error(`Database migration 0007_v0_2_2_source_closure_fingerprints failed without committing changes: ${error instanceof Error ? error.message : String(error)}`); }
+  }
+  if (!sqlite.prepare("SELECT 1 FROM schema_migrations WHERE id = ?").get("0008_v0_2_2_planning_reuse_provenance")) {
+    try { sqlite.transaction(() => {
+      for (const [table, kind] of [["verification_plan_attempts", "structured-plan"], ["executable_invariant_proposals", "invariant-proposal"]] as const) {
+        sqlite.exec(`ALTER TABLE ${table} ADD COLUMN reuse_source_artifact_type TEXT`);
+        sqlite.exec(`ALTER TABLE ${table} ADD COLUMN reuse_source_artifact_id TEXT`);
+        sqlite.exec(`ALTER TABLE ${table} ADD COLUMN reuse_target_id TEXT`);
+        sqlite.exec(`ALTER TABLE ${table} ADD COLUMN reuse_compiler_artifact_sha256 TEXT`);
+        sqlite.exec(`ALTER TABLE ${table} ADD COLUMN reuse_created_at INTEGER`);
+        sqlite.exec(`CREATE TRIGGER ${table}_reuse_valid BEFORE INSERT ON ${table}
+          WHEN NOT ((NEW.reuse_source_artifact_type IS NULL AND NEW.reuse_source_artifact_id IS NULL AND NEW.reuse_target_id IS NULL
+                     AND NEW.reuse_compiler_artifact_sha256 IS NULL AND NEW.reuse_created_at IS NULL)
+                    OR (NEW.reuse_source_artifact_type IS NOT NULL AND NEW.reuse_source_artifact_type='${kind}' AND NEW.reuse_source_artifact_id IS NOT NULL
+                        AND length(NEW.reuse_source_artifact_id)=36 AND NEW.reuse_target_id IS NOT NULL
+                        AND length(NEW.reuse_target_id)=64 AND NEW.reuse_target_id NOT GLOB '*[^0-9a-f]*'
+                        AND NEW.reuse_compiler_artifact_sha256 IS NOT NULL AND length(NEW.reuse_compiler_artifact_sha256)=64
+                        AND NEW.reuse_compiler_artifact_sha256 NOT GLOB '*[^0-9a-f]*'
+                        AND NEW.reuse_created_at IS NOT NULL AND NEW.reuse_created_at>0
+                        AND NEW.source_closure_fingerprint_sha256 IS NOT NULL))
+          BEGIN SELECT RAISE(ABORT, 'invalid planning reuse provenance'); END`);
+        sqlite.exec(`CREATE TRIGGER ${table}_reuse_immutable BEFORE UPDATE ON ${table}
+          WHEN OLD.reuse_source_artifact_type IS NOT NEW.reuse_source_artifact_type
+            OR OLD.reuse_source_artifact_id IS NOT NEW.reuse_source_artifact_id
+            OR OLD.reuse_target_id IS NOT NEW.reuse_target_id
+            OR OLD.reuse_compiler_artifact_sha256 IS NOT NEW.reuse_compiler_artifact_sha256
+            OR OLD.reuse_created_at IS NOT NEW.reuse_created_at
+          BEGIN SELECT RAISE(ABORT, 'planning reuse provenance is immutable'); END`);
+      }
+      sqlite.prepare("INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)").run("0008_v0_2_2_planning_reuse_provenance", Date.now());
+    })(); }
+    catch (error) { throw new Error(`Database migration 0008_v0_2_2_planning_reuse_provenance failed without committing changes: ${error instanceof Error ? error.message : String(error)}`); }
+  }
   const integrity = sqlite.pragma("quick_check") as Array<{ quick_check: string }>;
   const foreignKeyViolations = sqlite.pragma("foreign_key_check") as unknown[];
-  const requiredTables = ["scans", "findings", "scan_scanners", "investigations", "investigation_findings", "protocol_analyses", "invariants", "security_review_plans", "security_reviewer_runs", "vulnerability_hypotheses", "hypothesis_verification_runs", "executable_invariant_runs", "executable_invariant_proposals", "invariant_replay_artifacts", "invariant_replay_runs", "authoritative_invariant_evidence", "invariant_evidence_reviews", "hypothesis_lifecycle_transitions", "hypothesis_groups", "hypothesis_group_members"];
+  const requiredTables = ["scans", "scan_source_snapshots", "scan_source_snapshot_files", "scan_compilation_provenance", "scan_compilation_source_units", "scan_scanner_alignment", "findings", "scan_scanners", "investigations", "investigation_findings", "protocol_analyses", "invariants", "security_review_plans", "security_reviewer_runs", "vulnerability_hypotheses", "hypothesis_verification_runs", "verification_plan_attempts", "executable_invariant_runs", "executable_invariant_proposals", "invariant_replay_artifacts", "invariant_replay_runs", "authoritative_invariant_evidence", "invariant_evidence_reviews", "hypothesis_lifecycle_transitions", "hypothesis_groups", "hypothesis_group_members"];
   const presentTables = new Set((sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as Array<{ name: string }>).map((row) => row.name));
   const runColumns = new Set((sqlite.prepare("PRAGMA table_info(executable_invariant_runs)").all() as Array<{name:string}>).map((row) => row.name));
   const replayColumns = new Set((sqlite.prepare("PRAGMA table_info(invariant_replay_artifacts)").all() as Array<{name:string}>).map((row) => row.name));
+  const proposalColumns = new Set((sqlite.prepare("PRAGMA table_info(executable_invariant_proposals)").all() as Array<{name:string}>).map((row) => row.name));
+  const planAttemptColumns = new Set((sqlite.prepare("PRAGMA table_info(verification_plan_attempts)").all() as Array<{name:string}>).map((row) => row.name));
+  const snapshotColumns = new Set((sqlite.prepare("PRAGMA table_info(scan_source_snapshots)").all() as Array<{name:string}>).map((row) => row.name));
+  const snapshotFileColumns = new Set((sqlite.prepare("PRAGMA table_info(scan_source_snapshot_files)").all() as Array<{name:string}>).map((row) => row.name));
+  const snapshotTriggers = new Set((sqlite.prepare("SELECT name FROM sqlite_master WHERE type='trigger' AND name LIKE 'scan_source_snapshot_%'").all() as Array<{name:string}>).map((row) => row.name));
+  const compilationTriggers = new Set((sqlite.prepare("SELECT name FROM sqlite_master WHERE type='trigger' AND name LIKE 'scan_compilation_%' OR type='trigger' AND name LIKE 'scan_scanner_alignment_%'").all() as Array<{name:string}>).map((row) => row.name));
   const invalidEngine = sqlite.prepare("SELECT 1 FROM executable_invariant_runs WHERE engine NOT IN ('foundry', 'echidna') LIMIT 1").get();
   const invalidReplayEngine = sqlite.prepare("SELECT 1 FROM invariant_replay_artifacts WHERE source_engine NOT IN ('foundry', 'echidna') LIMIT 1").get();
-  if (integrity.length !== 1 || integrity[0]?.quick_check !== "ok" || foreignKeyViolations.length || requiredTables.some((table) => !presentTables.has(table)) || !runColumns.has("engine") || !runColumns.has("engine_metadata") || !runColumns.has("proposal_id") || !replayColumns.has("source_engine") || invalidEngine || invalidReplayEngine || sqlite.prepare("SELECT 1 FROM executable_invariant_runs r LEFT JOIN executable_invariant_proposals p ON p.id=r.proposal_id WHERE r.proposal_id IS NOT NULL AND (p.id IS NULL OR p.hypothesis_id<>r.hypothesis_id OR p.scan_id<>r.scan_id OR p.plan_hash<>r.plan_hash) LIMIT 1").get()) {
+  const fingerprintColumns = ["source_closure_fingerprint_schema", "source_closure_fingerprint_sha256", "source_closure_fingerprint_file_count", "source_closure_fingerprint_total_bytes"];
+  const fingerprintTriggers = new Set((sqlite.prepare("SELECT name FROM sqlite_master WHERE type='trigger' AND name LIKE '%_source_fingerprint_%'").all() as Array<{name:string}>).map((row) => row.name));
+  const reuseColumns = ["reuse_source_artifact_type", "reuse_source_artifact_id", "reuse_target_id", "reuse_compiler_artifact_sha256", "reuse_created_at"];
+  const reuseTriggers = new Set((sqlite.prepare("SELECT name FROM sqlite_master WHERE type='trigger' AND name LIKE '%_reuse_%'").all() as Array<{name:string}>).map((row) => row.name));
+  if (integrity.length !== 1 || integrity[0]?.quick_check !== "ok" || foreignKeyViolations.length || requiredTables.some((table) => !presentTables.has(table)) || !runColumns.has("engine") || !runColumns.has("engine_metadata") || !runColumns.has("proposal_id") || !replayColumns.has("source_engine") || !proposalColumns.has("selected_strategy") || fingerprintColumns.some((column) => !proposalColumns.has(column) || !planAttemptColumns.has(column)) || reuseColumns.some((column) => !proposalColumns.has(column) || !planAttemptColumns.has(column)) || ["verification_plan_attempts_reuse_valid", "verification_plan_attempts_reuse_immutable", "executable_invariant_proposals_reuse_valid", "executable_invariant_proposals_reuse_immutable"].some((trigger) => !reuseTriggers.has(trigger)) || ["verification_plan_attempts_source_fingerprint_immutable", "verification_plan_attempts_source_fingerprint_valid", "executable_invariant_proposals_source_fingerprint_immutable", "executable_invariant_proposals_source_fingerprint_valid"].some((trigger) => !fingerprintTriggers.has(trigger)) || ["id", "hypothesis_id", "scan_id", "selected_strategy", "status", "plan", "failure_code", "result", "created_at"].some((column) => !planAttemptColumns.has(column)) || ["scan_id", "schema", "resolved_commit", "file_count", "total_bytes", "finalized_at"].some((column) => !snapshotColumns.has(column)) || ["scan_id", "source_key", "raw_bytes", "raw_sha256", "byte_length"].some((column) => !snapshotFileColumns.has(column)) || ["scan_source_snapshot_finalized_immutable", "scan_source_snapshot_file_immutable", "scan_source_snapshot_file_closed", "scan_source_snapshot_file_no_delete", "scan_source_snapshot_no_delete"].some((trigger) => !snapshotTriggers.has(trigger)) || ["scan_compilation_provenance_immutable", "scan_compilation_provenance_no_delete", "scan_compilation_source_unit_closed", "scan_compilation_source_unit_immutable", "scan_compilation_source_unit_no_delete", "scan_scanner_alignment_immutable", "scan_scanner_alignment_no_delete"].some((trigger) => !compilationTriggers.has(trigger)) || invalidEngine || invalidReplayEngine || sqlite.prepare("SELECT 1 FROM executable_invariant_runs r LEFT JOIN executable_invariant_proposals p ON p.id=r.proposal_id WHERE r.proposal_id IS NOT NULL AND (p.id IS NULL OR p.hypothesis_id<>r.hypothesis_id OR p.scan_id<>r.scan_id OR p.plan_hash<>r.plan_hash) LIMIT 1").get()) {
     throw new Error("Database validation failed after migration; no application access was started.");
   }
   sqlite.exec("COMMIT");
-  const orm = drizzle(sqlite, { schema: { scans, findings, scanScanners, investigations, investigationFindings, protocolAnalyses, invariants, securityReviewPlans, securityReviewerRuns, vulnerabilityHypotheses, hypothesisVerificationRuns, executableInvariantRuns, executableInvariantProposals, invariantReplayArtifacts, invariantReplayRuns, invariantEvidenceReviews, authoritativeInvariantEvidence, hypothesisLifecycleTransitions, hypothesisGroups, hypothesisGroupMembers } });
+  const orm = drizzle(sqlite, { schema: { scans, scanSourceSnapshots, scanSourceSnapshotFiles, findings, scanScanners, investigations, investigationFindings, protocolAnalyses, invariants, securityReviewPlans, securityReviewerRuns, vulnerabilityHypotheses, hypothesisVerificationRuns, verificationPlanAttempts, executableInvariantRuns, executableInvariantProposals, invariantReplayArtifacts, invariantReplayRuns, invariantEvidenceReviews, authoritativeInvariantEvidence, hypothesisLifecycleTransitions, hypothesisGroups, hypothesisGroupMembers } });
   return { sqlite, orm };
   } catch (error) {
     if (sqlite.inTransaction) sqlite.exec("ROLLBACK");
@@ -271,6 +428,150 @@ export function createScan(database: DatabaseClient, input: CreateScanInput & { 
 
 export function getScan(database: DatabaseClient, id: string): ScanRow | undefined {
   return database.orm.select().from(scans).where(eq(scans.id, id)).get();
+}
+
+export type ScanSourceSnapshotAvailability = { available: false; reason: "legacy_or_unavailable" } | { available: true; schema: typeof SCAN_SOURCE_SNAPSHOT_SCHEMA; scanId: string; resolvedCommit: string; fileCount: number; totalBytes: number; finalizedAt: Date };
+/** A single scan owns its snapshot membership. The entire capture commits or rolls back together. */
+export function finalizeScanSourceSnapshot(database: DatabaseClient, scanId: string, resolvedCommit: string, input: readonly ScanSourceCaptureFile[]): void {
+  const scan = getScan(database, scanId);
+  if (!scan || scan.status !== "preparing_dependencies" || !["ready", "skipped"].includes(scan.dependencyStatus) || scan.resolvedCommit !== resolvedCommit || !/^[a-f0-9]{40}$/.test(resolvedCommit) || input.length < 1 || input.length > SCAN_SOURCE_LIMITS.files) throw new Error("Scan source snapshot identity or size is invalid.");
+  const seen = new Set<string>(); let totalBytes = 0;
+  for (const file of input) {
+    const metadata = scanSourceFileMetadataSchema.safeParse({ sourceKey: file.sourceKey, rawSha256: file.rawSha256, byteLength: file.byteLength });
+    if (!metadata.success || !SCAN_SOURCE_ROOTS.some((root) => file.sourceKey.startsWith(`${root}/`)) || seen.has(file.sourceKey) || !Buffer.isBuffer(file.rawBytes) || file.rawBytes.length !== file.byteLength || createHash("sha256").update(file.rawBytes).digest("hex") !== file.rawSha256) throw new Error("Scan source snapshot file is invalid or duplicated.");
+    seen.add(file.sourceKey); totalBytes += file.byteLength;
+    if (totalBytes > SCAN_SOURCE_LIMITS.totalBytes) throw new Error("Scan source snapshot exceeds its byte limit.");
+  }
+  database.sqlite.transaction(() => {
+    database.sqlite.prepare("INSERT INTO scan_source_snapshots (scan_id, schema, resolved_commit, file_count, total_bytes, finalized_at) VALUES (?, ?, ?, ?, ?, NULL)").run(scanId, SCAN_SOURCE_SNAPSHOT_SCHEMA, resolvedCommit, input.length, totalBytes);
+    const insert = database.sqlite.prepare("INSERT INTO scan_source_snapshot_files (scan_id, source_key, raw_bytes, raw_sha256, byte_length) VALUES (?, ?, ?, ?, ?)");
+    for (const file of input) insert.run(scanId, file.sourceKey, file.rawBytes, file.rawSha256, file.byteLength);
+    database.sqlite.prepare("UPDATE scan_source_snapshots SET finalized_at = ? WHERE scan_id = ? AND finalized_at IS NULL").run(Date.now(), scanId);
+  })();
+}
+
+export function getScanSourceSnapshot(database: DatabaseClient, scanId: string): ScanSourceSnapshotAvailability {
+  const row = database.sqlite.prepare("SELECT schema, resolved_commit AS resolvedCommit, file_count AS fileCount, total_bytes AS totalBytes, finalized_at AS finalizedAt FROM scan_source_snapshots WHERE scan_id = ?").get(scanId) as { schema: string; resolvedCommit: string; fileCount: number; totalBytes: number; finalizedAt: number | null } | undefined;
+  if (!row) return { available: false, reason: "legacy_or_unavailable" };
+  const scan = getScan(database, scanId);
+  if (!scan || row.schema !== SCAN_SOURCE_SNAPSHOT_SCHEMA || row.resolvedCommit !== scan.resolvedCommit || row.finalizedAt === null || row.fileCount < 1 || row.fileCount > SCAN_SOURCE_LIMITS.files || row.totalBytes < 0 || row.totalBytes > SCAN_SOURCE_LIMITS.totalBytes) throw new Error("Persisted scan source snapshot identity is invalid.");
+  return { available: true, schema: SCAN_SOURCE_SNAPSHOT_SCHEMA, scanId, resolvedCommit: row.resolvedCommit, fileCount: row.fileCount, totalBytes: row.totalBytes, finalizedAt: new Date(row.finalizedAt) };
+}
+export function listScanSources(database: DatabaseClient, scanId: string): Array<{ sourceKey: string; rawSha256: string; byteLength: number }> {
+  const snapshot = getScanSourceSnapshot(database, scanId);
+  if (!snapshot.available) return [];
+  const rows = database.sqlite.prepare("SELECT source_key AS sourceKey, raw_sha256 AS rawSha256, byte_length AS byteLength FROM scan_source_snapshot_files WHERE scan_id = ? ORDER BY source_key").all(scanId) as Array<{ sourceKey: string; rawSha256: string; byteLength: number }>;
+  if (rows.length !== snapshot.fileCount || rows.reduce((sum, row) => sum + row.byteLength, 0) !== snapshot.totalBytes || rows.some((row) => !scanSourceFileMetadataSchema.safeParse(row).success)) throw new Error("Persisted scan source snapshot manifest is invalid.");
+  return rows;
+}
+export function getScanSource(database: DatabaseClient, scanId: string, sourceKey: string): { available: false; reason: "legacy_or_unavailable" | "source_not_in_snapshot" } | { available: true; sourceKey: string; rawBytes: Buffer; rawSha256: string; byteLength: number } {
+  const snapshot = getScanSourceSnapshot(database, scanId);
+  if (!snapshot.available) return snapshot;
+  if (!repositorySolidityPathSchema.safeParse(sourceKey).success) throw new Error("Invalid scan source key.");
+  const membership = listScanSources(database, scanId);
+  if (!membership.some((file) => file.sourceKey === sourceKey)) return { available: false, reason: "source_not_in_snapshot" };
+  const row = database.sqlite.prepare("SELECT raw_bytes AS rawBytes, raw_sha256 AS rawSha256, byte_length AS byteLength FROM scan_source_snapshot_files WHERE scan_id = ? AND source_key = ?").get(scanId, sourceKey) as { rawBytes: Buffer; rawSha256: string; byteLength: number } | undefined;
+  if (!row) throw new Error("Persisted scan source membership is incomplete.");
+  if (!Buffer.isBuffer(row.rawBytes) || row.rawBytes.length !== row.byteLength || !scanSourceFileMetadataSchema.safeParse({ sourceKey, rawSha256: row.rawSha256, byteLength: row.byteLength }).success || createHash("sha256").update(row.rawBytes).digest("hex") !== row.rawSha256) throw new Error("Persisted scan source bytes failed integrity validation.");
+  return { available: true, sourceKey, rawBytes: Buffer.from(row.rawBytes), rawSha256: row.rawSha256, byteLength: row.byteLength };
+}
+
+export type ScanCompilationAvailability = { status: "legacy_or_unavailable" } | { status: "unsupported"; reason: CompilationUnsupportedReason; resolvedCommit: string } | { status: "supported"; manifest: CompilationManifest };
+
+/** Persist one finalized, snapshot-bound result. No historical checkout backfill. */
+export function finalizeScanCompilation(database: DatabaseClient, scanId: string, resolvedCommit: string,
+  result: { status: "supported"; manifest: CompilationManifest } | { status: "unsupported"; reason: CompilationUnsupportedReason }): void {
+  const scan = getScan(database, scanId), snapshot = getScanSourceSnapshot(database, scanId);
+  if (!scan || scan.resolvedCommit !== resolvedCommit || (snapshot.available && snapshot.resolvedCommit !== resolvedCommit) || (result.status === "supported" && !snapshot.available) || (!snapshot.available && result.status === "unsupported" && result.reason !== "source_snapshot_unavailable")) throw new Error("Compilation provenance is not bound to a finalized scan snapshot.");
+  if (result.status === "unsupported" && !compilationUnsupportedReasons.includes(result.reason)) throw new Error("Invalid compilation unsupported reason.");
+  const manifest = result.status === "supported" ? compilationManifestSchema.parse(result.manifest) : null;
+  if (manifest) {
+    if (!snapshot.available || manifest.scanId !== scanId || manifest.resolvedCommit !== resolvedCommit || manifest.sourceUnits.length !== snapshot.fileCount) throw new Error("Compilation manifest identity or membership is invalid.");
+    const files = listScanSources(database, scanId), byKey = new Map(files.map((file) => [file.sourceKey, file]));
+    for (const unit of manifest.sourceUnits) {
+      const file = byKey.get(unit.snapshotSourceKey);
+      if (!file || file.rawSha256 !== unit.rawSha256 || file.byteLength !== unit.byteLength) throw new Error("Compilation unit is not bound to captured source bytes.");
+    }
+  }
+  database.sqlite.transaction(() => {
+    database.sqlite.prepare(`INSERT INTO scan_compilation_provenance
+      (scan_id,resolved_commit,status,unsupported_reason,schema,profile_kind,compiler_version,compiler_artifact_sha256,source_roots,library_roots,remappings,finalized_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`).run(scanId, resolvedCommit, result.status,
+      result.status === "unsupported" ? result.reason : null, manifest?.schema ?? null, manifest?.compilationProfileKind ?? null,
+      manifest?.compiler.version ?? null, manifest?.compiler.artifactSha256 ?? null,
+      manifest ? JSON.stringify(manifest.sourceRoots) : null, manifest ? JSON.stringify(manifest.libraryRoots) : null,
+      manifest ? JSON.stringify(manifest.remappings) : null, null);
+    if (manifest) {
+      const insert = database.sqlite.prepare(`INSERT INTO scan_compilation_source_units
+        (scan_id,source_unit_name,snapshot_source_key,raw_sha256,byte_length,contract_names) VALUES (?,?,?,?,?,?)`);
+      for (const unit of manifest.sourceUnits) insert.run(scanId, unit.sourceUnitName, unit.snapshotSourceKey, unit.rawSha256, unit.byteLength, JSON.stringify(unit.contractNames));
+    }
+    database.sqlite.prepare("UPDATE scan_compilation_provenance SET finalized_at=? WHERE scan_id=? AND finalized_at IS NULL").run(Date.now(), scanId);
+  })();
+}
+
+export function getScanCompilation(database: DatabaseClient, scanId: string): ScanCompilationAvailability {
+  const row = database.sqlite.prepare(`SELECT resolved_commit AS resolvedCommit,status,unsupported_reason AS reason,schema,
+    profile_kind AS profileKind,compiler_version AS compilerVersion,compiler_artifact_sha256 AS compilerArtifactSha256,
+    source_roots AS sourceRoots,library_roots AS libraryRoots,remappings,finalized_at AS finalizedAt FROM scan_compilation_provenance WHERE scan_id=?`).get(scanId) as Record<string, string | null> | undefined;
+  if (!row) return { status: "legacy_or_unavailable" };
+  if (row.finalizedAt === null) throw new Error("Compilation provenance was not finalized.");
+  const scan = getScan(database, scanId), snapshot = getScanSourceSnapshot(database, scanId);
+  if (!scan || row.resolvedCommit !== scan.resolvedCommit || (snapshot.available && row.resolvedCommit !== snapshot.resolvedCommit)) throw new Error("Persisted compilation provenance lost its scan/snapshot binding.");
+  if (row.status === "unsupported") {
+    if (!compilationUnsupportedReasons.includes(row.reason as CompilationUnsupportedReason) || (!snapshot.available && row.reason !== "source_snapshot_unavailable")) throw new Error("Invalid persisted compilation status.");
+    return { status: "unsupported", reason: row.reason as CompilationUnsupportedReason, resolvedCommit: row.resolvedCommit! };
+  }
+  if (row.status !== "supported") throw new Error("Invalid persisted compilation status.");
+  if (!snapshot.available) throw new Error("Supported compilation provenance has no source snapshot.");
+  const units = database.sqlite.prepare(`SELECT source_unit_name AS sourceUnitName,snapshot_source_key AS snapshotSourceKey,
+    raw_sha256 AS rawSha256,byte_length AS byteLength,contract_names AS contractNames
+    FROM scan_compilation_source_units WHERE scan_id=? ORDER BY source_unit_name`).all(scanId) as Array<{sourceUnitName:string;snapshotSourceKey:string;rawSha256:string;byteLength:number;contractNames:string}>;
+  const manifest = compilationManifestSchema.parse({ schema: row.schema, scanId, resolvedCommit: row.resolvedCommit,
+    compilationProfileKind: row.profileKind, compiler: { version: row.compilerVersion, artifactSha256: row.compilerArtifactSha256 },
+    sourceRoots: JSON.parse(row.sourceRoots!), libraryRoots: JSON.parse(row.libraryRoots!), remappings: JSON.parse(row.remappings!),
+    sourceUnits: units.map((unit) => ({ ...unit, contractNames: JSON.parse(unit.contractNames) })) });
+  const files = listScanSources(database, scanId), byKey = new Map(files.map((file) => [file.sourceKey, file]));
+  if (manifest.sourceUnits.length !== snapshot.fileCount || manifest.sourceUnits.some((unit) => {
+    const file = byKey.get(unit.snapshotSourceKey);
+    return !file || file.rawSha256 !== unit.rawSha256 || file.byteLength !== unit.byteLength;
+  })) throw new Error("Persisted compilation source units failed snapshot validation.");
+  return { status: "supported", manifest };
+}
+
+export function insertScannerAlignment(database: DatabaseClient, scanId: string, alignment: ScannerSourceAlignment): void {
+  const provenance = getScanCompilation(database, scanId);
+  if (provenance.status !== "supported") throw new Error("Scanner alignment requires supported compilation provenance.");
+  const finding = database.sqlite.prepare("SELECT scan_id AS scanId,source,detector_id AS detectorId,contract FROM findings WHERE id=?").get(alignment.findingId) as {scanId:string;source:string;detectorId:string|null;contract:string|null}|undefined;
+  if (!finding || finding.scanId !== scanId || finding.source !== alignment.scannerId || finding.detectorId !== alignment.detectorId || alignment.reportedSourceIdentity && (alignment.reportedSourceIdentity.length > 500 || path.isAbsolute(alignment.reportedSourceIdentity))) throw new Error("Scanner alignment identity is invalid.");
+  const unit = provenance.manifest.sourceUnits.find((item) => item.sourceUnitName === alignment.sourceUnitName && item.snapshotSourceKey === alignment.snapshotSourceKey);
+  if (alignment.status === "aligned" ? !unit || alignment.targetResolved !== (!!finding.contract && unit.contractNames.includes(finding.contract)) : !!alignment.sourceUnitName || !!alignment.snapshotSourceKey || alignment.targetResolved) throw new Error("Scanner alignment target is invalid.");
+  database.sqlite.prepare(`INSERT INTO scan_scanner_alignment
+    (finding_id,scan_id,scanner_id,scanner_version,detector_id,reported_source_identity,status,source_unit_name,snapshot_source_key,target_resolved)
+    VALUES (?,?,?,?,?,?,?,?,?,?)`).run(alignment.findingId, scanId, alignment.scannerId, alignment.scannerVersion, alignment.detectorId,
+    alignment.reportedSourceIdentity, alignment.status, alignment.sourceUnitName, alignment.snapshotSourceKey, alignment.targetResolved ? 1 : 0);
+}
+
+export function listScannerAlignments(database: DatabaseClient, scanId: string): ScannerSourceAlignment[] {
+  return (database.sqlite.prepare(`SELECT finding_id AS findingId,scanner_id AS scannerId,scanner_version AS scannerVersion,
+    detector_id AS detectorId,reported_source_identity AS reportedSourceIdentity,status,source_unit_name AS sourceUnitName,
+    snapshot_source_key AS snapshotSourceKey,target_resolved AS targetResolved FROM scan_scanner_alignment WHERE scan_id=? ORDER BY finding_id`).all(scanId) as Array<Omit<ScannerSourceAlignment,"targetResolved"> & {targetResolved:number}>).map((row) => ({ ...row, targetResolved: row.targetResolved === 1 }));
+}
+
+export type FindingCompilationEligibility = { eligible: true; sourceUnitName: string; snapshotSourceKey: string } | {
+  eligible: false; reason: "legacy_or_unavailable" | "unsupported_compilation" | "scanner_source_unmappable" | "ambiguous_target";
+};
+/** Advisory gate for future snapshot-backed planning; existing planners do not call this yet. */
+export function getFindingCompilationEligibility(database: DatabaseClient, findingId: string): FindingCompilationEligibility {
+  const finding = database.sqlite.prepare("SELECT scan_id AS scanId FROM findings WHERE id=?").get(findingId) as {scanId:string}|undefined;
+  if (!finding) return { eligible: false, reason: "legacy_or_unavailable" };
+  const provenance = getScanCompilation(database, finding.scanId);
+  if (provenance.status === "legacy_or_unavailable") return { eligible: false, reason: "legacy_or_unavailable" };
+  if (provenance.status === "unsupported") return { eligible: false, reason: "unsupported_compilation" };
+  const alignment = listScannerAlignments(database, finding.scanId).find((row) => row.findingId === findingId);
+  if (!alignment || alignment.status !== "aligned" || !alignment.sourceUnitName || !alignment.snapshotSourceKey) return { eligible: false, reason: "scanner_source_unmappable" };
+  if (!alignment.targetResolved) return { eligible: false, reason: "ambiguous_target" };
+  return { eligible: true, sourceUnitName: alignment.sourceUnitName, snapshotSourceKey: alignment.snapshotSourceKey };
 }
 
 export function listScans(database: DatabaseClient, limit = 100): ScanRow[] {
@@ -592,6 +893,103 @@ export function insertVulnerabilityHypotheses(database: DatabaseClient, input: P
   if (rows.length) database.orm.insert(vulnerabilityHypotheses).values(rows).run(); return rows;
 }
 export function getVulnerabilityHypothesis(database: DatabaseClient, id: string): VulnerabilityHypothesisRow | undefined { return database.orm.select().from(vulnerabilityHypotheses).where(eq(vulnerabilityHypotheses.id, id)).get(); }
+
+function planningFingerprintFields(database: DatabaseClient, scanId: string, fingerprint: SourceClosureFingerprint | null | undefined) {
+  const compilation = getScanCompilation(database, scanId);
+  if ((compilation.status === "supported") !== !!fingerprint || fingerprint &&
+      (fingerprint.schema !== SOURCE_CLOSURE_FINGERPRINT_SCHEMA || !/^[a-f0-9]{64}$/.test(fingerprint.sha256) ||
+       !Number.isInteger(fingerprint.fileCount) || fingerprint.fileCount < 1 || fingerprint.fileCount > SCAN_SOURCE_LIMITS.files ||
+       !Number.isInteger(fingerprint.totalBytes) || fingerprint.totalBytes < 0 || fingerprint.totalBytes > SCAN_SOURCE_LIMITS.totalBytes))
+    throw new Error("Planning source closure fingerprint is invalid for scan authority.");
+  return { sourceClosureFingerprintSchema: fingerprint?.schema ?? null, sourceClosureFingerprintSha256: fingerprint?.sha256 ?? null,
+    sourceClosureFingerprintFileCount: fingerprint?.fileCount ?? null, sourceClosureFingerprintTotalBytes: fingerprint?.totalBytes ?? null };
+}
+
+export function createVerificationPlanAttempt(database: DatabaseClient, input: { hypothesisId: string; scanId: string; selectedStrategy: "structured-verification"; result: VerificationPlanGenerationResult; sourceClosureFingerprint?: SourceClosureFingerprint | null }) {
+  const hypothesis = getVulnerabilityHypothesis(database, input.hypothesisId);
+  if (!hypothesis || hypothesis.scanId !== input.scanId || (input.result.status === "generated") !== !!input.result.plan || (input.result.plan && (input.result.plan.hypothesisId !== input.hypothesisId || input.result.plan.scanId !== input.scanId))) throw new Error("Verification planning attempt identity is invalid.");
+  const row = { id: randomUUID(), hypothesisId: input.hypothesisId, scanId: input.scanId, selectedStrategy: input.selectedStrategy, ...planningFingerprintFields(database, input.scanId, input.sourceClosureFingerprint),
+    reuseSourceArtifactType: null, reuseSourceArtifactId: null, reuseTargetId: null, reuseCompilerArtifactSha256: null, reuseCreatedAt: null,
+    status: input.result.status, plan: input.result.plan ? JSON.stringify(input.result.plan) : null,
+    failureCode: input.result.failureCode, result: JSON.stringify(input.result), createdAt: new Date(input.result.provenance.generatedAt) } as const;
+  database.orm.insert(verificationPlanAttempts).values(row).run();
+  return row;
+}
+
+
+export function listVerificationPlanAttempts(database: DatabaseClient, hypothesisId: string) {
+  return database.orm.select().from(verificationPlanAttempts).where(eq(verificationPlanAttempts.hypothesisId, hypothesisId)).orderBy(desc(verificationPlanAttempts.createdAt), desc(sql`rowid`)).all();
+}
+export function getVerificationPlanAttempt(database: DatabaseClient, id: string) {
+  return database.orm.select().from(verificationPlanAttempts).where(eq(verificationPlanAttempts.id, id)).get();
+}
+
+export function createReusedVerificationPlanAttempt(database: DatabaseClient, input: {
+  hypothesisId: string; scanId: string; sourceArtifactId: string; targetId: string; compilerArtifactSha256: string;
+  plan: VerificationHarnessPlan; sourceClosureFingerprint: SourceClosureFingerprint;
+}) {
+  const hypothesis = getVulnerabilityHypothesis(database, input.hypothesisId), source = getVerificationPlanAttempt(database, input.sourceArtifactId);
+  if (!hypothesis || hypothesis.scanId !== input.scanId || !source || source.status !== "generated" ||
+      input.plan.hypothesisId !== input.hypothesisId || input.plan.scanId !== input.scanId ||
+      !/^[a-f0-9]{64}$/.test(input.targetId) || !/^[a-f0-9]{64}$/.test(input.compilerArtifactSha256))
+    throw new Error("Reused verification planning identity is invalid.");
+  const createdAt = new Date(), plan = verificationHarnessPlanSchema.parse(input.plan);
+  const result = { origin: "reused", status: "generated", plan, rationale: null, limitations: [], notPlannableReasons: [], failureCode: null } as const;
+  const row = { id: randomUUID(), hypothesisId: input.hypothesisId, scanId: input.scanId, selectedStrategy: "structured-verification" as const,
+    ...planningFingerprintFields(database, input.scanId, input.sourceClosureFingerprint),
+    reuseSourceArtifactType: "structured-plan" as const, reuseSourceArtifactId: input.sourceArtifactId, reuseTargetId: input.targetId,
+    reuseCompilerArtifactSha256: input.compilerArtifactSha256, reuseCreatedAt: createdAt,
+    status: "generated" as const, plan: JSON.stringify(plan), failureCode: null, result: JSON.stringify(result), createdAt };
+  database.orm.insert(verificationPlanAttempts).values(row).run();
+  return row;
+}
+
+/** Read-only advisory assessment from persisted hypothesis links and correlated scanner rows. */
+export function assessPersistedHypothesisVerificationStrategies(database: DatabaseClient, hypothesisId: string): VerificationStrategyAssessment | undefined {
+  const hypothesis = getVulnerabilityHypothesis(database, hypothesisId);
+  if (!hypothesis) return undefined;
+  let relatedInvestigationIds: unknown;
+  try { relatedInvestigationIds = JSON.parse(hypothesis.relatedInvestigationIds); }
+  catch { relatedInvestigationIds = null; }
+  if (!Array.isArray(relatedInvestigationIds) || relatedInvestigationIds.length > 32 || relatedInvestigationIds.some((id) => typeof id !== "string" || id.length > 100)) {
+    return assessVerificationStrategies({ hypothesis: { scanId: hypothesis.scanId, relatedInvestigationIds }, investigations: [] });
+  }
+  const linked = [...new Set(relatedInvestigationIds as string[])];
+  const investigationsForAssessment = linked.flatMap((id) => {
+    const investigation = getInvestigation(database, id);
+    if (!investigation) return [];
+    return [{
+      id: investigation.id, scanId: investigation.scanId,
+      primaryContract: investigation.primaryContract, primaryFilePath: investigation.primaryFilePath,
+      findings: listInvestigationFindings(database, investigation.id).map((finding) => ({
+        scanId: finding.scanId, source: finding.source, detectorId: finding.detectorId,
+        contract: finding.contract, filePath: finding.filePath,
+      })),
+    }];
+  });
+  return assessVerificationStrategies({ hypothesis: { scanId: hypothesis.scanId, relatedInvestigationIds: linked }, investigations: investigationsForAssessment });
+}
+/** Computed advisory targets across all retained hypotheses for one scan. No rows are written. */
+export function listPersistedVerificationTargetGroups(database: DatabaseClient, scanId: string) {
+  const rows = database.orm.select().from(vulnerabilityHypotheses).where(eq(vulnerabilityHypotheses.scanId, scanId)).all();
+  const parseArray = (raw: string): unknown[] => { try { const value: unknown = JSON.parse(raw); return Array.isArray(value) && value.length <= 256 ? value : []; } catch { return []; } };
+  const hypotheses: VerificationTargetHypothesis[] = rows.map((row) => {
+    const links = parseArray(row.relatedInvestigationIds);
+    const relatedInvestigationIds = links.length <= 32 && links.every((id) => typeof id === "string" && id.length > 0 && id.length <= 100) ? links as string[] : [];
+    return { id: row.id, scanId: row.scanId, relatedInvestigationIds,
+    evidence: parseArray(row.evidence).filter((item): item is Record<string, unknown> => !!item && typeof item === "object" && !Array.isArray(item)).map((item) => ({
+      valid: item.valid === true, filePath: typeof item.filePath === "string" ? item.filePath : "", contract: typeof item.contract === "string" ? item.contract : null, functionName: typeof item.functionName === "string" ? item.functionName : null,
+    })),
+  }; });
+  const ids = [...new Set(hypotheses.flatMap((item) => item.relatedInvestigationIds))].sort();
+  const linked = ids.map((id) => getInvestigation(database, id)).filter((item): item is InvestigationRow => !!item);
+  const investigationsForTargets: VerificationTargetInvestigation[] = linked.map((item) => ({
+    id: item.id, scanId: item.scanId, primaryContract: item.primaryContract, primaryFilePath: item.primaryFilePath, primaryFunction: item.primaryFunction,
+    findings: listInvestigationFindings(database, item.id).map((finding) => ({ id: finding.id, scanId: finding.scanId, source: finding.source, detectorId: finding.detectorId,
+      contract: finding.contract, filePath: finding.filePath, functionName: finding.functionName, startLine: finding.startLine, endLine: finding.endLine })),
+  }));
+  return buildVerificationTargetGroups({ hypotheses, investigations: investigationsForTargets });
+}
 export function updateVulnerabilityHypothesisStatus(database: DatabaseClient, id: string, status: Exclude<HypothesisStatus, "verified">): VulnerabilityHypothesisRow | undefined {
   if ((status as HypothesisStatus) === "verified") throw new Error("Verified status requires confirmed dynamic evidence.");
   database.orm.update(vulnerabilityHypotheses).set({ status, updatedAt: new Date() }).where(eq(vulnerabilityHypotheses.id, id)).run(); return getVulnerabilityHypothesis(database, id);
@@ -707,11 +1105,48 @@ export function getActiveExecutableInvariantRun(database: DatabaseClient, hypoth
 export function listExecutableInvariantRuns(database: DatabaseClient, hypothesisId: string): ExecutableInvariantRunRow[] { return database.orm.select().from(executableInvariantRuns).where(eq(executableInvariantRuns.hypothesisId, hypothesisId)).orderBy(desc(executableInvariantRuns.createdAt), desc(sql`rowid`)).all(); }
 export function getExecutableInvariantProposal(database: DatabaseClient, id: string): ExecutableInvariantProposalRow | undefined { return database.orm.select().from(executableInvariantProposals).where(eq(executableInvariantProposals.id, id)).get(); }
 export function listExecutableInvariantProposals(database: DatabaseClient, hypothesisId: string): ExecutableInvariantProposalRow[] { return database.orm.select().from(executableInvariantProposals).where(eq(executableInvariantProposals.hypothesisId, hypothesisId)).orderBy(desc(executableInvariantProposals.createdAt), desc(sql`rowid`)).all(); }
-export function createExecutableInvariantProposal(database: DatabaseClient, input: { hypothesisId: string; scanId: string; result: InvariantProposalGenerationResult; contextManifest: object; requestId: string | null }): ExecutableInvariantProposalRow {
+/** Exact semantic property identities from generated persisted proposals; no row changes. */
+export function listPersistedInvariantPropertyTargets(database: DatabaseClient, hypothesisIds: string[]) {
+  const ids = [...new Set(hypothesisIds)].sort();
+  if (!ids.length) return [];
+  const rows = database.orm.select().from(executableInvariantProposals).where(inArray(executableInvariantProposals.hypothesisId, ids)).all();
+  const inputs = rows.flatMap((row) => {
+    if (row.status !== "generated" || !row.plan) return [];
+    try { return [{ proposalId: row.id, plan: JSON.parse(row.plan) as unknown }]; }
+    catch { return []; }
+  });
+  return buildInvariantPropertyTargets(inputs);
+}
+export function createExecutableInvariantProposal(database: DatabaseClient, input: { hypothesisId: string; scanId: string; result: InvariantProposalGenerationResult; contextManifest: object; requestId: string | null; selectedStrategy?: Exclude<VerificationStrategy, "structured-verification">; sourceClosureFingerprint?: SourceClosureFingerprint | null }): ExecutableInvariantProposalRow {
   const { result } = input, hypothesis = getVulnerabilityHypothesis(database, input.hypothesisId);
-  if (!hypothesis || hypothesis.scanId !== input.scanId || (result.status === "generated") !== !!result.plan || (result.status === "generated") !== !!result.planHash || (result.plan && invariantPlanHash(result.plan) !== result.planHash)) throw new Error("Invariant proposal history is invalid.");
-  const row: ExecutableInvariantProposalRow = { id: randomUUID(), hypothesisId: input.hypothesisId, scanId: input.scanId, status: result.status, plan: result.plan ? JSON.stringify(executableInvariantPlanSchema.parse(result.plan)) : null, planHash: result.planHash, hypothesisExpectation: result.hypothesisExpectation, relationRationale: result.relationRationale, rationale: result.rationale, limitations: JSON.stringify(result.limitations), notPlannableReasons: JSON.stringify(result.notPlannableReasons), failureCode: result.failureCode,
+  const expectedMode = input.selectedStrategy === "foundry-fuzz-property" ? "fuzz-property" : input.selectedStrategy ? "stateful-invariant" : null;
+  if (!hypothesis || hypothesis.scanId !== input.scanId || (result.status === "generated") !== !!result.plan || (result.status === "generated") !== !!result.planHash || (result.plan && (invariantPlanHash(result.plan) !== result.planHash || expectedMode !== null && result.plan.mode !== expectedMode))) throw new Error("Invariant proposal history is invalid.");
+  const row: ExecutableInvariantProposalRow = { id: randomUUID(), hypothesisId: input.hypothesisId, scanId: input.scanId, selectedStrategy: input.selectedStrategy ?? null, ...planningFingerprintFields(database, input.scanId, input.sourceClosureFingerprint),
+    reuseSourceArtifactType: null, reuseSourceArtifactId: null, reuseTargetId: null, reuseCompilerArtifactSha256: null, reuseCreatedAt: null,
+    status: result.status, plan: result.plan ? JSON.stringify(executableInvariantPlanSchema.parse(result.plan)) : null, planHash: result.planHash, hypothesisExpectation: result.hypothesisExpectation, relationRationale: result.relationRationale, rationale: result.rationale, limitations: JSON.stringify(result.limitations), notPlannableReasons: JSON.stringify(result.notPlannableReasons), failureCode: result.failureCode,
     provider: result.provenance.provider, requestedModel: result.provenance.requestedModel, actualModel: result.provenance.actualModel, promptVersion: result.provenance.promptVersion, contextManifest: JSON.stringify(input.contextManifest), inputTokens: result.provenance.inputTokens, outputTokens: result.provenance.outputTokens, totalTokens: result.provenance.totalTokens, estimatedCostUsd: result.provenance.estimatedCostUsd, durationMs: result.provenance.durationMs, requestId: input.requestId, createdAt: new Date(result.provenance.generatedAt) };
+  database.orm.insert(executableInvariantProposals).values(row).run();
+  return row;
+}
+export function createReusedInvariantProposal(database: DatabaseClient, input: {
+  hypothesisId: string; scanId: string; sourceArtifactId: string; targetId: string; compilerArtifactSha256: string;
+  selectedStrategy: Exclude<VerificationStrategy, "structured-verification">; plan: ExecutableInvariantPlan;
+  sourceClosureFingerprint: SourceClosureFingerprint; sourceHashes: Record<string, string>;
+}): ExecutableInvariantProposalRow {
+  const hypothesis = getVulnerabilityHypothesis(database, input.hypothesisId), source = getExecutableInvariantProposal(database, input.sourceArtifactId);
+  if (!hypothesis || hypothesis.scanId !== input.scanId || !source || source.status !== "generated" ||
+      input.plan.hypothesisId !== input.hypothesisId || input.plan.scanId !== input.scanId ||
+      !/^[a-f0-9]{64}$/.test(input.targetId) || !/^[a-f0-9]{64}$/.test(input.compilerArtifactSha256))
+    throw new Error("Reused invariant planning identity is invalid.");
+  const plan = executableInvariantPlanSchema.parse(input.plan), createdAt = new Date();
+  const row: ExecutableInvariantProposalRow = { id: randomUUID(), hypothesisId: input.hypothesisId, scanId: input.scanId,
+    selectedStrategy: input.selectedStrategy, ...planningFingerprintFields(database, input.scanId, input.sourceClosureFingerprint),
+    reuseSourceArtifactType: "invariant-proposal", reuseSourceArtifactId: input.sourceArtifactId, reuseTargetId: input.targetId,
+    reuseCompilerArtifactSha256: input.compilerArtifactSha256, reuseCreatedAt: createdAt,
+    status: "generated", plan: JSON.stringify(plan), planHash: invariantPlanHash(plan), hypothesisExpectation: "hypothesis-predicts-property-violation",
+    relationRationale: null, rationale: null, limitations: "[]", notPlannableReasons: "[]", failureCode: null,
+    provider: "", requestedModel: "", actualModel: null, promptVersion: "", contextManifest: JSON.stringify({ sourceHashes: input.sourceHashes }),
+    inputTokens: null, outputTokens: null, totalTokens: null, estimatedCostUsd: null, durationMs: 0, requestId: null, createdAt };
   database.orm.insert(executableInvariantProposals).values(row).run();
   return row;
 }

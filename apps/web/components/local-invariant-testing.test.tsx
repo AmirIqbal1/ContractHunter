@@ -5,12 +5,12 @@ import type { PublicInvariantProposal, PublicInvariantReplayArtifact, PublicInva
 import { LocalInvariantTesting } from "./local-invariant-testing";
 
 const hypothesisId = crypto.randomUUID(), plan = executableInvariantPlanSchema.parse({ schemaVersion: "contracthunter-invariant-plan-v1", mode: "fuzz-property", scanId: crypto.randomUUID(), hypothesisId, resolvedCommit: "a".repeat(40), compilerVersion: "0.8.36", primaryContract: "VulnerableAccounting", primarySourcePath: "contracts/VulnerableAccounting.sol", sourceFiles: ["contracts/VulnerableAccounting.sol"], actors: ["deployer", "attacker"], setup: [{ kind: "deploy", contractName: "VulnerableAccounting", instanceName: "target" }], property: { name: "accounting", observations: [{ kind: "read-uint", instanceName: "target", functionName: "totalRecordedBalance", resultName: "recorded" }, { kind: "read-balance", target: { kind: "instance", name: "target" }, resultName: "balance" }], assertions: [{ id: "equal", kind: "uint-eq", actual: "recorded", expected: { kind: "result", name: "balance" } }] }, fuzzAction: { instanceName: "target", functionName: "record", caller: "attacker", parameters: [{ name: "amount", type: "uint256" }], args: [{ kind: "parameter", name: "amount" }] } });
-const proposal: PublicInvariantProposal = { id: crypto.randomUUID(), status: "generated", plan, planHash: "b".repeat(64), hypothesisExpectation: "hypothesis-predicts-property-violation", relationRationale: "The hypothesis predicts divergence.", rationale: "Accounting should match balance.", limitations: [], notPlannableReasons: [], failureCode: null, provider: "mock", model: "model", promptVersion: "invariant-plan-v1", sourceFileCount: 1, totalSourceBytes: 200, contextTruncated: false, inputTokens: 20, outputTokens: 10, totalTokens: 30, estimatedCostUsd: 0.0001, durationMs: 5, createdAt: "2026-08-16T10:00:00.000Z" };
+const proposal: PublicInvariantProposal = { id: crypto.randomUUID(), selectedStrategy: null, status: "generated", plan, planHash: "b".repeat(64), hypothesisExpectation: "hypothesis-predicts-property-violation", relationRationale: "The hypothesis predicts divergence.", rationale: "Accounting should match balance.", limitations: [], notPlannableReasons: [], failureCode: null, origin: "legacy", reuseSourceArtifactId: null, reuseTargetId: null, provider: "mock", model: "model", promptVersion: "invariant-plan-v1", sourceFileCount: 1, totalSourceBytes: 200, contextTruncated: false, sourceClosureFingerprint: null, inputTokens: 20, outputTokens: 10, totalTokens: 30, estimatedCostUsd: 0.0001, durationMs: 5, createdAt: "2026-08-16T10:00:00.000Z" };
 const baseRun: PublicInvariantRun = { id: crypto.randomUUID(), proposalId: proposal.id, status: "completed", outcome: "held-within-bounds", mode: "fuzz-property", planHash: proposal.planHash!, compiler: "0.8.36", configuredRuns: 128, configuredDepth: null, runsExecuted: 128, testCount: 1, passedCount: 1, failedCount: 0, durationMs: 27, dynamicEvidence: [{ planHash: proposal.planHash!, mode: "fuzz-property", propertyName: "accounting", configuredRuns: 128, configuredDepth: null, runsExecuted: 128, propertyOutcome: "held-within-bounds", hypothesisRelation: "neutral", compilerVersion: "0.8.36", isolationProvider: "docker-verification-worker-v1", counterexample: null, summary: "No counterexample found within configured runs." }], failureCode: null, createdAt: "2026-08-16T10:00:00.000Z" };
 const render = (proposals: PublicInvariantProposal[], runs: PublicInvariantRun[], replays: PublicInvariantReplayArtifact[] = [], replayRuns: PublicInvariantReplayRun[] = [], reviews: PublicInvariantReview[] = []) => renderToStaticMarkup(<LocalInvariantTesting hypothesisId={hypothesisId} hypothesisStatus="candidate" initialProposals={proposals} initialRuns={runs} initialReplays={replays} initialReplayRuns={replayRuns} initialReviews={reviews} />);
 describe("manual invariant workflow UI", () => {
   it("starts with separate proposal and local run controls and no execution", () => { const html = render([], []); expect(html).toContain("Generate invariant proposal"); expect(html).toContain("No local invariant execution"); expect(html).not.toContain("Run invariant locally"); expect(html).not.toContain("Verified"); });
-  it("shows reviewed plan, trusted compiler, and bounds without execution before validation", () => { const html = render([proposal], []); for (const value of ["Generated preview", "fuzz-property", "VulnerableAccounting", "uint256 amount", "Validate proposal", "128 fuzz runs", "0.8.36", proposal.planHash!]) expect(html).toContain(value); expect(html).not.toContain("Run with Foundry"); expect(html).not.toContain("Run with Echidna"); });
+  it("shows reviewed plan, trusted compiler, and bounds without execution before validation", () => { const html = render([proposal], []); for (const value of ["Generated proposal", "fuzz-property", "VulnerableAccounting", "uint256 amount", "Validate proposal", "128 fuzz runs", "0.8.36", proposal.planHash!]) expect(html).toContain(value); expect(html).not.toContain("Run with Foundry"); expect(html).not.toContain("Run with Echidna"); });
   it("describes the bounded property outcome without calling it proof or verification", () => { const html = render([proposal], [baseRun]); expect(html).toContain("HELD WITHIN BOUNDS"); expect(html).toContain("bounded property outcome, not formal proof or authoritative hypothesis evidence"); expect(html).toContain("Assertion summary"); expect(html).not.toContain("Mark verified"); });
   it("shows bounded counterexample facts and handler sequence", () => { const failed: PublicInvariantRun = { ...baseRun, mode: "stateful-invariant", outcome: "counterexample-found", failedCount: 1, passedCount: 0, configuredRuns: 64, configuredDepth: 32, dynamicEvidence: [{ ...baseRun.dynamicEvidence[0], mode: "stateful-invariant", propertyOutcome: "counterexample-found", hypothesisRelation: "unreviewed", configuredRuns: 64, configuredDepth: 32, counterexample: { kind: "sequence", parserVersion: "foundry-1.7.1-json-v1", actions: [{ actionName: "takeOwnership", parameterValues: [] }], summary: "Bounded sequence." } }] }; const html = render([proposal], [failed]); expect(html).toContain("COUNTEREXAMPLE FOUND"); expect(html).toContain("takeOwnership()"); expect(html).toContain("unreviewed"); });
   it("renders not-plannable, execution-running, and validation-failure histories distinctly", () => {
@@ -18,7 +18,29 @@ describe("manual invariant workflow UI", () => {
     expect(render([notPlannable], [])).toContain("Not plannable");
     expect(render([proposal], [{ ...baseRun, status: "running", outcome: null, runsExecuted: null, durationMs: null, dynamicEvidence: [] }])).toContain("RUNNING");
     const echidnaRunning = render([proposal], [{ ...baseRun, engine: "echidna", status: "running", outcome: null, runsExecuted: null, durationMs: null, dynamicEvidence: [] }]); expect(echidnaRunning).toContain("Echidna"); expect(echidnaRunning).toContain("RUNNING");
-    expect(render([{ ...proposal, status: "failed", plan: null, planHash: null, failureCode: "invalid_invariant_source" }], [])).toContain("invalid_invariant_source");
+    expect(render([{ ...proposal, status: "failed", plan: null, planHash: null, failureCode: "invalid_invariant_source" }], [])).toContain("trusted source evidence");
+  });
+  it("shows selected strategy provenance and independently reviewable proposal history", () => {
+    const fuzz = { ...proposal, selectedStrategy: "foundry-fuzz-property" as const };
+    const failed = { ...proposal, id: crypto.randomUUID(), selectedStrategy: "echidna-stateful-invariant" as const, status: "failed" as const, plan: null, planHash: null, failureCode: "strategy_concrete_plan_incompatible" };
+    const html = render([failed, fuzz, proposal], []);
+    expect(html).toContain("Selected strategy:");
+    expect(html).toContain("Echidna stateful invariant");
+    expect(html).toContain("Foundry fuzz property");
+    expect(html).toContain("Legacy manual planning");
+    expect(html).toContain("concrete plan did not pass");
+    expect((html.match(/· Review/g) ?? [])).toHaveLength(3);
+    expect(html).not.toContain("Run with Foundry");
+  });
+  it("shows concrete Echidna compatibility on generated stateful semantics before explicit validation", () => {
+    const stateful = { ...proposal, selectedStrategy: "echidna-stateful-invariant" as const, plan: { ...plan, mode: "stateful-invariant", handlerActions: [], properties: plan.mode === "fuzz-property" ? [plan.property] : plan.properties } as unknown as PublicInvariantProposal["plan"] };
+    const html = render([stateful], []);
+    expect(html).toContain("Concrete Echidna compatibility:");
+    expect(html).toContain("Passed during generation");
+    expect(html).toContain("stateful-invariant");
+    expect(html).toContain("Validate proposal");
+    expect(html).not.toContain("Run with Echidna");
+    expect(html).not.toContain("Run with Foundry");
   });
   it("renders replay available, not reproduced with fresh-workspace retry, reproduced review, and accepted evidence", () => {
     const counterexample = { kind: "single" as const, parserVersion: "foundry-1.7.1-json-v1" as const, parameterValues: [{ name: "amount", type: "uint256" as const, value: "436" }], summary: "Final case." };
@@ -38,5 +60,34 @@ describe("manual invariant workflow UI", () => {
     const run: PublicInvariantRun = { ...baseRun, engine: "echidna", seed: 12345, outcome: "counterexample-found", passedCount: 0, failedCount: 1, dynamicEvidence: [{ ...baseRun.dynamicEvidence[0], engine: "echidna", propertyOutcome: "counterexample-found", hypothesisRelation: "unreviewed", replayAvailable: false, replayUnavailableReason: "sequence-not-exactly-mappable", counterexample: null }] };
     const html = render([proposal], [run]);
     expect(html).toContain("Echidna"); expect(html).toContain("seed 12345"); expect(html).toContain("Replay unavailable: the Echidna sequence could not be mapped exactly."); expect(html).not.toContain("Generate deterministic replay");
+  });
+  it.each(["foundry-fuzz-property", "foundry-stateful-invariant", "echidna-stateful-invariant"] as const)("loads a reused %s proposal for separate review and validation", (strategy) => {
+    if (plan.mode !== "fuzz-property") throw new Error("Fuzz fixture required.");
+    const { fuzzAction, property, ...base } = plan;
+    const selectedPlan = strategy === "foundry-fuzz-property" ? plan : executableInvariantPlanSchema.parse({ ...base,
+      mode: "stateful-invariant", actors: strategy === "echidna-stateful-invariant" ? [] : plan.actors,
+      handlerActions: [{ name: "record", instanceName: "target", functionName: fuzzAction.functionName, parameters: fuzzAction.parameters, args: fuzzAction.args }],
+      properties: [property] });
+    const reused: PublicInvariantProposal = { ...proposal, id: crypto.randomUUID(), selectedStrategy: strategy, plan: selectedPlan,
+      planHash: invariantPlanHash(selectedPlan), origin: "reused", reuseSourceArtifactId: proposal.id, reuseTargetId: "f".repeat(64),
+      provider: "", model: "", promptVersion: "", sourceClosureFingerprint: { schema: "contracthunter-source-closure-fingerprint-v1", sha256: "a".repeat(64), fileCount: 1, totalBytes: 200 } };
+    const html = renderToStaticMarkup(<LocalInvariantTesting hypothesisId={hypothesisId} hypothesisStatus="candidate" initialProposals={[proposal]} incomingProposal={reused} selectedProposalId={reused.id} initialRuns={[baseRun]} />);
+    expect(html).toContain(reused.id);
+    expect(html).toContain(`Reused from:</strong> invariant proposal <span class="mono">${proposal.id}`);
+    expect(html).toContain("Pending explicit validation");
+    expect(html).toContain("Execution for this proposal:</strong> Not run");
+    expect(html).toContain(strategy === "foundry-fuzz-property" ? "fuzz-property" : "stateful-invariant");
+    expect(html).toContain("Validate proposal");
+    expect(html).not.toContain("Run with Foundry"); expect(html).not.toContain("Run with Echidna");
+    expect(html).toContain("Proposal history"); expect(html).toContain(proposal.id);
+    expect(html).not.toContain("mock · model");
+    if (strategy === "echidna-stateful-invariant") expect(html).toContain("Passed during reuse admission");
+  });
+  it("retains separately selectable earlier reused proposals in history", () => {
+    const first = { ...proposal, id: crypto.randomUUID(), origin: "reused" as const, reuseSourceArtifactId: proposal.id };
+    const second = { ...proposal, id: crypto.randomUUID(), origin: "reused" as const, reuseSourceArtifactId: proposal.id };
+    const html = renderToStaticMarkup(<LocalInvariantTesting hypothesisId={hypothesisId} hypothesisStatus="candidate" initialProposals={[proposal]} incomingProposal={second} additionalProposals={[first]} selectedProposalId={second.id} initialRuns={[]} />);
+    expect(html).toContain(first.id.slice(0, 8)); expect(html).toContain(second.id);
+    expect((html.match(/Reused from invariant proposal/g) ?? [])).toHaveLength(2);
   });
 });

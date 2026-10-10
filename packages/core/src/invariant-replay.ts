@@ -51,11 +51,12 @@ const replaySourceEntry = z.object({ originalPath: z.string().min(5).max(500), w
 export const invariantReplayManifestSchema = z.object({
   formatVersion: z.literal(1), planKind: z.literal("invariant-replay"), workspaceId: uuid, replayPlan: invariantReplayPlanSchema,
   replayPlanHash: sha256, invariantPlan: executableInvariantPlanSchema, hypothesisId: uuid, scanId: uuid, resolvedCommit: z.string().regex(/^[a-f0-9]{40}$/), compilerVersion: stableCompilerVersionSchema,
-  sourceManifest: z.array(replaySourceEntry).min(1).max(200), generatedHarnessPath: z.literal("test/ContractHunterReplay.t.sol"), generatedHarnessSha256: sha256, foundryConfigSha256: sha256, generatorVersion: stableCompilerVersionSchema, generatedBy: z.literal("contracthunter"), contentFingerprint: sha256,
+  sourceLayout: z.literal("authoritative-source-unit-v1").optional(), sourceManifest: z.array(replaySourceEntry).min(1).max(200), generatedHarnessPath: z.literal("test/ContractHunterReplay.t.sol"), generatedHarnessSha256: sha256, foundryConfigSha256: sha256, generatorVersion: stableCompilerVersionSchema, generatedBy: z.literal("contracthunter"), contentFingerprint: sha256,
 }).strict().superRefine((manifest, context) => {
   const issue = (message: string) => context.addIssue({ code: z.ZodIssueCode.custom, message });
   if (manifest.replayPlanHash !== invariantReplayPlanHash(manifest.replayPlan)) issue("Replay plan hash is invalid.");
   if (manifest.hypothesisId !== manifest.replayPlan.hypothesisId || manifest.scanId !== manifest.replayPlan.scanId || manifest.resolvedCommit !== manifest.replayPlan.resolvedCommit || manifest.compilerVersion !== manifest.replayPlan.compilerVersion) issue("Replay manifest identity mismatch.");
+  if (manifest.sourceManifest.some((entry) => entry.workspacePath !== (manifest.sourceLayout ? entry.originalPath : `src/${entry.originalPath}`))) issue("Replay source layout mismatch.");
   try { validateReplayAgainstInvariant(manifest.replayPlan, manifest.invariantPlan); } catch { issue("Replay does not match invariant plan."); }
   const { contentFingerprint, ...base } = manifest;
   if (createHash("sha256").update(JSON.stringify(canonical(base))).digest("hex") !== contentFingerprint) issue("Replay manifest fingerprint is invalid.");

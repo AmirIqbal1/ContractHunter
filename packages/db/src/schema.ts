@@ -1,5 +1,5 @@
-import { integer, primaryKey, real, sqliteTable, text } from "drizzle-orm/sqlite-core";
-import { aiAnalysisStatuses, compilerStatuses, coverageStatuses, dependencyStatuses, findingStatuses, frameworks, hypothesisStatuses, invariantCategories, invariantStatuses, invariantTestabilities, investigationStatuses, reviewRunStatuses, reviewStageStatuses, scannerStatuses, scanDepths, scanStatuses, severities, verificationOutcomes, verificationRunStatuses, vulnerabilityCategories } from "@contracthunter/core";
+import { blob, integer, primaryKey, real, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { aiAnalysisStatuses, compilerStatuses, coverageStatuses, dependencyStatuses, findingStatuses, frameworks, hypothesisStatuses, invariantCategories, invariantStatuses, invariantTestabilities, investigationStatuses, reviewRunStatuses, reviewStageStatuses, scannerStatuses, scanDepths, scanStatuses, severities, verificationOutcomes, verificationRunStatuses, verificationStrategies, vulnerabilityCategories } from "@contracthunter/core";
 
 export const scans = sqliteTable("scans", {
   id: text("id").primaryKey(),
@@ -30,6 +30,18 @@ export const scans = sqliteTable("scans", {
   reviewStatus: text("review_status", { enum: reviewStageStatuses }).notNull(),
   reviewError: text("review_error"),
 });
+
+export const scanSourceSnapshots = sqliteTable("scan_source_snapshots", {
+  scanId: text("scan_id").primaryKey().references(() => scans.id, { onDelete: "cascade" }),
+  schema: text("schema").notNull(), resolvedCommit: text("resolved_commit").notNull(),
+  fileCount: integer("file_count").notNull(), totalBytes: integer("total_bytes").notNull(),
+  finalizedAt: integer("finalized_at", { mode: "timestamp" }),
+});
+export const scanSourceSnapshotFiles = sqliteTable("scan_source_snapshot_files", {
+  scanId: text("scan_id").notNull().references(() => scanSourceSnapshots.scanId, { onDelete: "cascade" }),
+  sourceKey: text("source_key").notNull(), rawBytes: blob("raw_bytes", { mode: "buffer" }).notNull(),
+  rawSha256: text("raw_sha256").notNull(), byteLength: integer("byte_length").notNull(),
+}, (table) => [primaryKey({ columns: [table.scanId, table.sourceKey] })]);
 
 export const findings = sqliteTable("findings", {
   id: text("id").primaryKey(),
@@ -165,9 +177,26 @@ export const executableInvariantRuns = sqliteTable("executable_invariant_runs", 
 
 export const executableInvariantProposals = sqliteTable("executable_invariant_proposals", {
   id: text("id").primaryKey(), hypothesisId: text("hypothesis_id").notNull().references(() => vulnerabilityHypotheses.id, { onDelete: "cascade" }), scanId: text("scan_id").notNull().references(() => scans.id, { onDelete: "cascade" }),
+  selectedStrategy: text("selected_strategy", { enum: verificationStrategies }),
+  reuseSourceArtifactType: text("reuse_source_artifact_type", { enum: ["invariant-proposal"] }), reuseSourceArtifactId: text("reuse_source_artifact_id"),
+  reuseTargetId: text("reuse_target_id"), reuseCompilerArtifactSha256: text("reuse_compiler_artifact_sha256"), reuseCreatedAt: integer("reuse_created_at", { mode: "timestamp" }),
+  sourceClosureFingerprintSchema: text("source_closure_fingerprint_schema"), sourceClosureFingerprintSha256: text("source_closure_fingerprint_sha256"),
+  sourceClosureFingerprintFileCount: integer("source_closure_fingerprint_file_count"), sourceClosureFingerprintTotalBytes: integer("source_closure_fingerprint_total_bytes"),
   status: text("status", { enum: ["generated", "not_plannable", "failed"] }).notNull(), plan: text("plan"), planHash: text("plan_hash"), hypothesisExpectation: text("hypothesis_expectation", { enum: ["hypothesis-predicts-property-violation"] }), relationRationale: text("relation_rationale"), rationale: text("rationale"), limitations: text("limitations").notNull(), notPlannableReasons: text("not_plannable_reasons").notNull(), failureCode: text("failure_code"),
   provider: text("provider").notNull(), requestedModel: text("requested_model").notNull(), actualModel: text("actual_model"), promptVersion: text("prompt_version").notNull(), contextManifest: text("context_manifest").notNull(),
   inputTokens: integer("input_tokens"), outputTokens: integer("output_tokens"), totalTokens: integer("total_tokens"), estimatedCostUsd: real("estimated_cost_usd"), durationMs: integer("duration_ms").notNull(), requestId: text("request_id"), createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+});
+
+export const verificationPlanAttempts = sqliteTable("verification_plan_attempts", {
+  id: text("id").primaryKey(), hypothesisId: text("hypothesis_id").notNull().references(() => vulnerabilityHypotheses.id, { onDelete: "cascade" }), scanId: text("scan_id").notNull().references(() => scans.id, { onDelete: "cascade" }),
+  selectedStrategy: text("selected_strategy", { enum: ["structured-verification"] }).notNull(),
+  reuseSourceArtifactType: text("reuse_source_artifact_type", { enum: ["structured-plan"] }), reuseSourceArtifactId: text("reuse_source_artifact_id"),
+  reuseTargetId: text("reuse_target_id"), reuseCompilerArtifactSha256: text("reuse_compiler_artifact_sha256"), reuseCreatedAt: integer("reuse_created_at", { mode: "timestamp" }),
+  sourceClosureFingerprintSchema: text("source_closure_fingerprint_schema"), sourceClosureFingerprintSha256: text("source_closure_fingerprint_sha256"),
+  sourceClosureFingerprintFileCount: integer("source_closure_fingerprint_file_count"), sourceClosureFingerprintTotalBytes: integer("source_closure_fingerprint_total_bytes"),
+  status: text("status", { enum: ["generated", "not_plannable", "failed"] }).notNull(),
+  plan: text("plan"), failureCode: text("failure_code"), result: text("result").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 
 export const invariantReplayArtifacts = sqliteTable("invariant_replay_artifacts", {

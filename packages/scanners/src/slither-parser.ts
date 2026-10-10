@@ -148,19 +148,21 @@ function location(detector: SlitherDetector, repositoryPath: string) {
     contract: typeof contractElement?.name === "string" ? contractElement.name : directParentName(functionElement),
     functionName: typeof functionElement?.name === "string" ? functionElement.name : null,
     filePath: safeRelativeFile(repositoryPath, mapping?.filenameRelative ?? mapping?.filenameShort),
+    reportedSourceIdentity: mapping?.filenameRelative ?? mapping?.filenameShort ?? null,
     startLine: lines.length ? Math.min(...lines) : null,
     endLine: lines.length ? Math.max(...lines) : null,
   };
 }
 
-export function normaliseSlitherFindings(output: SlitherOutput, scanId: string, repositoryPath: string): NewFinding[] {
+export function normaliseSlitherFindings(output: SlitherOutput, scanId: string, repositoryPath: string, reportedSources?: Map<string, string | null>): NewFinding[] {
   const unique = new Map<string, NewFinding>();
   for (const detector of output.results?.detectors ?? []) {
-    const place = location(detector, repositoryPath);
+    const { reportedSourceIdentity, ...place } = location(detector, repositoryPath);
     const fingerprint = createHash("sha256").update(JSON.stringify([
       scanId, "slither", detector.check, place.filePath, place.startLine, place.endLine, place.contract, place.functionName,
     ])).digest("hex");
     if (unique.has(fingerprint)) continue;
+    reportedSources?.set(fingerprint, reportedSourceIdentity);
     const description = (detector.description.trim() || `Slither detector: ${detector.check}`).split(`${path.resolve(repositoryPath)}${path.sep}`).join("");
     const reference = detector.wiki ? `\nReference: ${detector.wiki}` : "";
     unique.set(fingerprint, {

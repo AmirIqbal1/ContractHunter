@@ -1,6 +1,6 @@
 import { cloneRepository, detectFramework, loadConfig, sanitiseError, type Scanner } from "@contracthunter/core";
-import { getDatabase, getScan, insertFindings, markActiveScansInterrupted, markDetachedJobsInterrupted, reconcileInvestigations, transitionScan, updateCompilerState, updateDependencyState, updateScannerState, upsertScanScanner, type DatabaseClient } from "@contracthunter/db";
-import { AderynScanner, DependencyManager, executeScanners, SlitherScanner, type ScannerExecution } from "@contracthunter/scanners";
+import { finalizeScanCompilation, finalizeScanSourceSnapshot, getDatabase, getScan, getScanSource, insertFindings, insertScannerAlignment, listScanSources, markActiveScansInterrupted, markDetachedJobsInterrupted, reconcileInvestigations, transitionScan, updateCompilerState, updateDependencyState, updateScannerState, upsertScanScanner, type DatabaseClient } from "@contracthunter/db";
+import { AderynScanner, alignScannerSource, captureScanSourceSnapshot, DependencyManager, deriveAuthoritativeCompilation, executeScanners, SlitherScanner, type ScannerExecution } from "@contracthunter/scanners";
 import { activeProtocolAnalysisScanIds } from "@/lib/ai/job-runner";
 import { activeSecurityReviewScanIds } from "@/lib/ai/security-review-job-runner";
 
@@ -76,17 +76,45 @@ class InProcessJobRunner implements JobRunner {
         onStatus: (status, metadata, error) => updateDependencyState(database, scanId, status, metadata, error ?? null),
       });
       await dependencyManager.prepare(cloned.path);
+      let sourceSnapshot: Awaited<ReturnType<typeof captureScanSourceSnapshot>> | null = null;
+      try {
+        sourceSnapshot = await captureScanSourceSnapshot(cloned.path);
+        finalizeScanSourceSnapshot(database, scanId, cloned.commit, sourceSnapshot);
+      } catch {
+        finalizeScanCompilation(database, scanId, cloned.commit, { status: "unsupported", reason: "source_snapshot_unavailable" });
+      }
       scan = transitionScan(database, scanId, "preparing_compiler");
+      const findingProvenance: Array<{ findingId: string; scannerId: string; scannerVersion: string | null; detectorId: string | null; contract: string | null; reportedSourceIdentity: string | null }> = [];
       const executions = await executeScanners({
         scanners: this.scanners,
         context: { scan, repositoryPath: cloned.path },
-        onResult: (_scanner, result) => { insertFindings(database, scanId, result.findings); },
+        onResult: (scanner, result) => {
+          const inserted = insertFindings(database, scanId, result.findings);
+          for (const finding of inserted) findingProvenance.push({ findingId: finding.id, scannerId: scanner.id,
+            scannerVersion: result.scannerVersion ?? null, detectorId: finding.detectorId, contract: finding.contract,
+            reportedSourceIdentity: result.reportedSourceIdentities?.[finding.fingerprint] ?? finding.filePath });
+          upsertScanScanner(database, scanId, { scannerId: scanner.id, scannerName: scanner.name, status: "running", version: result.scannerVersion ?? null });
+        },
         onState: (event) => {
           const current = getScan(database, scanId);
           if (event.status === "running" && current?.status === "preparing_compiler" && event.scannerId === "aderyn") transitionScan(database, scanId, "scanning");
           upsertScanScanner(database, scanId, event);
         },
       });
+      if (sourceSnapshot) {
+        const persistedSources = listScanSources(database, scanId).map(({ sourceKey }) => {
+          const source = getScanSource(database, scanId, sourceKey);
+          if (!source.available) throw new Error("Finalized scan snapshot source became unavailable.");
+          return source;
+        });
+        const provenance = await deriveAuthoritativeCompilation({ scanId, resolvedCommit: cloned.commit, repositoryPath: cloned.path,
+          toolHomeDir: config.TOOL_HOME_DIR, snapshotFiles: persistedSources }).catch(() => ({ status: "unsupported" as const, reason: "compilation_probe_failed" as const }));
+        finalizeScanCompilation(database, scanId, cloned.commit, provenance);
+        if (provenance.status === "supported") {
+          for (const finding of findingProvenance) insertScannerAlignment(database, scanId,
+            alignScannerSource(provenance.manifest, cloned.path, finding.reportedSourceIdentity, finding.contract, finding));
+        }
+      }
       completeStaticScan(database, scanId, executions);
     } catch (error) {
       const scan = getScan(database, scanId);

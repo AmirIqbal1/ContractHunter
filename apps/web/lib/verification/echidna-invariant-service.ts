@@ -1,8 +1,9 @@
 import path from "node:path";
-import { ECHIDNA_BINARY_SHA256, ECHIDNA_BUILD_ID, ECHIDNA_COMPAT_VERSION, ECHIDNA_UPSTREAM_VERSION, echidnaSeed, invariantPlanHash, loadConfig, type EchidnaInvariantManifest } from "@contracthunter/core";
-import { completeExecutableInvariantRun, createExecutableInvariantRun, failExecutableInvariantRun, getActiveExecutableInvariantRun, getDatabase, markExecutableInvariantRunRunning, setEchidnaInvariantRunMetadata, type DatabaseClient, type ExecutableInvariantRunRow } from "@contracthunter/db";
+import { ECHIDNA_BINARY_SHA256, ECHIDNA_BUILD_ID, ECHIDNA_COMPAT_VERSION, ECHIDNA_UPSTREAM_VERSION, echidnaSeed, invariantPlanHash, loadConfig, type EchidnaInvariantManifest, type ResolvedAuthoritativeSourceClosure } from "@contracthunter/core";
+import { completeExecutableInvariantRun, createExecutableInvariantRun, failExecutableInvariantRun, getActiveExecutableInvariantRun, getDatabase, getVulnerabilityHypothesis, markExecutableInvariantRunRunning, setEchidnaInvariantRunMetadata, type DatabaseClient, type ExecutableInvariantRunRow } from "@contracthunter/db";
 import { EchidnaInvariantWorkerClient, VerificationWorkspaceBuilder, interpretEchidnaFacts, validateEchidnaInvariantWorkspaceIntegrity, type EchidnaInvariantWorkerInput, type EchidnaInvariantWorkerResult } from "@contracthunter/scanners";
 import { createInvariantProposalService, type InvariantProposalService } from "./invariant-proposal-service";
+import { sourceAuthorityForHypothesis } from "./authoritative-source-authority";
 
 export class EchidnaInvariantRequestError extends Error {
   constructor(readonly code: "echidna_plan_incompatible" | "echidna_execution_unavailable", message: string) { super(message); this.name = "EchidnaInvariantRequestError"; }
@@ -12,7 +13,7 @@ type WorkerResult = EchidnaInvariantWorkerResult | { status: "refused"; errorCod
 export type EchidnaInvariantServiceOptions = {
   database: DatabaseClient; repositoryRoot: string;
   proposals: Pick<InvariantProposalService, "validate">;
-  workspaceBuilder: (compilers: string[]) => { buildEchidnaInvariant(input: { workspaceId: string; repositoryPath: string; plan: Awaited<ReturnType<InvariantProposalService["validate"]>>["plan"] }): Promise<Built> };
+  workspaceBuilder: (compilers: string[]) => { buildEchidnaInvariant(input: { workspaceId: string; repositoryPath: string; plan: Awaited<ReturnType<InvariantProposalService["validate"]>>["plan"]; authoritativeClosure?: ResolvedAuthoritativeSourceClosure }): Promise<Built> };
   runner: { run(input: EchidnaInvariantWorkerInput): Promise<WorkerResult> };
   validateIntegrity?: (workspacePath: string) => Promise<EchidnaInvariantManifest>;
 };
@@ -22,6 +23,9 @@ export class EchidnaInvariantService {
     const validated = await this.options.proposals.validate(hypothesisId, proposalId);
     if (!validated.compatibility.echidna.compatible) throw new EchidnaInvariantRequestError("echidna_plan_incompatible", `Echidna is incompatible: ${validated.compatibility.echidna.reasons.join(", ")}`);
     const plan = validated.plan;
+    const hypothesis = getVulnerabilityHypothesis(this.options.database, hypothesisId);
+    if (!hypothesis) throw new EchidnaInvariantRequestError("echidna_plan_incompatible", "Hypothesis is unavailable.");
+    const authority = sourceAuthorityForHypothesis(this.options.database, hypothesis, { sourceUnitName: plan.primarySourcePath, contract: plan.primaryContract });
     if (plan.mode !== "stateful-invariant") throw new EchidnaInvariantRequestError("echidna_plan_incompatible", "Echidna requires a compatible stateful invariant plan.");
     const active = getActiveExecutableInvariantRun(this.options.database, hypothesisId);
     if (active) return { status: "conflict", run: active };
@@ -31,7 +35,7 @@ export class EchidnaInvariantService {
     markExecutableInvariantRunRunning(this.options.database, run.id);
     const started = Date.now(); let built: Built | undefined; let result: WorkerResult | undefined;
     try {
-      built = await this.options.workspaceBuilder([plan.compilerVersion]).buildEchidnaInvariant({ workspaceId: run.id, repositoryPath: path.join(this.options.repositoryRoot, plan.scanId), plan });
+      built = await this.options.workspaceBuilder([plan.compilerVersion]).buildEchidnaInvariant({ workspaceId: run.id, repositoryPath: path.join(this.options.repositoryRoot, plan.scanId), plan, ...(authority.kind === "authoritative" ? { authoritativeClosure: authority.closure } : {}) });
       const manifest = await (this.options.validateIntegrity ?? validateEchidnaInvariantWorkspaceIntegrity)(built.workspacePath);
       if (JSON.stringify(manifest) !== JSON.stringify(built.manifest) || manifest.planHash !== invariantPlanHash(plan) || manifest.workspaceId !== run.id) throw new Error("echidna_manifest_mismatch");
       setEchidnaInvariantRunMetadata(this.options.database, run.id, { upstreamVersion: manifest.echidnaVersion, compatibilityBuildId: manifest.buildId, binarySha256: manifest.binaryHash, configHash: manifest.configHash, harnessHash: manifest.harnessHash, seed: manifest.settings.seed, manifestFingerprint: manifest.contentFingerprint });

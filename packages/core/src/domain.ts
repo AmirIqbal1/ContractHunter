@@ -116,6 +116,8 @@ export interface ScanContext {
 export interface ScannerResult {
   scannerId: string;
   findings: NewFinding[];
+  scannerVersion?: string | null;
+  reportedSourceIdentities?: Record<string, string | null>;
   warnings: string[];
   durationMs?: number;
 }

@@ -6,10 +6,12 @@ import { validAIOutput, verificationHarnessPlanSchema, type ProtocolAnalysisResu
 import { VerificationHarnessGenerator } from "@contracthunter/scanners";
 import {
   closeDatabase, createDatabase, createProtocolAnalysis, createScan, createSecurityReviewerRun, createSecurityReviewPlan,
-  getVulnerabilityHypothesis, insertVulnerabilityHypotheses, listHypothesisVerificationRuns, updateVulnerabilityHypothesisStatus,
+  getVulnerabilityHypothesis, insertFindings, insertVulnerabilityHypotheses, listHypothesisVerificationRuns, listVerificationPlanAttempts, reconcileInvestigations, updateVulnerabilityHypothesisStatus,
   type DatabaseClient,
 } from "@contracthunter/db";
 import { VerificationPlanGenerationError, VerificationPlanGenerationService } from "./verification-plan-generation-service";
+import { generateForSelectedStrategy } from "./strategy-generation-api";
+import { requestSelectedStrategy } from "./client-strategy-generation";
 
 const commit = "a".repeat(40); const fixture = path.resolve("packages/scanners/fixtures/verification");
 let root: string; let repositoryRoot: string; let repository: string; let database: DatabaseClient; let scanId: string; let hypothesisId: string;
@@ -51,6 +53,36 @@ function replaceCounterSource(source: string): void {
 }
 
 describe("trust-bounded verification plan generation", () => {
+  it("persists one explicitly selected structured planning attempt without execution", async () => {
+    insertFindings(database, scanId, [{ title: "Protected variable", severity: "high", confidence: 80, source: "slither", detectorId: "protected-vars", fingerprint: "e".repeat(64), contract: "BrokenAccessControl", functionName: "setOwner", filePath: "contracts/BrokenAccessControl.sol", startLine: 11, endLine: 11, rootCause: "Unprotected state update.", attackScenario: "", impact: "", evidence: "fixture", status: "candidate" }]);
+    const investigation = reconcileInvestigations(database, scanId)[0];
+    database.sqlite.prepare("UPDATE vulnerability_hypotheses SET related_investigation_ids=?, evidence=? WHERE id=?").run(JSON.stringify([investigation.id]), JSON.stringify([{ filePath: "contracts/BrokenAccessControl.sol", contract: "BrokenAccessControl", functionName: "setOwner", startLine: 11, endLine: 13 }]), hypothesisId);
+    const provider = fake(generatedAccessControl());
+    const planner = service(provider);
+    const response = await requestSelectedStrategy(hypothesisId, "structured-verification", (async (url: RequestInfo | URL, init?: RequestInit) => generateForSelectedStrategy(new Request(new URL(String(url), "http://localhost"), init), { params: Promise.resolve({ id: hypothesisId, strategy: "structured-verification" }) }, { database, structured: planner })) as typeof fetch);
+    expect(response.ok).toBe(true);
+    const output = response.body.attempt?.result;
+    expect(response.body.attempt?.selectedStrategy).toBe("structured-verification");
+    expect(output).toMatchObject({ status: "generated", plan: { hypothesisId, scanId, resolvedCommit: commit, compilerVersion: "0.8.24" } });
+    expect(provider.calls).toHaveLength(1);
+    expect(provider.calls[0].systemPrompt).toContain("SELECTED STRATEGY: structured-verification");
+    expect(listVerificationPlanAttempts(database, hypothesisId)).toMatchObject([{ selectedStrategy: "structured-verification", status: "generated" }]);
+    expect(listHypothesisVerificationRuns(database, hypothesisId)).toEqual([]);
+    expect(getVulnerabilityHypothesis(database, hypothesisId)?.status).toBe("candidate");
+  });
+  it("rechecks selected compatibility and records a bounded concrete source failure", async () => {
+    const provider = fake(generatedAccessControl());
+    await expect(service(provider).generate(hypothesisId, "structured-verification")).rejects.toMatchObject({ code: "strategy_not_compatible" });
+    expect(provider.calls).toHaveLength(0); expect(listVerificationPlanAttempts(database, hypothesisId)).toEqual([]);
+    insertFindings(database, scanId, [{ title: "Protected variable", severity: "high", confidence: 80, source: "slither", detectorId: "protected-vars", fingerprint: "e".repeat(64), contract: "BrokenAccessControl", functionName: "setOwner", filePath: "contracts/BrokenAccessControl.sol", startLine: 11, endLine: 11, rootCause: "Unprotected state update.", attackScenario: "", impact: "", evidence: "fixture", status: "candidate" }]);
+    const investigation = reconcileInvestigations(database, scanId)[0];
+    database.sqlite.prepare("UPDATE vulnerability_hypotheses SET related_investigation_ids=?, evidence='[]' WHERE id=?").run(JSON.stringify([investigation.id]), hypothesisId);
+    const failed = await service(provider).generate(hypothesisId, "structured-verification");
+    expect(failed).toMatchObject({ status: "failed", failureCode: "strategy_concrete_plan_incompatible", plan: null });
+    expect(provider.calls).toHaveLength(0);
+    expect(listVerificationPlanAttempts(database, hypothesisId)).toMatchObject([{ selectedStrategy: "structured-verification", status: "failed", failureCode: "strategy_concrete_plan_incompatible" }]);
+    expect(listHypothesisVerificationRuns(database, hypothesisId)).toEqual([]);
+  });
   it("generates one validated preview from persisted state without starting verification", async () => {
     const provider = fake(generated()); const before = getVulnerabilityHypothesis(database, hypothesisId)?.status;
     const result = await service(provider).generate(hypothesisId);

@@ -1,10 +1,10 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { chmod, lstat, mkdir, readFile, realpath, readdir, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import semver from "semver";
 import {
-  VERIFICATION_HARNESS_MANIFEST, INVARIANT_HARNESS_MANIFEST, INVARIANT_REPLAY_MANIFEST, executableInvariantExecutionManifestSchema, executableInvariantPlanSchema, invariantManifestFingerprint, invariantReplayManifestFingerprint, invariantReplayManifestSchema, invariantReplayPlanSchema, repositorySolidityPathSchema, verificationHarnessManifestSchema, verificationHarnessPlanSchema,
-  type VerificationHarnessManifest, type VerificationHarnessPlan, type VerificationSourceManifestEntry, type ExecutableInvariantPlan, type ExecutableInvariantExecutionManifest, type InvariantReplayPlan, type InvariantReplayManifest,
+  SCAN_SOURCE_ROOTS, VERIFICATION_HARNESS_MANIFEST, INVARIANT_HARNESS_MANIFEST, INVARIANT_REPLAY_MANIFEST, executableInvariantExecutionManifestSchema, executableInvariantPlanSchema, invariantManifestFingerprint, invariantReplayManifestFingerprint, invariantReplayManifestSchema, invariantReplayPlanSchema, repositorySolidityPathSchema, verificationHarnessManifestSchema, verificationHarnessPlanSchema,
+  type VerificationHarnessManifest, type VerificationHarnessPlan, type VerificationSourceManifestEntry, type ExecutableInvariantPlan, type ExecutableInvariantExecutionManifest, type InvariantReplayPlan, type InvariantReplayManifest, type ResolvedAuthoritativeSourceClosure,
 } from "@contracthunter/core";
 import { ECHIDNA_BINARY_SHA256, ECHIDNA_BUILD_ID, ECHIDNA_COMPAT_VERSION, ECHIDNA_CONFIG_FILE, ECHIDNA_HARNESS_FILE, ECHIDNA_LIMITS, ECHIDNA_MANIFEST_FILE, ECHIDNA_UPSTREAM_VERSION, echidnaInvariantManifestSchema, type EchidnaInvariantManifest } from "@contracthunter/core";
 import { createContractHunterFoundryConfig } from "./verification-foundry-config";
@@ -32,7 +32,7 @@ export type VerificationWorkspaceBuilderOptions = {
   maxSourceBytes?: number;
 };
 
-export type BuildVerificationWorkspaceInput = { verificationRunId: string; repositoryPath: string; plan: VerificationHarnessPlan; createdAt?: Date };
+export type BuildVerificationWorkspaceInput = { verificationRunId: string; repositoryPath: string; plan: VerificationHarnessPlan; createdAt?: Date; authoritativeClosure?: ResolvedAuthoritativeSourceClosure };
 export type BuiltVerificationWorkspace = { workspacePath: string; manifest: VerificationHarnessManifest; harnessSource: string };
 
 function comparePaths(left: string, right: string): number { return left < right ? -1 : left > right ? 1 : 0; }
@@ -47,10 +47,19 @@ function safeSourceRoot(value: string): boolean {
 
 function removeComments(source: string): string { return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\r\n]*/g, ""); }
 
-function importPaths(source: string): string[] {
+export function verificationImportPaths(source: string): string[] {
   const clean = removeComments(source); const matches = [...clean.matchAll(IMPORT)];
   if ((clean.match(/\bimport\b/g) ?? []).length !== matches.length) throw new VerificationWorkspaceBuildError("A Solidity import declaration could not be parsed safely.");
   return matches.map((match) => match[1]);
+}
+
+export const VERIFICATION_SOURCE_ROOTS = SCAN_SOURCE_ROOTS;
+export function resolveVerificationImport(importer: string, imported: string, roots: readonly string[] = VERIFICATION_SOURCE_ROOTS): string {
+  if (!imported || imported.includes("\\") || imported.includes("\0") || imported.startsWith("/") || /^[A-Za-z][A-Za-z0-9+.-]*:/.test(imported) || imported.includes("://") || imported.startsWith("git@") || imported.startsWith("ssh")) throw new VerificationWorkspaceBuildError("Unsupported Solidity import.");
+  const resolved = imported.startsWith("./") || imported.startsWith("../")
+    ? path.posix.normalize(path.posix.join(path.posix.dirname(importer), imported)) : path.posix.normalize(imported);
+  if (!safeSourcePath(resolved) || !roots.some((root) => resolved === root || resolved.startsWith(`${root}/`))) throw new VerificationWorkspaceBuildError("Solidity import escapes approved source roots.");
+  return resolved;
 }
 
 export class VerificationWorkspaceBuilder {
@@ -71,12 +80,18 @@ export class VerificationWorkspaceBuilder {
   }
 
   private resolveImport(importer: string, imported: string): string {
-    if (!imported || imported.includes("\\") || imported.includes("\0") || imported.startsWith("/") || /^[A-Za-z][A-Za-z0-9+.-]*:/.test(imported) || imported.includes("://") || imported.startsWith("git@") || imported.startsWith("ssh")) throw new VerificationWorkspaceBuildError(`Unsupported Solidity import in ${importer}.`);
-    let resolved: string;
-    if (imported.startsWith("./") || imported.startsWith("../")) resolved = path.posix.normalize(path.posix.join(path.posix.dirname(importer), imported));
-    else resolved = path.posix.normalize(imported);
-    if (!safeSourcePath(resolved) || !this.approved(resolved)) throw new VerificationWorkspaceBuildError(`Solidity import escapes approved source roots: ${imported}.`);
-    return resolved;
+    return resolveVerificationImport(importer, imported, [...this.approvedRoots]);
+  }
+
+  private authoritativeSources(closure: ResolvedAuthoritativeSourceClosure, plan: { scanId: string; resolvedCommit: string; compilerVersion: string; primarySourcePath: string; sourceFiles: string[] }): Array<{ relativePath: string; bytes: Buffer }> {
+    if (closure.schema !== "contracthunter-authoritative-source-closure-v1" || closure.compilationProfile !== "plain-solidity-exact-pragma-v1" || closure.scanId !== plan.scanId || closure.resolvedCommit !== plan.resolvedCommit || closure.compilerIdentity.version !== plan.compilerVersion || closure.targetSourceUnit !== plan.primarySourcePath || closure.files.length < 1 || closure.files.length > this.maxSourceFiles) throw new VerificationWorkspaceBuildError("Authoritative source closure identity is invalid.");
+    const names = new Set<string>(); let total = 0;
+    for (const file of closure.files) {
+      if (!safeSourcePath(file.sourceUnitName) || !this.approved(file.sourceUnitName) || file.sourceUnitName !== file.snapshotSourceKey || names.has(file.sourceUnitName) || !Buffer.isBuffer(file.rawBytes) || file.rawBytes.length !== file.byteLength || file.byteLength > this.maxSourceBytes || createHash("sha256").update(file.rawBytes).digest("hex") !== file.rawSha256) throw new VerificationWorkspaceBuildError("Authoritative source closure file is invalid.");
+      names.add(file.sourceUnitName); total += file.byteLength;
+    }
+    if (total > this.maxSourceBytes || plan.sourceFiles.some((file) => !names.has(file))) throw new VerificationWorkspaceBuildError("Authoritative source closure is incomplete.");
+    return closure.files.map((file) => ({ relativePath: file.sourceUnitName, bytes: Buffer.from(file.rawBytes) })).sort((a, b) => comparePaths(a.relativePath, b.relativePath));
   }
 
   private async sourceClosure(repository: string, entries: string[]): Promise<Array<{ relativePath: string; bytes: Buffer }>> {
@@ -96,7 +111,7 @@ export class VerificationWorkspaceBuilder {
       if (visited.size + 1 > this.maxSourceFiles) throw new VerificationWorkspaceBuildError("Solidity source closure exceeds the file-count limit.");
       if (totalBytes > this.maxSourceBytes) throw new VerificationWorkspaceBuildError("Solidity source closure exceeds the byte limit.");
       visited.set(relativePath, bytes);
-      const imports = importPaths(bytes.toString("utf8")).map((item) => this.resolveImport(relativePath, item));
+      const imports = verificationImportPaths(bytes.toString("utf8")).map((item) => this.resolveImport(relativePath, item));
       pending.push(...imports.filter((item) => !visited.has(item))); pending.sort(comparePaths);
     }
     return [...visited.entries()].sort(([a], [b]) => comparePaths(a, b)).map(([relativePath, bytes]) => ({ relativePath, bytes }));
@@ -109,22 +124,23 @@ export class VerificationWorkspaceBuilder {
     let verificationRoot: string; let repositoryRoot: string; let repository: string;
     try {
       await mkdir(this.options.verificationRoot, { recursive: true });
-      [verificationRoot, repositoryRoot, repository] = await Promise.all([realpath(this.options.verificationRoot), realpath(this.options.repositoryRoot), realpath(input.repositoryPath)]);
+      [verificationRoot, repositoryRoot] = await Promise.all([realpath(this.options.verificationRoot), realpath(this.options.repositoryRoot)]);
+      repository = input.authoritativeClosure ? repositoryRoot : await realpath(input.repositoryPath);
     } catch { throw new VerificationWorkspaceBuildError("Verification or repository root is unavailable."); }
-    if (repository === repositoryRoot || !repository.startsWith(`${repositoryRoot}${path.sep}`)) throw new VerificationWorkspaceBuildError("Repository path is outside the configured repository root.");
+    if (!input.authoritativeClosure && (repository === repositoryRoot || !repository.startsWith(`${repositoryRoot}${path.sep}`))) throw new VerificationWorkspaceBuildError("Repository path is outside the configured repository root.");
     if (verificationRoot === repositoryRoot || verificationRoot.startsWith(`${repositoryRoot}${path.sep}`) || repositoryRoot.startsWith(`${verificationRoot}${path.sep}`)) throw new VerificationWorkspaceBuildError("Verification and repository roots must be separate.");
     const finalPath = path.join(verificationRoot, input.verificationRunId); const temporaryPath = path.join(verificationRoot, `.tmp-${input.verificationRunId}-${randomUUID()}`); const lockPath = path.join(verificationRoot, `.lock-${input.verificationRunId}`);
     try { await lstat(finalPath); throw new VerificationWorkspaceBuildError("Verification run workspace already exists."); }
     catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
     try {
       await writeFile(lockPath, input.verificationRunId, { flag: "wx", mode: 0o600 });
-      const closure = await this.sourceClosure(repository, plan.sourceFiles);
-      const harnessSource = this.generator.generate(plan); const foundryConfig = createContractHunterFoundryConfig(plan.compilerVersion);
+      const closure = input.authoritativeClosure ? this.authoritativeSources(input.authoritativeClosure, plan) : await this.sourceClosure(repository, plan.sourceFiles);
+      const harnessSource = this.generator.generate(plan, !!input.authoritativeClosure); const foundryConfig = createContractHunterFoundryConfig(plan.compilerVersion, !!input.authoritativeClosure);
       await sharedDirectory(temporaryPath);
       await Promise.all(["src", "test", "cache", "out"].map((directory) => sharedDirectory(path.join(temporaryPath, directory))));
       const sourceManifest: VerificationSourceManifestEntry[] = [];
       for (const source of closure) {
-        const workspacePath = `src/${source.relativePath}`; const destination = path.join(temporaryPath, ...workspacePath.split("/"));
+        const workspacePath = input.authoritativeClosure ? source.relativePath : `src/${source.relativePath}`; const destination = path.join(temporaryPath, ...workspacePath.split("/"));
         await sharedDirectory(path.dirname(destination), true); await writeFile(destination, source.bytes, { flag: "wx", mode: 0o640 });
         sourceManifest.push({ originalPath: source.relativePath, workspacePath, byteLength: source.bytes.length, sha256: sha256Bytes(source.bytes) });
       }
@@ -134,7 +150,7 @@ export class VerificationWorkspaceBuilder {
       const manifestBase = {
         formatVersion: 1 as const, verificationRunId: input.verificationRunId, scanId: plan.scanId, hypothesisId: plan.hypothesisId, resolvedCommit: plan.resolvedCommit,
         compilerVersion: plan.compilerVersion, generatorVersion: this.options.generatorVersion, generatedBy: "contracthunter" as const, createdAt: (input.createdAt ?? new Date()).toISOString(),
-        sourceManifest, generatedHarnessPath: harnessPath, generatedHarnessSha256: sha256Bytes(harnessBytes), foundryConfigSha256: sha256Bytes(configBytes),
+        ...(input.authoritativeClosure ? { sourceLayout: "authoritative-source-unit-v1" as const } : {}), sourceManifest, generatedHarnessPath: harnessPath, generatedHarnessSha256: sha256Bytes(harnessBytes), foundryConfigSha256: sha256Bytes(configBytes),
       };
       const manifest = verificationHarnessManifestSchema.parse({ ...manifestBase, contentFingerprint: verificationContentFingerprint(manifestBase) });
       await writeFile(path.join(temporaryPath, VERIFICATION_HARNESS_MANIFEST), `${JSON.stringify(manifest, null, 2)}\n`, { flag: "wx", mode: 0o640 });
@@ -150,30 +166,31 @@ export class VerificationWorkspaceBuilder {
     } finally { await rm(lockPath, { force: true }); }
   }
 
-  async buildInvariant(input: { workspaceId: string; repositoryPath: string; plan: ExecutableInvariantPlan }): Promise<{ workspacePath: string; manifest: ExecutableInvariantExecutionManifest; harnessSource: string }> {
+  async buildInvariant(input: { workspaceId: string; repositoryPath: string; plan: ExecutableInvariantPlan; authoritativeClosure?: ResolvedAuthoritativeSourceClosure }): Promise<{ workspacePath: string; manifest: ExecutableInvariantExecutionManifest; harnessSource: string }> {
     if (!SAFE_RUN_ID.test(input.workspaceId)) throw new VerificationWorkspaceBuildError("Invariant workspace identifier is invalid.");
     const plan = executableInvariantPlanSchema.parse(input.plan);
     if (!this.options.acceptedCompilerVersions.includes(plan.compilerVersion) || !semver.valid(plan.compilerVersion) || semver.prerelease(plan.compilerVersion)) throw new VerificationWorkspaceBuildError("Compiler version was not accepted by ContractHunter compiler management.");
     let workspaceRoot: string; let repositoryRoot: string; let repository: string;
     try {
       await mkdir(this.options.verificationRoot, { recursive: true });
-      [workspaceRoot, repositoryRoot, repository] = await Promise.all([realpath(this.options.verificationRoot), realpath(this.options.repositoryRoot), realpath(input.repositoryPath)]);
+      [workspaceRoot, repositoryRoot] = await Promise.all([realpath(this.options.verificationRoot), realpath(this.options.repositoryRoot)]);
+      repository = input.authoritativeClosure ? repositoryRoot : await realpath(input.repositoryPath);
     } catch { throw new VerificationWorkspaceBuildError("Invariant workspace or repository root is unavailable."); }
-    if (repository === repositoryRoot || !repository.startsWith(`${repositoryRoot}${path.sep}`)) throw new VerificationWorkspaceBuildError("Repository path is outside the configured repository root.");
+    if (!input.authoritativeClosure && (repository === repositoryRoot || !repository.startsWith(`${repositoryRoot}${path.sep}`))) throw new VerificationWorkspaceBuildError("Repository path is outside the configured repository root.");
     if (workspaceRoot === repositoryRoot || workspaceRoot.startsWith(`${repositoryRoot}${path.sep}`) || repositoryRoot.startsWith(`${workspaceRoot}${path.sep}`)) throw new VerificationWorkspaceBuildError("Workspace and repository roots must be separate.");
     const finalPath = path.join(workspaceRoot, input.workspaceId), temporaryPath = path.join(workspaceRoot, `.tmp-${input.workspaceId}-${randomUUID()}`), lockPath = path.join(workspaceRoot, `.lock-${input.workspaceId}`);
     try { await lstat(finalPath); throw new VerificationWorkspaceBuildError("Invariant workspace already exists."); }
     catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
     try {
       await writeFile(lockPath, input.workspaceId, { flag: "wx", mode: 0o600 });
-      const closure = await this.sourceClosure(repository, plan.sourceFiles);
+      const closure = input.authoritativeClosure ? this.authoritativeSources(input.authoritativeClosure, plan) : await this.sourceClosure(repository, plan.sourceFiles);
       const sourceMap = new Map(closure.map((entry) => [entry.relativePath, entry.bytes.toString("utf8")]));
-      const generated = new ExecutableInvariantGenerator().generate(plan, sourceMap);
+      const generated = new ExecutableInvariantGenerator().generate(plan, sourceMap, !!input.authoritativeClosure);
       await sharedDirectory(temporaryPath);
       await Promise.all(["src", "test", "cache", "out"].map((directory) => sharedDirectory(path.join(temporaryPath, directory))));
       const sourceManifest: VerificationSourceManifestEntry[] = [];
       for (const source of closure) {
-        const workspacePath = `src/${source.relativePath}`, destination = path.join(temporaryPath, ...workspacePath.split("/"));
+        const workspacePath = input.authoritativeClosure ? source.relativePath : `src/${source.relativePath}`, destination = path.join(temporaryPath, ...workspacePath.split("/"));
         await sharedDirectory(path.dirname(destination), true); await writeFile(destination, source.bytes, { flag: "wx", mode: 0o640 });
         sourceManifest.push({ originalPath: source.relativePath, workspacePath, byteLength: source.bytes.length, sha256: sha256Bytes(source.bytes) });
       }
@@ -182,7 +199,7 @@ export class VerificationWorkspaceBuilder {
       await writeFile(path.join(temporaryPath, "foundry.toml"), generated.foundryConfig, { flag: "wx", mode: 0o640 });
       const base = { formatVersion: 2 as const, plan, workspaceId: input.workspaceId, planKind: "executable-invariant" as const, mode: plan.mode, schemaVersion: plan.schemaVersion, planHash: generated.planHash,
         hypothesisId: plan.hypothesisId, scanId: plan.scanId, resolvedCommit: plan.resolvedCommit, compilerVersion: plan.compilerVersion, generatorVersion: this.options.generatorVersion,
-        generatedBy: "contracthunter" as const, sourceManifest, generatedHarnessPath: harnessPath, generatedHarnessSha256: generated.harnessHash, foundryConfigSha256: generated.configHash, foundry: generated.settings };
+        generatedBy: "contracthunter" as const, ...(input.authoritativeClosure ? { sourceLayout: "authoritative-source-unit-v1" as const } : {}), sourceManifest, generatedHarnessPath: harnessPath, generatedHarnessSha256: generated.harnessHash, foundryConfigSha256: generated.configHash, foundry: generated.settings };
       const manifest = executableInvariantExecutionManifestSchema.parse({ ...base, contentFingerprint: invariantManifestFingerprint(base) });
       await writeFile(path.join(temporaryPath, INVARIANT_HARNESS_MANIFEST), `${JSON.stringify(manifest, null, 2)}\n`, { flag: "wx", mode: 0o640 });
       try { await lstat(finalPath); throw new VerificationWorkspaceBuildError("Invariant workspace already exists."); }
@@ -196,31 +213,31 @@ export class VerificationWorkspaceBuilder {
     } finally { await rm(lockPath, { force: true }); }
   }
 
-  async buildEchidnaInvariant(input: { workspaceId: string; repositoryPath: string; plan: ExecutableInvariantPlan }): Promise<{ workspacePath: string; manifest: EchidnaInvariantManifest; harnessSource: string }> {
+  async buildEchidnaInvariant(input: { workspaceId: string; repositoryPath: string; plan: ExecutableInvariantPlan; authoritativeClosure?: ResolvedAuthoritativeSourceClosure }): Promise<{ workspacePath: string; manifest: EchidnaInvariantManifest; harnessSource: string }> {
     if (!SAFE_RUN_ID.test(input.workspaceId)) throw new VerificationWorkspaceBuildError("Echidna workspace identifier is invalid.");
     const plan = executableInvariantPlanSchema.parse(input.plan);
     if (!this.options.acceptedCompilerVersions.includes(plan.compilerVersion) || !semver.valid(plan.compilerVersion) || semver.prerelease(plan.compilerVersion)) throw new VerificationWorkspaceBuildError("Echidna compiler version was not accepted.");
     let workspaceRoot: string, repositoryRoot: string, repository: string;
-    try { await mkdir(this.options.verificationRoot, { recursive: true }); [workspaceRoot, repositoryRoot, repository] = await Promise.all([realpath(this.options.verificationRoot), realpath(this.options.repositoryRoot), realpath(input.repositoryPath)]); }
+    try { await mkdir(this.options.verificationRoot, { recursive: true }); [workspaceRoot, repositoryRoot] = await Promise.all([realpath(this.options.verificationRoot), realpath(this.options.repositoryRoot)]); repository = input.authoritativeClosure ? repositoryRoot : await realpath(input.repositoryPath); }
     catch { throw new VerificationWorkspaceBuildError("Echidna roots are unavailable."); }
-    if (repository === repositoryRoot || !repository.startsWith(`${repositoryRoot}${path.sep}`) || workspaceRoot === repositoryRoot || workspaceRoot.startsWith(`${repositoryRoot}${path.sep}`) || repositoryRoot.startsWith(`${workspaceRoot}${path.sep}`)) throw new VerificationWorkspaceBuildError("Echidna roots are unsafe.");
+    if ((!input.authoritativeClosure && (repository === repositoryRoot || !repository.startsWith(`${repositoryRoot}${path.sep}`))) || workspaceRoot === repositoryRoot || workspaceRoot.startsWith(`${repositoryRoot}${path.sep}`) || repositoryRoot.startsWith(`${workspaceRoot}${path.sep}`)) throw new VerificationWorkspaceBuildError("Echidna roots are unsafe.");
     const finalPath = path.join(workspaceRoot, input.workspaceId), temporaryPath = path.join(workspaceRoot, `.tmp-${input.workspaceId}-${randomUUID()}`), lockPath = path.join(workspaceRoot, `.lock-${input.workspaceId}`);
     try { await lstat(finalPath); throw new VerificationWorkspaceBuildError("Echidna workspace already exists."); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
     try {
       await writeFile(lockPath, input.workspaceId, { flag: "wx", mode: 0o600 });
-      const closure = await this.sourceClosure(repository, plan.sourceFiles), sourceMap = new Map(closure.map((entry) => [entry.relativePath, entry.bytes.toString("utf8")]));
-      const generated = new EchidnaInvariantGenerator().generate(plan, sourceMap);
+      const closure = input.authoritativeClosure ? this.authoritativeSources(input.authoritativeClosure, plan) : await this.sourceClosure(repository, plan.sourceFiles), sourceMap = new Map(closure.map((entry) => [entry.relativePath, entry.bytes.toString("utf8")]));
+      const generated = new EchidnaInvariantGenerator().generate(plan, sourceMap, !!input.authoritativeClosure);
       await sharedDirectory(temporaryPath); await sharedDirectory(path.join(temporaryPath, "src"));
       const sourceManifest: VerificationSourceManifestEntry[] = [];
       for (const source of closure) {
-        const workspacePath = `src/${source.relativePath}`, destination = path.join(temporaryPath, ...workspacePath.split("/"));
+        const workspacePath = input.authoritativeClosure ? source.relativePath : `src/${source.relativePath}`, destination = path.join(temporaryPath, ...workspacePath.split("/"));
         await sharedDirectory(path.dirname(destination), true); await writeFile(destination, source.bytes, { flag: "wx", mode: 0o640 });
         sourceManifest.push({ originalPath: source.relativePath, workspacePath, byteLength: source.bytes.length, sha256: sha256Bytes(source.bytes) });
       }
       await writeFile(path.join(temporaryPath, ECHIDNA_HARNESS_FILE), generated.source, { flag: "wx", mode: 0o640 });
       await writeFile(path.join(temporaryPath, ECHIDNA_CONFIG_FILE), generated.config, { flag: "wx", mode: 0o640 });
       const base = { formatVersion: 3 as const, engine: "echidna" as const, planKind: "executable-invariant" as const, workspaceId: input.workspaceId, schemaVersion: plan.schemaVersion, plan, planHash: generated.planHash,
-        hypothesisId: plan.hypothesisId, scanId: plan.scanId, resolvedCommit: plan.resolvedCommit, compilerVersion: plan.compilerVersion, generatorVersion: this.options.generatorVersion, generatedBy: "contracthunter" as const,
+        hypothesisId: plan.hypothesisId, scanId: plan.scanId, resolvedCommit: plan.resolvedCommit, compilerVersion: plan.compilerVersion, generatorVersion: this.options.generatorVersion, generatedBy: "contracthunter" as const, ...(input.authoritativeClosure ? { sourceLayout: "authoritative-source-unit-v1" as const } : {}),
         sourceManifest, harnessPath: ECHIDNA_HARNESS_FILE, harnessHash: generated.harnessHash, configPath: ECHIDNA_CONFIG_FILE, configHash: generated.configHash,
         echidnaVersion: ECHIDNA_UPSTREAM_VERSION, compatibilityVersion: ECHIDNA_COMPAT_VERSION, buildId: ECHIDNA_BUILD_ID, binaryHash: ECHIDNA_BINARY_SHA256,
         settings: generated.settings, executionLimits: { wallClockTimeoutMs: ECHIDNA_LIMITS.wallClockTimeoutMs, maxOutputBytes: ECHIDNA_LIMITS.maxOutputBytes, maxVirtualMemoryBytes: ECHIDNA_LIMITS.maxVirtualMemoryBytes, maxProcesses: ECHIDNA_LIMITS.maxProcesses, maxOpenFiles: ECHIDNA_LIMITS.maxOpenFiles, maxFileSizeBytes: ECHIDNA_LIMITS.maxFileSizeBytes } };
@@ -234,26 +251,26 @@ export class VerificationWorkspaceBuilder {
     finally { await rm(lockPath, { force: true }); }
   }
 
-  async buildInvariantReplay(input: { workspaceId: string; repositoryPath: string; replayPlan: InvariantReplayPlan; invariantPlan: ExecutableInvariantPlan }): Promise<{ workspacePath: string; manifest: InvariantReplayManifest; harnessSource: string }> {
+  async buildInvariantReplay(input: { workspaceId: string; repositoryPath: string; replayPlan: InvariantReplayPlan; invariantPlan: ExecutableInvariantPlan; authoritativeClosure?: ResolvedAuthoritativeSourceClosure }): Promise<{ workspacePath: string; manifest: InvariantReplayManifest; harnessSource: string }> {
     if (!SAFE_RUN_ID.test(input.workspaceId)) throw new VerificationWorkspaceBuildError("Replay workspace identifier is invalid.");
     const replayPlan = invariantReplayPlanSchema.parse(input.replayPlan), invariantPlan = executableInvariantPlanSchema.parse(input.invariantPlan);
     if (!this.options.acceptedCompilerVersions.includes(replayPlan.compilerVersion) || !semver.valid(replayPlan.compilerVersion) || semver.prerelease(replayPlan.compilerVersion)) throw new VerificationWorkspaceBuildError("Replay compiler version was not accepted.");
     let workspaceRoot: string; let repositoryRoot: string; let repository: string;
-    try { await mkdir(this.options.verificationRoot, { recursive: true }); [workspaceRoot, repositoryRoot, repository] = await Promise.all([realpath(this.options.verificationRoot), realpath(this.options.repositoryRoot), realpath(input.repositoryPath)]); }
+    try { await mkdir(this.options.verificationRoot, { recursive: true }); [workspaceRoot, repositoryRoot] = await Promise.all([realpath(this.options.verificationRoot), realpath(this.options.repositoryRoot)]); repository = input.authoritativeClosure ? repositoryRoot : await realpath(input.repositoryPath); }
     catch { throw new VerificationWorkspaceBuildError("Replay workspace or repository root is unavailable."); }
-    if (repository === repositoryRoot || !repository.startsWith(`${repositoryRoot}${path.sep}`) || workspaceRoot === repositoryRoot || workspaceRoot.startsWith(`${repositoryRoot}${path.sep}`) || repositoryRoot.startsWith(`${workspaceRoot}${path.sep}`)) throw new VerificationWorkspaceBuildError("Replay roots are unsafe.");
+    if ((!input.authoritativeClosure && (repository === repositoryRoot || !repository.startsWith(`${repositoryRoot}${path.sep}`))) || workspaceRoot === repositoryRoot || workspaceRoot.startsWith(`${repositoryRoot}${path.sep}`) || repositoryRoot.startsWith(`${workspaceRoot}${path.sep}`)) throw new VerificationWorkspaceBuildError("Replay roots are unsafe.");
     const finalPath = path.join(workspaceRoot, input.workspaceId), temporaryPath = path.join(workspaceRoot, `.tmp-${input.workspaceId}-${randomUUID()}`), lockPath = path.join(workspaceRoot, `.lock-${input.workspaceId}`);
     try { await lstat(finalPath); throw new VerificationWorkspaceBuildError("Replay workspace already exists."); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
     try {
       await writeFile(lockPath, input.workspaceId, { flag: "wx", mode: 0o600 });
-      const closure = await this.sourceClosure(repository, invariantPlan.sourceFiles), sourceMap = new Map(closure.map((entry) => [entry.relativePath, entry.bytes.toString("utf8")]));
-      const generated = new InvariantReplayGenerator().generate(replayPlan, invariantPlan, sourceMap);
+      const closure = input.authoritativeClosure ? this.authoritativeSources(input.authoritativeClosure, invariantPlan) : await this.sourceClosure(repository, invariantPlan.sourceFiles), sourceMap = new Map(closure.map((entry) => [entry.relativePath, entry.bytes.toString("utf8")]));
+      const generated = new InvariantReplayGenerator().generate(replayPlan, invariantPlan, sourceMap, !!input.authoritativeClosure);
       await sharedDirectory(temporaryPath); await Promise.all(["src", "test", "cache", "out"].map((directory) => sharedDirectory(path.join(temporaryPath, directory))));
       const sourceManifest: VerificationSourceManifestEntry[] = [];
-      for (const source of closure) { const workspacePath = `src/${source.relativePath}`, destination = path.join(temporaryPath, ...workspacePath.split("/")); await sharedDirectory(path.dirname(destination), true); await writeFile(destination, source.bytes, { flag: "wx", mode: 0o640 }); sourceManifest.push({ originalPath: source.relativePath, workspacePath, byteLength: source.bytes.length, sha256: sha256Bytes(source.bytes) }); }
+      for (const source of closure) { const workspacePath = input.authoritativeClosure ? source.relativePath : `src/${source.relativePath}`, destination = path.join(temporaryPath, ...workspacePath.split("/")); await sharedDirectory(path.dirname(destination), true); await writeFile(destination, source.bytes, { flag: "wx", mode: 0o640 }); sourceManifest.push({ originalPath: source.relativePath, workspacePath, byteLength: source.bytes.length, sha256: sha256Bytes(source.bytes) }); }
       const harnessPath = "test/ContractHunterReplay.t.sol" as const;
       await writeFile(path.join(temporaryPath, ...harnessPath.split("/")), generated.source, { flag: "wx", mode: 0o640 }); await writeFile(path.join(temporaryPath, "foundry.toml"), generated.foundryConfig, { flag: "wx", mode: 0o640 });
-      const base = { formatVersion: 1 as const, planKind: "invariant-replay" as const, workspaceId: input.workspaceId, replayPlan, replayPlanHash: generated.replayPlanHash, invariantPlan, hypothesisId: replayPlan.hypothesisId, scanId: replayPlan.scanId, resolvedCommit: replayPlan.resolvedCommit, compilerVersion: replayPlan.compilerVersion, sourceManifest, generatedHarnessPath: harnessPath, generatedHarnessSha256: generated.harnessHash, foundryConfigSha256: generated.configHash, generatorVersion: this.options.generatorVersion, generatedBy: "contracthunter" as const };
+      const base = { formatVersion: 1 as const, planKind: "invariant-replay" as const, workspaceId: input.workspaceId, replayPlan, replayPlanHash: generated.replayPlanHash, invariantPlan, hypothesisId: replayPlan.hypothesisId, scanId: replayPlan.scanId, resolvedCommit: replayPlan.resolvedCommit, compilerVersion: replayPlan.compilerVersion, ...(input.authoritativeClosure ? { sourceLayout: "authoritative-source-unit-v1" as const } : {}), sourceManifest, generatedHarnessPath: harnessPath, generatedHarnessSha256: generated.harnessHash, foundryConfigSha256: generated.configHash, generatorVersion: this.options.generatorVersion, generatedBy: "contracthunter" as const };
       const manifest = invariantReplayManifestSchema.parse({ ...base, contentFingerprint: invariantReplayManifestFingerprint(base) });
       await writeFile(path.join(temporaryPath, INVARIANT_REPLAY_MANIFEST), `${JSON.stringify(manifest, null, 2)}\n`, { flag: "wx", mode: 0o640 });
       try { await lstat(finalPath); throw new VerificationWorkspaceBuildError("Replay workspace already exists."); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }

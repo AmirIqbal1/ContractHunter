@@ -3,9 +3,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ECHIDNA_BINARY_SHA256, ECHIDNA_BUILD_ID, ECHIDNA_UPSTREAM_VERSION, echidnaSeed, invariantCapabilityProfile, invariantProposalSchema, validAIOutput, type InvariantProposalInput, type InvariantProposalProvider, type InvariantProposalProviderResult, type ProtocolAnalysisResult } from "@contracthunter/core";
-import { closeDatabase, createDatabase, createProtocolAnalysis, createScan, createSecurityReviewerRun, createSecurityReviewPlan, getVulnerabilityHypothesis, insertVulnerabilityHypotheses, listExecutableInvariantProposals, listExecutableInvariantRuns, type DatabaseClient } from "@contracthunter/db";
+import { closeDatabase, createDatabase, createProtocolAnalysis, createScan, createSecurityReviewerRun, createSecurityReviewPlan, getVulnerabilityHypothesis, insertFindings, insertVulnerabilityHypotheses, listExecutableInvariantProposals, listExecutableInvariantRuns, reconcileInvestigations, type DatabaseClient } from "@contracthunter/db";
 import { VerificationWorkspaceBuilder } from "@contracthunter/scanners";
 import { InvariantProposalService } from "./invariant-proposal-service";
+import { generateForSelectedStrategy } from "./strategy-generation-api";
+import { requestSelectedStrategy } from "./client-strategy-generation";
 import { EchidnaInvariantService } from "./echidna-invariant-service";
 import { ExecutableInvariantService } from "./executable-invariant-service";
 
@@ -28,8 +30,105 @@ function statefulSemantics() { return { mode: "stateful-invariant", primaryContr
 const generated = (semantics: unknown) => ({ status: "generated", semantics, hypothesisExpectation: "hypothesis-predicts-property-violation", relationRationale: "The hypothesis predicts that this property can be broken.", rationale: "The property maps to bounded current-state observations.", limitations: [], notPlannableReasons: [] });
 function fake(value: unknown | Error): InvariantProposalProvider & { calls: InvariantProposalInput[] } { const calls: InvariantProposalInput[] = []; return { id: "fixture-provider", calls, async generateInvariantProposal(input): Promise<InvariantProposalProviderResult> { calls.push(input); if (value instanceof Error) throw value; return { proposal: value, actualModel: "actual-model", requestId: "request-id", inputTokens: 80, outputTokens: 40, totalTokens: 120, durationMs: 7 }; } }; }
 function service(provider: InvariantProposalProvider) { return new InvariantProposalService({ database, repositoryRoot, provider, requestedModel: "configured-model", timeoutMs: 1234, maxSourceBytes: 10_000, maxFiles: 5, maxFileBytes: 5_000, pricing: { inputCostPerMillionUsd: 1, outputCostPerMillionUsd: 2 }, logger: vi.fn() }); }
+function linkNumericRule(contract: string, filePath: string) {
+  insertFindings(database, scanId, [{ title: "Numeric operation order", severity: "medium", confidence: 80, source: "slither", detectorId: "divide-before-multiply", fingerprint: "e".repeat(64), contract, functionName: null, filePath, startLine: 5, endLine: 5, rootCause: "Numeric result differs.", attackScenario: "", impact: "", evidence: "fixture", status: "candidate" }]);
+  const investigation = reconcileInvestigations(database, scanId)[0];
+  database.sqlite.prepare("UPDATE vulnerability_hypotheses SET related_investigation_ids=? WHERE id=?").run(JSON.stringify([investigation.id]), hypothesisId);
+}
 
 describe("reviewed invariant proposal boundary", () => {
+  it("locks an explicit Foundry fuzz strategy to fuzz-property and persists provenance", async () => {
+    linkNumericRule("VulnerableAccounting", "contracts/VulnerableAccounting.sol");
+    const provider = fake(generated(fuzzSemantics()));
+    const output = await service(provider).generate(hypothesisId, "foundry-fuzz-property");
+    expect(output.result).toMatchObject({ status: "generated", plan: { mode: "fuzz-property" } });
+    expect(output.proposal.selectedStrategy).toBe("foundry-fuzz-property");
+    expect(provider.calls).toHaveLength(1);
+    expect(provider.calls[0].systemPrompt).toContain("REQUIRED MODE: fuzz-property");
+    expect(listExecutableInvariantRuns(database, hypothesisId)).toEqual([]);
+    expect(getVulnerabilityHypothesis(database, hypothesisId)?.status).toBe("candidate");
+  });
+
+  it("locks an explicit Foundry stateful strategy and refuses a fuzz mode response", async () => {
+    linkNumericRule("VulnerableAccounting", "contracts/VulnerableAccounting.sol");
+    const wrong = fake(generated(fuzzSemantics()));
+    const refused = await service(wrong).generate(hypothesisId, "foundry-stateful-invariant");
+    expect(refused.result).toMatchObject({ status: "failed", failureCode: "strategy_plan_mode_mismatch", plan: null });
+    expect(refused.proposal.selectedStrategy).toBe("foundry-stateful-invariant");
+    expect(wrong.calls).toHaveLength(1);
+    database.sqlite.prepare("UPDATE vulnerability_hypotheses SET evidence=?, affected_contracts=? WHERE id=?").run(JSON.stringify([{ filePath: "contracts/StatefulAccessControl.sol", contract: "StatefulAccessControl", functionName: "transferOwnership", startLine: 6, endLine: 6 }]), JSON.stringify(["StatefulAccessControl"]), hypothesisId);
+    database.sqlite.prepare("UPDATE findings SET contract=?, file_path=? WHERE scan_id=?").run("StatefulAccessControl", "contracts/StatefulAccessControl.sol", scanId);
+    database.sqlite.prepare("UPDATE investigations SET primary_contract=?, primary_file_path=? WHERE scan_id=?").run("StatefulAccessControl", "contracts/StatefulAccessControl.sol", scanId);
+    const provider = fake(generated(statefulSemantics()));
+    const output = await service(provider).generate(hypothesisId, "foundry-stateful-invariant");
+    expect(output.result).toMatchObject({ status: "generated", plan: { mode: "stateful-invariant" } });
+    expect(output.proposal.selectedStrategy).toBe("foundry-stateful-invariant");
+    expect(provider.calls).toHaveLength(1);
+    expect(listExecutableInvariantRuns(database, hypothesisId)).toEqual([]);
+  });
+
+  it("requires concrete Echidna compatibility after one stateful provider response", async () => {
+    cpSync(path.resolve("packages/scanners/fixtures/echidna/contracts/SafeAccounting.sol"), path.join(repository, "contracts/SafeAccounting.sol"));
+    database.sqlite.prepare("UPDATE vulnerability_hypotheses SET evidence=?, affected_contracts=? WHERE id=?").run(JSON.stringify([{ filePath: "contracts/SafeAccounting.sol", contract: "SafeAccounting", functionName: "credit", startLine: 8, endLine: 8 }]), JSON.stringify(["SafeAccounting"]), hypothesisId);
+    linkNumericRule("SafeAccounting", "contracts/SafeAccounting.sol");
+    const semantics = { mode: "stateful-invariant", primaryContract: "SafeAccounting", actors: [], setup: [{ kind: "deploy", contractName: "SafeAccounting", instanceName: "target" }], handlerActions: [{ name: "credit", instanceName: "target", functionName: "credit", caller: null, parameters: [{ name: "amount", type: "uint256" }], args: [{ kind: "parameter", name: "amount" }] }], properties: [{ name: "balanced", observations: [{ kind: "read-uint", instanceName: "target", functionName: "recorded", resultName: "recordedValue" }, { kind: "read-uint", instanceName: "target", functionName: "mirror", resultName: "mirrorValue" }], assertions: [{ id: "same", kind: "uint-eq", actual: "recordedValue", expected: { kind: "result", name: "mirrorValue" } }] }] };
+    const provider = fake(generated(semantics));
+    const output = await service(provider).generate(hypothesisId, "echidna-stateful-invariant");
+    expect(output.result).toMatchObject({ status: "generated", plan: { mode: "stateful-invariant" } });
+    expect(output.proposal.selectedStrategy).toBe("echidna-stateful-invariant");
+    expect(provider.calls).toHaveLength(1);
+    expect(provider.calls[0].systemPrompt).toContain("current Echidna integration");
+    expect(listExecutableInvariantRuns(database, hypothesisId)).toEqual([]);
+  });
+
+  it("preserves independent fuzz, stateful, and failed Echidna strategy attempts without execution", async () => {
+    linkNumericRule("VulnerableAccounting", "contracts/VulnerableAccounting.sol");
+    const fuzzProvider = fake(generated(fuzzSemantics()));
+    async function throughBrowser(strategy: "foundry-fuzz-property" | "foundry-stateful-invariant" | "echidna-stateful-invariant", provider: InvariantProposalProvider) {
+      const planner = service(provider);
+      const send = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => generateForSelectedStrategy(new Request(new URL(String(url), "http://localhost"), init), { params: Promise.resolve({ id: hypothesisId, strategy }) }, { database, invariant: planner }));
+      const response = await requestSelectedStrategy(hypothesisId, strategy, send as typeof fetch);
+      expect(send).toHaveBeenCalledOnce();
+      expect(response.ok).toBe(true);
+      expect(response.body.proposal?.selectedStrategy).toBe(strategy);
+      return { proposal: response.body.proposal!, planner };
+    }
+    const fuzz = await throughBrowser("foundry-fuzz-property", fuzzProvider);
+    expect((await fuzz.planner.validate(hypothesisId, fuzz.proposal.id)).plan.mode).toBe("fuzz-property");
+    database.sqlite.prepare("UPDATE vulnerability_hypotheses SET evidence=?, affected_contracts=? WHERE id=?").run(JSON.stringify([{ filePath: "contracts/StatefulAccessControl.sol", contract: "StatefulAccessControl", functionName: "transferOwnership", startLine: 6, endLine: 6 }]), JSON.stringify(["StatefulAccessControl"]), hypothesisId);
+    database.sqlite.prepare("UPDATE findings SET contract=?, file_path=? WHERE scan_id=?").run("StatefulAccessControl", "contracts/StatefulAccessControl.sol", scanId);
+    database.sqlite.prepare("UPDATE investigations SET primary_contract=?, primary_file_path=? WHERE scan_id=?").run("StatefulAccessControl", "contracts/StatefulAccessControl.sol", scanId);
+    const statefulProvider = fake(generated(statefulSemantics()));
+    const stateful = await throughBrowser("foundry-stateful-invariant", statefulProvider);
+    expect((await stateful.planner.validate(hypothesisId, stateful.proposal.id)).plan.mode).toBe("stateful-invariant");
+    const echidnaProvider = fake(generated(statefulSemantics()));
+    const echidna = await throughBrowser("echidna-stateful-invariant", echidnaProvider);
+    expect(echidna.proposal).toMatchObject({ status: "failed", failureCode: "strategy_concrete_plan_incompatible" });
+    const history = listExecutableInvariantProposals(database, hypothesisId);
+    expect(history.map((item) => [item.id, item.selectedStrategy, item.status])).toEqual([
+      [echidna.proposal.id, "echidna-stateful-invariant", "failed"],
+      [stateful.proposal.id, "foundry-stateful-invariant", "generated"],
+      [fuzz.proposal.id, "foundry-fuzz-property", "generated"],
+    ]);
+    expect(JSON.parse(history[2].plan!).mode).toBe("fuzz-property");
+    expect(JSON.parse(history[1].plan!).mode).toBe("stateful-invariant");
+    expect([fuzzProvider.calls.length, statefulProvider.calls.length, echidnaProvider.calls.length]).toEqual([1, 1, 1]);
+    for (const table of ["hypothesis_verification_runs", "executable_invariant_runs", "invariant_replay_artifacts", "invariant_replay_runs", "authoritative_invariant_evidence", "hypothesis_lifecycle_transitions"]) {
+      expect(database.sqlite.prepare(`SELECT count(*) AS count FROM ${table}`).get(), table).toEqual({ count: 0 });
+    }
+    expect(getVulnerabilityHypothesis(database, hypothesisId)?.status).toBe("candidate");
+  });
+
+  it("records Echidna concrete incompatibility without fallback or another provider call", async () => {
+    database.sqlite.prepare("UPDATE vulnerability_hypotheses SET evidence=?, affected_contracts=? WHERE id=?").run(JSON.stringify([{ filePath: "contracts/StatefulAccessControl.sol", contract: "StatefulAccessControl", functionName: "transferOwnership", startLine: 6, endLine: 6 }]), JSON.stringify(["StatefulAccessControl"]), hypothesisId);
+    linkNumericRule("StatefulAccessControl", "contracts/StatefulAccessControl.sol");
+    const provider = fake(generated(statefulSemantics()));
+    const output = await service(provider).generate(hypothesisId, "echidna-stateful-invariant");
+    expect(output.result).toMatchObject({ status: "failed", failureCode: "strategy_concrete_plan_incompatible", plan: null });
+    expect(output.proposal.selectedStrategy).toBe("echidna-stateful-invariant");
+    expect(provider.calls).toHaveLength(1);
+    expect(listExecutableInvariantRuns(database, hypothesisId)).toEqual([]);
+  });
   it("composes a canonical fuzz plan from trusted identity and builds a deterministic workspace", async () => {
     const provider = fake(generated(fuzzSemantics())), output = await service(provider).generate(hypothesisId);
     expect(output.result).toMatchObject({ status: "generated", plan: { hypothesisId, scanId, resolvedCommit: commit, compilerVersion: "0.8.36", primarySourcePath: "contracts/VulnerableAccounting.sol" }, provenance: { promptVersion: "invariant-plan-v1", totalTokens: 120, estimatedCostUsd: 0.00016 } });

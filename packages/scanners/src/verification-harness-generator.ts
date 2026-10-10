@@ -13,7 +13,7 @@ export class VerificationHarnessGenerationError extends Error {
 }
 
 export class VerificationHarnessGenerator {
-  generate(input: VerificationHarnessPlan): string {
+  generate(input: VerificationHarnessPlan, authoritativeLayout = false): string {
     const plan = verificationHarnessPlanSchema.parse(input);
     const actors = new Set(plan.actors ?? []); const instances = new Set<string>(); const results = new Map<string, "uint" | "address">(); const statements: string[] = [];
     const actor = (name: string) => {
@@ -67,7 +67,7 @@ export class VerificationHarnessGenerator {
       const equality = assertion.kind === "uint-eq" || assertion.kind === "address-eq";
       return `require(${assertion.actual} ${equality ? "==" : "!="} ${expected}, "CH_ASSERT_${index}");`;
     });
-    const importPath = `../src/${plan.primarySourcePath}`;
+    const importPath = `${authoritativeLayout ? "../" : "../src/"}${plan.primarySourcePath}`;
     const usesCheatcodes = plan.operations.some((operation) => operation.kind === "fund" || (operation.kind === "call" && Boolean(operation.caller)));
     return `// SPDX-License-Identifier: UNLICENSED
 pragma solidity ${plan.compilerVersion};

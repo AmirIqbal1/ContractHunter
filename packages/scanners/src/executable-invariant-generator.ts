@@ -19,7 +19,7 @@ const targeting = `abstract contract ContractHunterTargeting {
 export type GeneratedInvariantHarness = { source: string; foundryConfig: string; planHash: string; harnessHash: string; configHash: string; settings: typeof invariantFoundrySettings & { seed: string } };
 function indent(lines: string[], spaces = 8): string { return lines.map((line) => `${" ".repeat(spaces)}${line}`).join("\n"); }
 export class ExecutableInvariantGenerator {
-  generate(input: ExecutableInvariantPlan, sourceFiles: ReadonlyMap<string, string>): GeneratedInvariantHarness {
+  generate(input: ExecutableInvariantPlan, sourceFiles: ReadonlyMap<string, string>, authoritativeLayout = false): GeneratedInvariantHarness {
     const plan = executableInvariantPlanSchema.parse(input);
     const primary = sourceFiles.get(plan.primarySourcePath);
     if (primary === undefined || plan.sourceFiles.some((file) => !sourceFiles.has(file))) throw new Error("Invariant source closure is incomplete.");
@@ -62,7 +62,7 @@ export class ExecutableInvariantGenerator {
       });
       return [...reads, ...checks];
     };
-    const importLine = `import { ${plan.primaryContract} } from "../src/${plan.primarySourcePath}";`;
+    const importLine = `import { ${plan.primaryContract} } from "${authoritativeLayout ? "../" : "../src/"}${plan.primarySourcePath}";`;
     let source: string;
     if (plan.mode === "fuzz-property") {
       const actorLines = plan.actors.map((name, i) => `address actor_${name} = ${name === "deployer" ? "address(this)" : `address(uint160(${4097 + i}))`};`);
@@ -78,7 +78,7 @@ export class ExecutableInvariantGenerator {
       const properties = plan.properties.map((property) => `    function invariant_${property.name}() public view {\n${indent(renderProperty(property))}\n    }`).join("\n\n");
       source = `// SPDX-License-Identifier: UNLICENSED\npragma solidity ${plan.compilerVersion};\n\n${importLine}\n\n${vmInterface}\n\n${targeting}\n\ncontract ContractHunterHandler is ContractHunterCheats {\n${declarations}\n    constructor(${constructorArgs}) {\n${indent(assignments)}\n    }\n\n${actions}\n}\n\ncontract ContractHunterInvariantTest is ContractHunterCheats, ContractHunterTargeting {\n${declarations}\n    ContractHunterHandler internal handler;\n\n    function setUp() public {\n${indent([...actorSetup, ...setup, `handler = new ContractHunterHandler(${[...instanceNames, ...plan.actors.map((name) => `actor_${name}`)].join(", ")});`, "targetContract(address(handler));"])}\n    }\n\n${properties}\n}\n`;
     }
-    const planHash = invariantPlanHash(plan), foundryConfig = createContractHunterInvariantFoundryConfig(plan.compilerVersion, planHash);
+    const planHash = invariantPlanHash(plan), foundryConfig = createContractHunterInvariantFoundryConfig(plan.compilerVersion, planHash, authoritativeLayout);
     return { source, foundryConfig, planHash, harnessHash: sha256Bytes(source), configHash: sha256Bytes(foundryConfig), settings: { ...invariantFoundrySettings, seed: `0x${planHash}` } };
   }
 }

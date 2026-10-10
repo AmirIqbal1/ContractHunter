@@ -33,7 +33,7 @@ Static scanning does not use OpenAI tokens. AI stages are optional and manual. A
 
 Deterministic Foundry fuzz/property and stateful invariant testing, AI semantic invariant proposals, deterministic counterexample replay, explicit relevance review, and authoritative dynamic evidence.
 
-**v0.2.1 — Echidna invariant engine** · Release-ready; publication pending
+**v0.2.1 — Echidna invariant engine** · Released
 
 - **Milestone 1 — Engine foundation:** reproducible patched Echidna 2.3.3, networkless worker execution, a deterministic stateful invariant subset, strict structured output, and reuse of the existing replay pipeline.
 - **Milestone 2 — Explicit engine workflow:** manual Foundry/Echidna selection, persisted engine provenance, compatibility reporting, Echidna run history, and Echidna-origin deterministic replay.
@@ -41,15 +41,15 @@ Deterministic Foundry fuzz/property and stateful invariant testing, AI semantic 
 
 Echidna supports a bounded compatible subset; bounded success means no counterexample was found within the configured budget, not that safety is proven. A counterexample alone does not verify a vulnerability.
 
-**v0.2.2 — Smarter verification** · Planned
+**v0.2.2 — Smarter verification** · Completed; release-ready, not published
 
-Smarter verification-plan selection, better hypothesis/property selection, root-cause grouping, and finding/hypothesis deduplication.
+Deterministic verification options and strategy-aware planning, conservative target grouping with representative navigation, and explicit plan reuse. Supported plain-profile scans preserve immutable source snapshots, authoritative compilation provenance, and raw-byte source-closure fingerprints. Compatibility and grouping are advisory; a reused plan needs fresh review and validation before separate execution, with no inherited evidence or lifecycle state. Authoritative source and reuse support is limited to `plain-solidity-exact-pragma-v1`; broader Foundry and Hardhat projects may be scanned but are not yet authoritative-supported.
 
-**v0.3 — Autonomous local auditing** · Planned
+**v0.3 — Fork & Impact Engine / Impact Lab** · Planned
 
-More automated local audit orchestration, a static analysis → AI review → verification workflow, and local audit/report generation, while preserving existing verification and security boundaries.
+An Anvil-first, local-fork workflow for authorised researchers to reproduce candidate vulnerabilities against pinned deployed state, inspect traces and state changes, measure impact, and export reproducible evidence. Autonomous PoC generation and broader audit orchestration follow the safe engine foundation.
 
-See the [full roadmap](docs/roadmap.md) for details.
+See the [full roadmap](docs/roadmap.md) and [Impact Lab design](docs/impact-lab.md) for details.
 
 ## Future
 
@@ -106,4 +106,5 @@ AI remains optional/manual and hypotheses are not automatically verified. Local 
 - [Development](docs/development.md)
 - [Release history](docs/release-history.md)
 - [Roadmap](docs/roadmap.md)
+- [Impact Lab design](docs/impact-lab.md)
 - [AI handoff](docs/ai-handoff.md)
