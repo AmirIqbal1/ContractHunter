@@ -54,14 +54,14 @@ Invalid state transitions fail without rewriting prior history. Proposal generat
 
 - `GET /api/health` — database, AI-configuration visibility, and tool health
 
-### Strategy-aware planning UI (v0.2.2 Milestone 1, in development)
+### Strategy-aware planning UI (v0.2.2 Milestone 1, release-ready)
 
 A compatible Verification option sends only the selected strategy in the route path and no request body. The server reloads persisted evidence and reassesses compatibility. The structured response includes its immutable attempt ID and reviewable result; invariant responses include the persisted proposal ID, selected-strategy provenance and canonical mode. Generation never executes. Current compatibility rejection uses `strategy_not_compatible` or `strategy_compatibility_unknown` with bounded reasons; the page reloads the options. Concrete planning failures remain saved as `failed` attempts or proposals with bounded failure codes. The existing manual generation, validation, execution, replay and review endpoints remain available.
 ### Explicit authoritative planning reuse (v0.2.2 Part 2B-1A)
 
 `POST /api/hypotheses/:hypothesisId/verification-target/reuse/structured/:attemptId` and `POST /api/hypotheses/:hypothesisId/verification-target/reuse/invariant/:proposalId` accept an empty body and no query parameters. The path IDs are selectors only. A successful request returns `201` with the new `attempt` or `proposal`; its ID belongs to the requested hypothesis and its origin is `reused`. The new artifact includes bounded reuse source/target identity and a fresh authoritative source-closure fingerprint. It has no inherited execution, evidence, validation, replay, or lifecycle state.
 
-The server reloads current persisted evidence, target, strategy, scan, compilation, alignment, and source snapshot state on each POST. It recomputes the verified raw-byte closure fingerprint and checks the original generation-time fingerprint, exact scan/commit/compiler identity, target membership, selected strategy, and invariant mode/property target. Echidna concrete compatibility is checked again. Reuse never calls AI or executes verification. Unsupported profiles and historical null-fingerprint artifacts cannot be reused. Failures return bounded `reuse_*` codes with `400`, `404`, `409`, or `500`; no automatic generation fallback occurs. No Reuse UI is available yet.
+The server reloads current persisted evidence, target, strategy, scan, compilation, alignment, and source snapshot state on each POST. It recomputes the verified raw-byte closure fingerprint and checks the original generation-time fingerprint, exact scan/commit/compiler identity, target membership, selected strategy, and invariant mode/property target. Echidna concrete compatibility is checked again. Reuse never calls AI or executes verification. Unsupported profiles and historical null-fingerprint artifacts cannot be reused. Failures return bounded `reuse_*` codes with `400`, `404`, `409`, or `500`; no automatic generation fallback occurs. The explicit client action is described below.
 
 ### Explicit reuse client (v0.2.2 Part 2B-1B)
 

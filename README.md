@@ -41,9 +41,9 @@ Deterministic Foundry fuzz/property and stateful invariant testing, AI semantic 
 
 Echidna supports a bounded compatible subset; bounded success means no counterexample was found within the configured budget, not that safety is proven. A counterexample alone does not verify a vulnerability.
 
-**v0.2.2 — Smarter verification** · In development
+**v0.2.2 — Smarter verification** · Completed; release-ready, not published
 
-Deterministic, advisory verification options; conservative verification-target grouping and representative navigation; immutable scan-time source snapshots; narrow authoritative compilation and source closures; and explicit planning reuse. Compatible means a strategy can express the current evidence, not that a vulnerability is valid. A representative is chosen deterministically for planning navigation, not as a vulnerability ranking. Reused plans require fresh review and explicit validation; execution, evidence, and lifecycle state are never inherited. Authoritative source and reuse support is limited to `plain-solidity-exact-pragma-v1`. Foundry and Hardhat authoritative support remain future work.
+Deterministic verification options and strategy-aware planning, conservative target grouping with representative navigation, and explicit plan reuse. Supported plain-profile scans preserve immutable source snapshots, authoritative compilation provenance, and raw-byte source-closure fingerprints. Compatibility and grouping are advisory; a reused plan needs fresh review and validation before separate execution, with no inherited evidence or lifecycle state. Authoritative source and reuse support is limited to `plain-solidity-exact-pragma-v1`; broader Foundry and Hardhat projects may be scanned but are not yet authoritative-supported.
 
 **v0.3 — Fork & Impact Engine / Impact Lab** · Planned
 

@@ -1,5 +1,15 @@
 # Release history
 
+## v0.2.2 — Smarter Verification (release preparation; not yet published)
+
+Deterministic verification strategy assessment now presents advisory Verification options for structured verification, Foundry fuzz and stateful invariants, and the supported Echidna stateful subset. Explicit strategy-aware generation rechecks current evidence before one planning request. Compatibility does not validate a vulnerability or execute a plan.
+
+Conservative verification-target grouping links exact source targets and selects a representative for planning navigation, not severity ranking or proven deduplication. Canonical invariant actions, observations, and assertions provide exact property-target identities. Candidate discovery is advisory; users explicitly choose **Reuse plan**. Each reuse POST reassesses current target, strategy, property, compiler, scan/commit, scanner alignment, and raw-byte source closure, then creates a fresh planning artifact with immutable reuse provenance. Reused artifacts need fresh review and validation. They inherit no execution, replay, evidence, or lifecycle state; execution remains a separate action.
+
+New scans store immutable raw-byte source snapshots. ContractHunter records authoritative compilation provenance, exact source-unit membership, scanner/source alignment, snapshot-backed source closures, and generation-time source-closure fingerprints. This authority currently supports only `plain-solidity-exact-pragma-v1` with exact pragmas and no Foundry or Hardhat configuration, remappings, or library roots. Slither and Aderyn may scan broader projects without establishing authoritative verification support. Historical rows receive no fabricated provenance.
+
+Release hardening passed 612 tests across 70 files, transactional v0.2.1 upgrade and fresh-database checks, production dependency audit with zero advisories, isolated Compose startup, and live worker-isolation inspection. Development/build-only advisories remain. Compiler-backed live worker and real plain-profile compiler smokes were unavailable because this environment had no trusted cached solc; none was downloaded. Publication, tag, and GitHub release remain manual.
+
 ## v0.2.1 — Echidna Invariant Engine (released)
 
 Echidna is available as a second local invariant engine alongside Foundry. Users select Foundry or Echidna explicitly; there is no automatic engine selection or fallback. The Echidna integration uses a reproducible patched and pinned 2.3.3 compatibility build, with a static ELF verified by its SHA-256, and a deterministic stateful subset with strict terminal JSON results. Echidna counterexamples that map to the canonical action format reuse ContractHunter's existing deterministic replay pipeline. Engine identity is persisted in immutable run history, and historical v0.2.0 invariant runs migrate as Foundry without rewriting their semantic evidence. Transactional upgrade and fresh-install hardening are covered by regression checks.
