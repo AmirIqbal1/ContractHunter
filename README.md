@@ -33,7 +33,7 @@ Static scanning does not use OpenAI tokens. AI stages are optional and manual. A
 
 Deterministic Foundry fuzz/property and stateful invariant testing, AI semantic invariant proposals, deterministic counterexample replay, explicit relevance review, and authoritative dynamic evidence.
 
-**v0.2.1 — Echidna invariant engine** · Release-ready; publication pending
+**v0.2.1 — Echidna invariant engine** · Released
 
 - **Milestone 1 — Engine foundation:** reproducible patched Echidna 2.3.3, networkless worker execution, a deterministic stateful invariant subset, strict structured output, and reuse of the existing replay pipeline.
 - **Milestone 2 — Explicit engine workflow:** manual Foundry/Echidna selection, persisted engine provenance, compatibility reporting, Echidna run history, and Echidna-origin deterministic replay.
@@ -43,7 +43,7 @@ Echidna supports a bounded compatible subset; bounded success means no counterex
 
 **v0.2.2 — Smarter verification** · In development
 
-Smarter verification-plan selection, better hypothesis/property selection, root-cause grouping, and finding/hypothesis deduplication.
+Deterministic, advisory verification options; conservative verification-target grouping and representative navigation; immutable scan-time source snapshots; narrow authoritative compilation and source closures; and explicit planning reuse. Compatible means a strategy can express the current evidence, not that a vulnerability is valid. A representative is chosen deterministically for planning navigation, not as a vulnerability ranking. Reused plans require fresh review and explicit validation; execution, evidence, and lifecycle state are never inherited. Authoritative source and reuse support is limited to `plain-solidity-exact-pragma-v1`. Foundry and Hardhat authoritative support remain future work.
 
 **v0.3 — Fork & Impact Engine / Impact Lab** · Planned
 

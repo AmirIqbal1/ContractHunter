@@ -1,6 +1,6 @@
 # Release history
 
-## v0.2.1 — Echidna Invariant Engine (release preparation; not published)
+## v0.2.1 — Echidna Invariant Engine (released)
 
 Echidna is available as a second local invariant engine alongside Foundry. Users select Foundry or Echidna explicitly; there is no automatic engine selection or fallback. The Echidna integration uses a reproducible patched and pinned 2.3.3 compatibility build, with a static ELF verified by its SHA-256, and a deterministic stateful subset with strict terminal JSON results. Echidna counterexamples that map to the canonical action format reuse ContractHunter's existing deterministic replay pipeline. Engine identity is persisted in immutable run history, and historical v0.2.0 invariant runs migrate as Foundry without rewriting their semantic evidence. Transactional upgrade and fresh-install hardening are covered by regression checks.
 
