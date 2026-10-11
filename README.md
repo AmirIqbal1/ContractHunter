@@ -45,9 +45,9 @@ Echidna supports a bounded compatible subset; bounded success means no counterex
 
 Deterministic verification options and strategy-aware planning, conservative target grouping with representative navigation, and explicit plan reuse. Supported plain-profile scans preserve immutable source snapshots, authoritative compilation provenance, and raw-byte source-closure fingerprints. Compatibility and grouping are advisory; a reused plan needs fresh review and validation before separate execution, with no inherited evidence or lifecycle state. Authoritative source and reuse support is limited to `plain-solidity-exact-pragma-v1`; broader Foundry and Hardhat projects may be scanned but are not yet authoritative-supported.
 
-**v0.3 — Fork & Impact Engine / Impact Lab** · In development; Phase A1 implemented, not released
+**v0.3 — Fork & Impact Engine / Impact Lab** · In development; Phase A2 fork infrastructure implemented, not released
 
-Phase A1 adds an internal Anvil fork lifecycle and a local-versus-upstream RPC safety boundary. PoC execution, traces, state changes, impact measurement, export, and the full GUI remain future work.
+Phase A2 adds exact-block fork creation, target bytecode identity checks, configured RPC references, and safe session APIs on the Phase A1 lifecycle and RPC safety boundary. PoC execution, traces, state changes, impact measurement, export, and the full GUI remain future work.
 
 See the [full roadmap](docs/roadmap.md) and [Impact Lab design](docs/impact-lab.md) for details.
 

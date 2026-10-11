@@ -37,11 +37,22 @@ type Dependencies = {
 };
 
 function copySession(view: ImpactForkSession): ImpactForkSession {
-  return { ...view, targetContracts: [...view.targetContracts], disposableAccounts: [...view.disposableAccounts] };
+  return { ...view, targetContracts: [...view.targetContracts], targetCodeHashes: { ...view.targetCodeHashes }, disposableAccounts: [...view.disposableAccounts] };
+}
+
+// SHA-256 of the exact deployed bytecode, independent of repository/source hashes.
+export function deployedCodeHash(code: unknown): string {
+  if (typeof code !== "string" || !/^0x(?:[0-9a-fA-F]{2})+$/.test(code) || code.length > 2 + 2 * 24576)
+    throw new ImpactForkError("impact_target_code_invalid");
+  return `sha256:${createHash("sha256").update(Buffer.from(code.slice(2), "hex")).digest("hex")}`;
 }
 
 export function anvilArguments(config: ImpactForkConfig, port: number, proxyUrl: string): string[] {
-  if (config.localBindAddress !== HOST || !Number.isInteger(port) || port < 1024 || port > 65535 || !proxyUrl.startsWith(`http://${HOST}:`)) throw new ImpactForkError("impact_invocation_invalid");
+  let proxy: URL;
+  try { proxy = new URL(proxyUrl); } catch { throw new ImpactForkError("impact_invocation_invalid"); }
+  if (config.localBindAddress !== HOST || !Number.isInteger(port) || port < 1024 || port > 65535 ||
+    proxy.protocol !== "http:" || proxy.hostname !== HOST || !proxy.port || !/^\/[a-f0-9]{48}$/.test(proxy.pathname) ||
+    proxy.search || proxy.hash || proxy.username || proxy.password) throw new ImpactForkError("impact_invocation_invalid");
   return ["--host", HOST, "--port", String(port), "--fork-url", proxyUrl, "--fork-block-number", String(config.forkBlock),
     "--chain-id", String(config.chainId), "--accounts", "1", "--silent"];
 }
@@ -173,7 +184,8 @@ export class ImpactForkService {
     if ([...this.sessions.values()].filter((s) => s.view.status === "starting" || s.view.status === "ready").length >= 2) throw new ImpactForkError("impact_session_limit");
     const handle = Object.freeze({ id: randomUUID(), token: randomBytes(32).toString("hex") });
     const view: ImpactForkSession = { id: handle.id, status: "created", findingId: config.findingId ?? null, hypothesisId: config.hypothesisId ?? null,
-      chainId: config.chainId, network: config.network, upstreamRpcRef: config.upstreamRpcRef, targetContracts: config.targetContracts,
+      chainId: config.chainId, network: config.network, upstreamRpcRef: config.upstreamRpcRef, rpcConfigId: config.rpcConfigId ?? null, targetContracts: config.targetContracts,
+      targetCodeHashes: {},
       resolvedForkBlock: config.forkBlock, historicalTransactionHash: config.historicalTransactionHash ?? null,
       forkBlockHash: null, localPort: null, localRpcEndpoint: null, anvilVersion: null, anvilSha256: null,
       processPid: null, baselineSnapshotId: null, disposableAccounts: [], createdAt: Date.now(), startedAt: null, stoppedAt: null, failureCode: null };
@@ -184,6 +196,27 @@ export class ImpactForkService {
   }
 
   getSession(id: string): ImpactForkSession | null { const view = this.sessions.get(id)?.view; return view ? copySession(view) : null; }
+
+  recreateForkSession(source: ImpactForkSession): ImpactForkHandle {
+    if (source.status !== "stopped" && source.status !== "failed" || !source.forkBlockHash ||
+      !impactHashSchema.safeParse(source.forkBlockHash).success ||
+      source.targetContracts.length < 1 || source.targetContracts.some((address) =>
+        !impactAddressSchema.safeParse(address).success || !/^sha256:[0-9a-f]{64}$/.test(source.targetCodeHashes[address] ?? "")))
+      throw new ImpactForkError("impact_recreate_identity_invalid");
+    impactForkConfigSchema.parse({ chainId: source.chainId, network: source.network, upstreamRpcRef: source.upstreamRpcRef,
+      rpcConfigId: source.rpcConfigId ?? undefined, targetContracts: source.targetContracts, forkBlock: source.resolvedForkBlock,
+      findingId: source.findingId ?? undefined, hypothesisId: source.hypothesisId ?? undefined, localBindAddress: HOST });
+    const previous = this.sessions.get(source.id);
+    if (previous && previous.view.status !== "stopped" && previous.view.status !== "failed") throw new ImpactForkError("impact_transition_invalid");
+    if (previous?.child?.pid && !previous.child.killed && previous.child.exitCode === null) throw new ImpactForkError("impact_recreate_process_active");
+    const handle = Object.freeze({ id: source.id, token: randomBytes(32).toString("hex") });
+    const view: ImpactForkSession = { ...copySession(source), status: "created", localPort: null, localRpcEndpoint: null,
+      processPid: null, baselineSnapshotId: null, disposableAccounts: [], startedAt: null, stoppedAt: null, failureCode: null };
+    const runtime: Runtime = { view, handle, snapshots: [], stopping: false };
+    this.sessions.set(source.id, runtime);
+    this.deps.onStatus?.(copySession(view));
+    return handle;
+  }
 
   private requireHandle(handle: ImpactForkHandle): Runtime {
     const runtime = this.sessions.get(handle.id);
@@ -197,7 +230,7 @@ export class ImpactForkService {
     if ([...this.sessions.values()].filter((s) => s !== runtime && (s.view.status === "starting" || s.view.status === "ready")).length >= 2) throw new ImpactForkError("impact_session_limit");
     this.publish(runtime, { status: "starting" });
     const config = impactForkConfigSchema.parse({ chainId: runtime.view.chainId, network: runtime.view.network,
-      upstreamRpcRef: runtime.view.upstreamRpcRef, targetContracts: runtime.view.targetContracts,
+      upstreamRpcRef: runtime.view.upstreamRpcRef, rpcConfigId: runtime.view.rpcConfigId ?? undefined, targetContracts: runtime.view.targetContracts,
       forkBlock: runtime.view.resolvedForkBlock, findingId: runtime.view.findingId ?? undefined,
       hypothesisId: runtime.view.hypothesisId ?? undefined, historicalTransactionHash: runtime.view.historicalTransactionHash ?? undefined, localBindAddress: HOST });
     try {
@@ -207,10 +240,19 @@ export class ImpactForkService {
       const upstream = (this.deps.resolveUpstream ?? ((ref: string) => process.env[ref]))(config.upstreamRpcRef);
       if (!upstream) throw new ImpactForkError("impact_upstream_unavailable");
       runtime.proxy = await (this.deps.startProxy ?? startReadOnlyUpstreamProxy)(upstream);
+      if (!runtime.proxy.isListening()) throw new ImpactForkError("impact_proxy_unavailable");
       if (signal?.aborted) throw new ImpactForkError("impact_startup_cancelled");
       const call = this.deps.rpc ?? rpcCall;
       if (hexNumber(await call(runtime.proxy.url, "eth_chainId", [])) !== config.chainId) throw new ImpactForkError("impact_chain_mismatch");
       const blockHash = blockIdentity(await call(runtime.proxy.url, "eth_getBlockByNumber", [`0x${config.forkBlock.toString(16)}`, false]), config.forkBlock);
+      if (runtime.view.forkBlockHash && blockHash !== runtime.view.forkBlockHash) throw new ImpactForkError("impact_upstream_block_changed");
+      const targetCodeHashes: Record<string, string> = {};
+      for (const address of config.targetContracts) {
+        const hash = deployedCodeHash(await call(runtime.proxy.url, "eth_getCode", [address, `0x${config.forkBlock.toString(16)}`]));
+        if (runtime.view.targetCodeHashes[address] && runtime.view.targetCodeHashes[address] !== hash)
+          throw new ImpactForkError("impact_upstream_code_changed");
+        targetCodeHashes[address] = hash;
+      }
       let port = 0;
       for (let attempt = 0; attempt < 5; attempt++) {
         const candidate = await (this.deps.reservePort ?? reserveLoopbackPort)();
@@ -234,16 +276,18 @@ export class ImpactForkService {
         if (outputBytes > MAX_OUTPUT_BYTES && runtime.child?.pid) void (this.deps.terminate ?? terminateGroup)(runtime.child.pid).catch(() => undefined);
       });
       child.once("exit", () => { if (!runtime.stopping && runtime.view.status !== "stopped") {
-        if (child.pid) void (this.deps.terminate ?? terminateGroup)(child.pid).catch(() => undefined);
-        void runtime.proxy?.close().catch(() => undefined);
         try { this.publish(runtime, { status: "failed", failureCode: "impact_process_exited", stoppedAt: Date.now(), localRpcEndpoint: null, baselineSnapshotId: null }); }
         catch { runtime.view = { ...runtime.view, status: "failed", failureCode: "impact_process_exited", stoppedAt: Date.now(), localRpcEndpoint: null, baselineSnapshotId: null }; }
+        void this.cleanup(runtime).catch(() => {
+          try { this.publish(runtime, { failureCode: "impact_cleanup_failed" }); } catch { runtime.view = { ...runtime.view, failureCode: "impact_cleanup_failed" }; }
+        });
       } });
       const endpoint = `http://${HOST}:${port}`;
       const deadline = Date.now() + STARTUP_MS;
       let ready = false;
       while (Date.now() < deadline) {
         if (signal?.aborted) throw new ImpactForkError("impact_startup_cancelled");
+        if (!runtime.proxy.isListening()) throw new ImpactForkError("impact_proxy_unavailable");
         if (child.exitCode !== null || (runtime.view.status as string) === "failed") break;
         try {
           if ((this.deps.processToken ?? processStartToken)(child.pid) !== runtime.startToken ||
@@ -259,18 +303,24 @@ export class ImpactForkService {
         }
       }
       if (!ready) throw new ImpactForkError("impact_startup_timeout");
+      if (!runtime.proxy.isListening()) throw new ImpactForkError("impact_proxy_unavailable");
       if (signal?.aborted) throw new ImpactForkError("impact_startup_cancelled");
+      for (const address of config.targetContracts) {
+        const localHash = deployedCodeHash(await call(endpoint, "eth_getCode", [address, `0x${config.forkBlock.toString(16)}`]));
+        if (localHash !== targetCodeHashes[address]) throw new ImpactForkError("impact_target_code_mismatch");
+      }
       const accounts = await call(endpoint, "eth_accounts", []);
       if (!Array.isArray(accounts) || accounts.length !== 1 || !impactAddressSchema.safeParse(accounts[0]).success) throw new ImpactForkError("impact_disposable_accounts_invalid");
       const baseline = await call(endpoint, "evm_snapshot", []);
       if (typeof baseline !== "string" || !/^0x[0-9a-f]+$/i.test(baseline)) throw new ImpactForkError("impact_snapshot_failed");
+      if (!runtime.proxy.isListening()) throw new ImpactForkError("impact_proxy_unavailable");
       if (child.exitCode !== null || (runtime.view.status as string) === "failed" || signal?.aborted) throw new ImpactForkError("impact_process_exited");
       runtime.snapshots = [baseline];
-      this.publish(runtime, { status: "ready", forkBlockHash: blockHash, localRpcEndpoint: endpoint, anvilVersion: binary.version,
+      this.publish(runtime, { status: "ready", forkBlockHash: blockHash, targetCodeHashes, localRpcEndpoint: endpoint, anvilVersion: binary.version,
         anvilSha256: binary.sha256, processPid: child.pid, baselineSnapshotId: baseline, disposableAccounts: [accounts[0]], startedAt: Date.now() });
       runtime.timer = setTimeout(() => { void this.stopForkSession(handle); }, MAX_RUNTIME_MS);
       runtime.timer.unref();
-      return copySession(runtime.view);
+      return this.assertSafeImpactExecutionEndpoint(handle);
     } catch (error) {
       let cleanupFailed = false;
       try { await this.cleanup(runtime); } catch { cleanupFailed = true; }
@@ -284,7 +334,7 @@ export class ImpactForkService {
     const view = runtime.view;
     if (view.status !== "ready" || !runtime.child?.pid || !runtime.startToken || !runtime.port || !view.localRpcEndpoint ||
       endpoint !== undefined && endpoint !== view.localRpcEndpoint || view.localRpcEndpoint !== `http://${HOST}:${runtime.port}` ||
-      runtime.child.exitCode !== null || runtime.child.killed) throw new ImpactForkError("impact_execution_endpoint_unsafe");
+      runtime.child.exitCode !== null || runtime.child.killed || !runtime.proxy?.isListening()) throw new ImpactForkError("impact_execution_endpoint_unsafe");
     try {
       if ((this.deps.processToken ?? processStartToken)(runtime.child.pid) !== runtime.startToken ||
         !(this.deps.ownsPort ?? processOwnsLoopbackPort)(runtime.child.pid, runtime.port)) throw new Error("process identity changed");
@@ -293,6 +343,9 @@ export class ImpactForkService {
       const chain = hexNumber(await call(view.localRpcEndpoint, "eth_chainId", []));
       const block = blockIdentity(await call(view.localRpcEndpoint, "eth_getBlockByNumber", [`0x${view.resolvedForkBlock.toString(16)}`, false]), view.resolvedForkBlock);
       if (typeof version !== "string" || !/^anvil[/ ]/i.test(version) || chain !== view.chainId || block !== view.forkBlockHash) throw new Error("RPC identity changed");
+      for (const address of view.targetContracts)
+        if (deployedCodeHash(await call(view.localRpcEndpoint, "eth_getCode", [address, `0x${view.resolvedForkBlock.toString(16)}`])) !== view.targetCodeHashes[address])
+          throw new Error("Target deployment changed");
       return copySession(view);
     } catch {
       let cleanupFailed = false;

@@ -1,6 +1,19 @@
 # ContractHunter v0.3 — Fork & Impact Engine
 
-**User-facing workflow:** Impact Lab. **Status:** v0.3 Phase A1 internal fork lifecycle and safety boundary implemented; v0.3 is not released. No PoC execution, result export, public API, CLI, or GUI exists yet.
+**User-facing workflow:** Impact Lab. **Status:** v0.3 Phase A2 real-fork infrastructure implemented; v0.3 is not released. No PoC execution, result export, public API, CLI, or GUI exists yet.
+
+
+## Phase A2: exact-block fork sessions
+
+Phase A2 keeps Anvil behind the ContractHunter-owned loopback read-only JSON-RPC proxy. The browser selects a server-configured `rpcConfigId`; `IMPACT_RPC_CONFIGS` maps that ID to a chain ID, network and `IMPACT_RPC_*` environment secret reference. Neither the raw URL nor the secret reference is returned by the public session serializer. The proxy accepts POST on a random private loopback path only. Its whole-batch positive allowlist is `eth_chainId`, `eth_blockNumber`, `eth_getBlockByNumber`, `eth_getBlockByHash`, `eth_getCode`, `eth_getBalance`, `eth_call`, `eth_getStorageAt`, `eth_getLogs`, `eth_getTransactionByHash`, `eth_getTransactionReceipt`, `eth_getTransactionCount`, `eth_getProof`, `eth_feeHistory`, `eth_gasPrice`, `eth_maxPriorityFeePerGas`, `eth_getBlockReceipts`, and `net_version`. Unknown, signing, wallet, account, mining, impersonation, snapshot, Anvil/Hardhat mutation and transaction-submission methods are rejected before forwarding. Mixed batches are rejected in full.
+
+The proxy bounds requests to 256 KiB, responses to 4 MiB, batches to 20 calls, methods to 64 characters, concurrent requests to eight, and upstream calls to ten seconds. Malformed JSON-RPC is rejected. Redirects are refused and provider errors are replaced with a generic error so secret-bearing URL text is not exposed. A configured URL must be HTTPS, without URL credentials or fragments; configuration is a privileged server setting, not browser input. No RPC cache is used.
+
+Before Anvil starts, the service checks the configured chain ID, resolves the exact block and hash, and verifies nonempty deployed code for every target at that block. Deployed-code identity is `sha256:` plus SHA-256 of the bytecode bytes; it is separate from source hashes. Anvil receives only the proxy URL and exact block in a fixed argument vector. Before ready, the owned loopback Anvil process must report the expected chain and block hash, target code hashes must equal the upstream hashes, and a baseline snapshot must succeed. The central execution guard repeats process/listener, proxy, chain, block and target-code checks. The proxy and unrelated local RPC are never execution endpoints.
+
+Migration `0010_v0_3_impact_fork_identity` adds nullable configuration ID and target-code-hash fields. Historical A1 rows retain null/empty identity rather than fabricated data. A stopped or failed A2 session can be recreated explicitly with the same persistent session ID, a fresh runtime token/process/port and fresh baseline snapshot. Recreation re-resolves its configured secret reference and fails if the chain, saved block hash or saved target code hash changed. Server startup does not recreate sessions. The public API offers configured RPC references, create, inspect, stop and explicit recreate routes. It exposes no raw execution RPC, process ID or provider secret.
+
+Tests use a deterministic fake read provider that records received methods and prove transaction methods and mixed batches never reach it. The opt-in real loopback proxy socket test passed with a mocked provider. No approved Anvil executable or Impact Lab test RPC was present in this workspace, so real Anvil and live read-only fork smoke were skipped; fork compatibility through the proxy is not yet empirically established here. No PoC execution or autonomous exploit generation exists. Phase B must add independent runtime egress isolation and use only verified session IDs from the trusted registry.
 
 ## Phase A1 implementation
 

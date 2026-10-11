@@ -2,10 +2,25 @@ import { z } from "zod";
 
 export const impactAddressSchema = z.string().regex(/^0x[a-fA-F0-9]{40}$/);
 export const impactHashSchema = z.string().regex(/^0x[a-fA-F0-9]{64}$/);
+export const impactRpcConfigIdSchema = z.string().min(1).max(64).regex(/^[a-z0-9][a-z0-9-]*$/);
+export const impactRpcConfigurationSchema = z.object({
+  id: impactRpcConfigIdSchema,
+  chainId: z.number().int().positive().safe().max(1_000_000_000_000),
+  network: z.string().min(1).max(64).regex(/^[a-z0-9][a-z0-9-]*$/),
+  upstreamUrlSecretRef: z.string().regex(/^IMPACT_RPC_[A-Z0-9_]{1,64}$/),
+  enabled: z.boolean(),
+}).strict();
+export type ImpactRpcConfiguration = z.infer<typeof impactRpcConfigurationSchema>;
+export const impactCreateSessionSchema = z.object({
+  findingId: z.string().uuid().optional(), hypothesisId: z.string().uuid().optional(),
+  rpcConfigId: impactRpcConfigIdSchema, forkBlock: z.number().int().nonnegative().safe(),
+  targetContracts: z.array(impactAddressSchema).min(1).max(20),
+}).strict().refine((value) => Number(Boolean(value.findingId)) + Number(Boolean(value.hypothesisId)) === 1);
 export const impactForkConfigSchema = z.object({
   chainId: z.number().int().positive().safe().max(1_000_000_000_000),
   network: z.string().min(1).max(64).regex(/^[a-z0-9][a-z0-9-]*$/),
   upstreamRpcRef: z.string().regex(/^IMPACT_RPC_[A-Z0-9_]{1,64}$/),
+  rpcConfigId: impactRpcConfigIdSchema.optional(),
   targetContracts: z.array(impactAddressSchema).min(1).max(20),
   forkBlock: z.number().int().nonnegative().safe(),
   findingId: z.string().uuid().optional(),
@@ -20,7 +35,8 @@ export const impactForkStatusSchema = z.enum(["created", "starting", "ready", "f
 export type ImpactForkStatus = z.infer<typeof impactForkStatusSchema>;
 export type ImpactForkSession = Readonly<{
   id: string; status: ImpactForkStatus; findingId: string | null; hypothesisId: string | null;
-  chainId: number; network: string; upstreamRpcRef: string; targetContracts: string[];
+  chainId: number; network: string; upstreamRpcRef: string; rpcConfigId: string | null; targetContracts: string[];
+  targetCodeHashes: Record<string, string>;
   resolvedForkBlock: number; historicalTransactionHash: string | null; forkBlockHash: string | null;
   localPort: number | null; localRpcEndpoint: string | null;
   anvilVersion: string | null; anvilSha256: string | null; processPid: number | null;

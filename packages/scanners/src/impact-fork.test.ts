@@ -3,10 +3,12 @@ import { randomUUID } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { impactForkConfigSchema } from "@contracthunter/core";
 import { anvilArguments, ImpactForkService } from "./impact-fork-service";
-import { forwardApprovedUpstreamRequest, startReadOnlyUpstreamProxy } from "./impact-upstream-proxy";
+import { forwardApprovedUpstreamRequest, startReadOnlyUpstreamProxy, validateUpstreamPayload } from "./impact-upstream-proxy";
 
 const blockHash = `0x${"a".repeat(64)}`;
 const address = `0x${"1".repeat(40)}`;
+const code = "0x6001600055";
+const proxyUrl = `http://127.0.0.1:49000/${"a".repeat(48)}`;
 const config = () => ({ chainId: 8453, network: "base", upstreamRpcRef: "IMPACT_RPC_BASE", targetContracts: [address], forkBlock: 100,
   findingId: randomUUID(), localBindAddress: "127.0.0.1" });
 
@@ -16,7 +18,9 @@ class FakeChild extends EventEmitter {
   crash() { this.exitCode = 1; this.emit("exit", 1); }
 }
 
-function fixture(options: { sourceChain?: string; localHash?: string; rpcFailure?: string; crashOnLaunch?: boolean } = {}) {
+function fixture(options: { sourceChain?: string; sourceHash?: string; localHash?: string; sourceCode?: string; localCode?: string;
+  sourceBlockMissing?: boolean; proxyListening?: boolean; proxyDiesDuringStartup?: boolean; proxyStartFails?: boolean;
+  snapshotResult?: unknown; rpcFailure?: string; crashOnLaunch?: boolean } = {}) {
   const child = new FakeChild();
   const calls: Array<{ endpoint: string; method: string; params: unknown[] }> = [];
   const close = vi.fn(async () => undefined);
@@ -28,17 +32,22 @@ function fixture(options: { sourceChain?: string; localHash?: string; rpcFailure
   const service = new ImpactForkService({
     resolveBinary: async () => ({ path: "/usr/local/bin/anvil", version: "anvil 1.7.1", sha256: "b".repeat(64) }),
     resolveUpstream: (ref) => ref === "IMPACT_RPC_BASE" ? "https://provider.example/secret" : undefined,
-    startProxy: async () => ({ url: "http://127.0.0.1:49000/private-proxy", close }),
+    startProxy: async () => {
+      if (options.proxyStartFails) throw Error("proxy startup failed");
+      return { url: proxyUrl, isListening: () => options.proxyListening !== false && !(options.proxyDiesDuringStartup && launch.mock.calls.length > 0), close };
+    },
     reservePort: async () => nextPort++,
     launch, processToken: () => token, ownsPort: () => ownsPort, terminate,
     rpc: async (endpoint, method, params) => {
       calls.push({ endpoint, method, params });
       if (rpcFailure === method) throw Error("fixture RPC failure");
       if (method === "eth_chainId") return endpoint.includes("49000") ? options.sourceChain ?? "0x2105" : "0x2105";
-      if (method === "eth_getBlockByNumber") return { number: "0x64", hash: endpoint.includes("49000") ? blockHash : options.localHash ?? blockHash };
+      if (method === "eth_getBlockByNumber") return endpoint.includes("49000") && options.sourceBlockMissing ? null :
+        { number: "0x64", hash: endpoint.includes("49000") ? options.sourceHash ?? blockHash : options.localHash ?? blockHash };
+      if (method === "eth_getCode") return endpoint.includes("49000") ? options.sourceCode ?? code : options.localCode ?? code;
       if (method === "web3_clientVersion") return "anvil/1.7.1";
       if (method === "eth_accounts") return [address];
-      if (method === "evm_snapshot") return `0x${nextSnapshot++}`;
+      if (method === "evm_snapshot") return options.snapshotResult ?? `0x${nextSnapshot++}`;
       if (method === "evm_revert" || method === "anvil_impersonateAccount" || method === "anvil_stopImpersonatingAccount") return true;
       throw Error("unexpected RPC method");
     },
@@ -54,8 +63,8 @@ describe("Impact Lab Phase A1 safety boundary", () => {
     expect(impactForkConfigSchema.safeParse({ ...config(), upstreamRpcRef: "https://provider.example/key" }).success).toBe(false);
     expect(impactForkConfigSchema.safeParse({ ...config(), walletPrivateKey: "secret" }).success).toBe(false);
     expect(impactForkConfigSchema.safeParse({ ...config(), hypothesisId: randomUUID() }).success).toBe(false);
-    expect(anvilArguments(impactForkConfigSchema.parse(config()), 49001, "http://127.0.0.1:49000/private")).toEqual([
-      "--host", "127.0.0.1", "--port", "49001", "--fork-url", "http://127.0.0.1:49000/private", "--fork-block-number", "100", "--chain-id", "8453", "--accounts", "1", "--silent",
+    expect(anvilArguments(impactForkConfigSchema.parse(config()), 49001, proxyUrl)).toEqual([
+      "--host", "127.0.0.1", "--port", "49001", "--fork-url", proxyUrl, "--fork-block-number", "100", "--chain-id", "8453", "--accounts", "1", "--silent",
     ]);
   });
 
@@ -93,6 +102,7 @@ describe("Impact Lab Phase A1 safety boundary", () => {
     const f = fixture(); const handle = f.service.createForkSession(config());
     const ready = await f.service.startForkSession(handle);
     expect(ready).toMatchObject({ status: "ready", resolvedForkBlock: 100, forkBlockHash: blockHash, localRpcEndpoint: "http://127.0.0.1:49001", baselineSnapshotId: "0x1", disposableAccounts: [address] });
+    expect(f.calls.filter((call) => call.method === "eth_getCode").map((call) => call.params)).toEqual([[address, "0x64"], [address, "0x64"], [address, "0x64"]]);
     expect(f.launch.mock.calls[0]?.[1]).toContain("--silent");
     expect(f.launch.mock.calls[0]?.[1]).not.toContain("--mnemonic");
     expect(await f.service.assertSafeImpactExecutionEndpoint(handle)).toMatchObject({ id: handle.id });
@@ -109,7 +119,7 @@ describe("Impact Lab Phase A1 safety boundary", () => {
 
   it("rejects arbitrary localhost, upstream HTTPS, wrong handle, and changed process or port identity", async () => {
     const f = fixture(); const handle = f.service.createForkSession(config()); await f.service.startForkSession(handle);
-    for (const endpoint of ["http://127.0.0.1:49002", "https://provider.example/rpc", "http://127.0.0.1:49000/private-proxy"])
+    for (const endpoint of ["http://127.0.0.1:49002", "https://provider.example/rpc", proxyUrl])
       await expect(f.service.assertSafeImpactExecutionEndpoint(handle, endpoint)).rejects.toMatchObject({ code: "impact_execution_endpoint_unsafe" });
     await expect(f.service.assertSafeImpactExecutionEndpoint({ id: handle.id, token: "wrong" })).rejects.toMatchObject({ code: "impact_session_identity_invalid" });
     f.setOwnsPort(false);
@@ -177,5 +187,68 @@ describe("Impact Lab Phase A1 safety boundary", () => {
     await expect(crashed.service.startForkSession(other)).rejects.toBeInstanceOf(Error);
     expect(crashed.service.getSession(other.id)?.status).toBe("failed");
     expect(crashed.terminate).toHaveBeenCalled();
+  });
+
+  it("requires upstream deployment code and identical local deployed bytecode", async () => {
+    for (const options of [{ sourceCode: "0x" }, { localCode: "0x6002" }]) {
+      const f = fixture(options); const handle = f.service.createForkSession(config());
+      await expect(f.service.startForkSession(handle)).rejects.toBeInstanceOf(Error);
+      expect(f.service.getSession(handle.id)?.status).toBe("failed");
+      expect(f.terminate).toHaveBeenCalledTimes(options.sourceCode ? 0 : 1);
+      expect(f.close).toHaveBeenCalledTimes(1);
+      expect(f.calls.some((call) => call.method === "evm_snapshot")).toBe(false);
+    }
+  });
+
+  it("cleans up unavailable chain state, a dead proxy, and failed baseline snapshots", async () => {
+    for (const options of [{ sourceBlockMissing: true }, { proxyListening: false }, { proxyDiesDuringStartup: true },
+      { snapshotResult: false }, { rpcFailure: "eth_chainId" }, { proxyStartFails: true }]) {
+      const f = fixture(options); const handle = f.service.createForkSession(config());
+      await expect(f.service.startForkSession(handle)).rejects.toBeInstanceOf(Error);
+      expect(f.service.getSession(handle.id)?.status).toBe("failed");
+      if (!options.proxyStartFails) expect(f.close).toHaveBeenCalled();
+      if (options.snapshotResult === false) expect(f.terminate).toHaveBeenCalled();
+    }
+  });
+
+  it("retains exact block and code identity on recreation and rejects upstream changes", async () => {
+    const first = fixture(); const initial = first.service.createForkSession(config());
+    const ready = await first.service.startForkSession(initial);
+    expect(ready.targetCodeHashes[address]).toMatch(/^sha256:[0-9a-f]{64}$/);
+    const stopped = await first.service.stopForkSession(initial);
+    const changedBlock = fixture({ sourceHash: `0x${"c".repeat(64)}` });
+    const blockHandle = changedBlock.service.recreateForkSession(stopped);
+    await expect(changedBlock.service.startForkSession(blockHandle)).rejects.toMatchObject({ code: "impact_upstream_block_changed" });
+    expect(changedBlock.launch).not.toHaveBeenCalled();
+    const changedCode = fixture({ sourceCode: "0x6002" });
+    const codeHandle = changedCode.service.recreateForkSession(stopped);
+    await expect(changedCode.service.startForkSession(codeHandle)).rejects.toMatchObject({ code: "impact_upstream_code_changed" });
+    expect(changedCode.launch).not.toHaveBeenCalled();
+    const repeat = fixture(); const handle = repeat.service.recreateForkSession(stopped);
+    const recreated = await repeat.service.startForkSession(handle);
+    expect(recreated.id).toBe(stopped.id);
+    expect(recreated.baselineSnapshotId).toBe("0x1");
+    expect(recreated.targetCodeHashes).toEqual(stopped.targetCodeHashes);
+    await repeat.service.stopForkSession(handle);
+  });
+
+  it("bounds JSON-RPC and redacts provider URL errors", async () => {
+    const call = (method: string, id: unknown = 1) => ({ jsonrpc: "2.0", id, method, params: [] });
+    for (const payload of [[], [call("eth_chainId"), call("eth_sendRawTransaction")], call("eth_chainId", null),
+      call("x".repeat(65)), { ...call("eth_chainId"), params: {} }, Array.from({ length: 21 }, (_, i) => call("eth_chainId", i))])
+      expect(() => validateUpstreamPayload(Buffer.from(JSON.stringify(payload)))).toThrow();
+    const secret = "sensitive-token-123";
+    const url = new URL(`https://provider.example/${secret}?apiKey=${secret}`);
+    const fetcher = vi.fn(async () => { throw new Error(`failed ${url}`); });
+    await expect(forwardApprovedUpstreamRequest(url, Buffer.from(JSON.stringify(call("eth_chainId"))), fetcher as typeof fetch))
+      .rejects.toThrow("impact_upstream_unavailable");
+    try { await forwardApprovedUpstreamRequest(url, Buffer.from(JSON.stringify(call("eth_chainId"))), fetcher as typeof fetch); }
+    catch (error) { expect(String(error)).not.toContain(secret); }
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    const providerError = vi.fn(async () => new Response(JSON.stringify({ jsonrpc: "2.0", id: 1,
+      error: { code: -32000, message: `URL ${url} failed`, data: secret } }), { status: 200 }));
+    const sanitized = await forwardApprovedUpstreamRequest(url, Buffer.from(JSON.stringify(call("eth_chainId"))), providerError as typeof fetch);
+    expect(sanitized.body.toString("utf8")).not.toContain(secret);
+    await expect(startReadOnlyUpstreamProxy(`https://user:${secret}@provider.example/rpc`)).rejects.toThrow("impact_upstream_unavailable");
   });
 });

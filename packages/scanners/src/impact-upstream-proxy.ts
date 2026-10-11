@@ -15,8 +15,10 @@ export function validateUpstreamPayload(raw: Buffer): void {
   for (const call of calls) {
     if (typeof call !== "object" || call === null || Array.isArray(call)) throw new Error("impact_upstream_request_invalid");
     const candidate = call as Record<string, unknown>;
-    if (candidate.jsonrpc !== "2.0" || typeof candidate.method !== "string" || !Array.isArray(candidate.params) ||
-      !(typeof candidate.id === "string" || typeof candidate.id === "number" || candidate.id === null)) throw new Error("impact_upstream_request_invalid");
+    if (candidate.jsonrpc !== "2.0" || typeof candidate.method !== "string" || candidate.method.length > 64 ||
+      !/^[a-zA-Z][a-zA-Z0-9_]*$/.test(candidate.method) || !Array.isArray(candidate.params) || candidate.params.length > 32 ||
+      !(typeof candidate.id === "string" && candidate.id.length <= 64 ||
+        typeof candidate.id === "number" && Number.isSafeInteger(candidate.id))) throw new Error("impact_upstream_request_invalid");
     assertUpstreamReadMethod(candidate.method);
   }
 }
@@ -38,14 +40,28 @@ async function boundedResponse(response: Response): Promise<Buffer> {
   } finally { await reader.cancel().catch(() => undefined); }
 }
 
-export type ReadOnlyUpstreamProxy = { readonly url: string; close(): Promise<void> };
+export type ReadOnlyUpstreamProxy = { readonly url: string; isListening(): boolean; close(): Promise<void> };
 
 export async function forwardApprovedUpstreamRequest(upstreamUrl: URL, body: Buffer, fetchImpl: typeof fetch): Promise<{ status: number; body: Buffer }> {
   validateUpstreamPayload(body);
-  const forwarded = await fetchImpl(upstreamUrl, { method: "POST", headers: { "content-type": "application/json" }, body: new Uint8Array(body),
-    redirect: "manual", signal: AbortSignal.timeout(10_000) });
+  let forwarded: Response;
+  try { forwarded = await fetchImpl(upstreamUrl, { method: "POST", headers: { "content-type": "application/json" }, body: new Uint8Array(body),
+    redirect: "manual", signal: AbortSignal.timeout(10_000) }); }
+  catch { throw new Error("impact_upstream_unavailable"); }
   if (forwarded.status >= 300 && forwarded.status < 400) throw new Error("impact_upstream_redirect_refused");
-  return { status: forwarded.status, body: await boundedResponse(forwarded) };
+  if (forwarded.status !== 200) throw new Error("impact_upstream_unavailable");
+  try {
+    const payload = JSON.parse((await boundedResponse(forwarded)).toString("utf8")) as unknown;
+    const clean = (item: unknown): unknown => {
+      if (!item || typeof item !== "object" || Array.isArray(item)) throw new Error("invalid response");
+      const rpc = item as Record<string, unknown>;
+      if (rpc.jsonrpc !== "2.0" || !("result" in rpc || "error" in rpc)) throw new Error("invalid response");
+      return "error" in rpc ? { jsonrpc: "2.0", id: rpc.id ?? null, error: { code: -32000, message: "Upstream read failed" } } : item;
+    };
+    const sanitized = Array.isArray(payload) ? payload.map(clean) : clean(payload);
+    return { status: 200, body: Buffer.from(JSON.stringify(sanitized)) };
+  }
+  catch { throw new Error("impact_upstream_response_invalid"); }
 }
 
 export async function startReadOnlyUpstreamProxy(upstreamUrl: string, fetchImpl: typeof fetch = fetch): Promise<ReadOnlyUpstreamProxy> {
@@ -83,7 +99,7 @@ export async function startReadOnlyUpstreamProxy(upstreamUrl: string, fetchImpl:
     await new Promise<void>((resolve, reject) => { server.once("error", reject); server.listen(0, "127.0.0.1", resolve); });
     const address = server.address();
     if (!address || typeof address === "string" || address.address !== "127.0.0.1") throw new Error("impact_upstream_unavailable");
-    return { url: `http://127.0.0.1:${address.port}/${token}`, close: () => new Promise<void>((resolve) => {
+    return { url: `http://127.0.0.1:${address.port}/${token}`, isListening: () => server.listening, close: () => new Promise<void>((resolve) => {
       server.closeAllConnections(); server.close(() => resolve());
     }) };
   } catch (error) { server.close(); throw error; }

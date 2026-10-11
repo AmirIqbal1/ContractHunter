@@ -17,8 +17,8 @@ describe("Impact Lab Phase A1 persistence", () => {
     const scan = createScan(database, { repositoryUrl: "https://example.invalid/fixture", repositoryName: "fixture", depth: "quick" });
     const finding = insertFindings(database, scan.id, [{ title: "Finding", severity: "high", confidence: 80, source: "slither", detectorId: "rule", fingerprint: "f".repeat(64),
       contract: "Target", functionName: "run", filePath: "contracts/Target.sol", startLine: 1, endLine: 2, rootCause: "Cause", attackScenario: "Scenario", impact: "Impact", evidence: "Evidence", status: "candidate" }])[0];
-    const session: ImpactForkSession = { id: randomUUID(), findingId: finding.id, hypothesisId: null, chainId: 8453, network: "base", upstreamRpcRef: "IMPACT_RPC_BASE",
-      targetContracts: [`0x${"1".repeat(40)}`], resolvedForkBlock: 100, historicalTransactionHash: null, forkBlockHash: `0x${"a".repeat(64)}`, status: "ready",
+    const session: ImpactForkSession = { id: randomUUID(), findingId: finding.id, hypothesisId: null, chainId: 8453, network: "base", upstreamRpcRef: "IMPACT_RPC_BASE", rpcConfigId: "base-test",
+      targetContracts: [`0x${"1".repeat(40)}`], targetCodeHashes: { [`0x${"1".repeat(40)}`]: `sha256:${"c".repeat(64)}` }, resolvedForkBlock: 100, historicalTransactionHash: null, forkBlockHash: `0x${"a".repeat(64)}`, status: "ready",
       localPort: 49001, localRpcEndpoint: "http://127.0.0.1:49001", anvilVersion: "anvil 1.7.1", anvilSha256: "b".repeat(64), processPid: 4242,
       baselineSnapshotId: "0x1", disposableAccounts: [`0x${"2".repeat(40)}`], createdAt: Date.now(), startedAt: Date.now(), stoppedAt: null, failureCode: null };
     recordImpactForkSession(database, session);
@@ -27,12 +27,14 @@ describe("Impact Lab Phase A1 persistence", () => {
     expect(JSON.stringify(row)).not.toContain("provider.example");
     expect(JSON.stringify(row)).not.toContain("privateKey");
     expect(() => database.sqlite.prepare("UPDATE impact_fork_sessions SET chain_id=1 WHERE id=?").run(session.id)).toThrow("impact fork identity is immutable");
+    expect(() => database.sqlite.prepare("UPDATE impact_fork_sessions SET fork_block_hash=? WHERE id=?").run(`0x${"d".repeat(64)}`, session.id)).toThrow("impact fork block identity is immutable");
+    expect(() => database.sqlite.prepare("UPDATE impact_fork_sessions SET target_code_hashes=? WHERE id=?").run("{}", session.id)).toThrow("impact fork code identity is immutable");
     expect(recoverStaleImpactForkSessions(database)).toBe(1);
     expect(database.sqlite.prepare("SELECT status, failure_code FROM impact_fork_sessions WHERE id=?").get(session.id)).toEqual({ status: "failed", failure_code: "impact_server_restart" });
     expect(database.sqlite.prepare("SELECT local_port FROM impact_fork_sessions WHERE id=?").get(session.id)).toEqual({ local_port: 49001 });
     expect(database.sqlite.pragma("foreign_key_check")).toEqual([]);
     expect(database.sqlite.pragma("integrity_check", { simple: true })).toBe("ok");
-    expect((database.sqlite.prepare("SELECT id FROM schema_migrations ORDER BY id").all() as Array<{ id: string }>).at(-1)?.id).toBe("0009_v0_3_impact_fork_sessions");
+    expect((database.sqlite.prepare("SELECT id FROM schema_migrations ORDER BY id").all() as Array<{ id: string }>).at(-1)?.id).toBe("0010_v0_3_impact_fork_identity");
     closeDatabase(database);
   });
 

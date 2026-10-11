@@ -1,6 +1,6 @@
 # API reference
 
-Impact Lab Phase A1 has an internal lifecycle service only. There is no public Impact Lab route or generic raw RPC API; PoC execution is not available.
+Impact Lab Phase A2 has configured-reference session routes described below. There is no generic raw RPC API or PoC execution.
 
 ## Scans
 
@@ -68,3 +68,7 @@ The server reloads current persisted evidence, target, strategy, scan, compilati
 ### Explicit reuse client (v0.2.2 Part 2B-1B)
 
 The hypothesis page shows **Reuse plan** only for advisory `eligible` candidates returned by `GET /api/hypotheses/:hypothesisId/verification-target`. Each action sends the same bodyless POST described above; browser eligibility is never admission authority. After success, the new artifact is selected in the existing review UI with validation pending. After a bounded rejection, the browser displays a safe message for the selected candidate and refreshes the verification-target GET once. It sends no plan, source, strategy, compiler, fingerprint, property, provider, or execution fields and starts no generation, validation, or worker request. The user may separately select direct Generate plan, Validate plan/proposal, and an explicit execution control.
+
+## Impact Lab Phase A2 internal API
+
+`GET /api/impact/rpc-configs` returns enabled `{id, chainId, network}` entries only. `POST /api/impact/sessions` accepts exactly one `findingId` or `hypothesisId`, `rpcConfigId`, exact numeric `forkBlock`, and 1–20 `targetContracts` addresses. It rejects raw URLs, executable paths, argv and keys. `GET /api/impact/sessions/:id` returns safe identity/status; `DELETE` stops an active session; `POST /api/impact/sessions/:id/recreate` explicitly rebuilds a stopped/failed session from saved identity. Responses include block hash and target `sha256:` bytecode hashes when resolved, but omit provider URL/ref, local execution endpoint, process data and keys. No PoC API exists.

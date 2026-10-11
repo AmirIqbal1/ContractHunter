@@ -83,3 +83,7 @@ Per-stage AI models (including inexpensive Luna triage, a stronger deep-review m
 ## Explicit non-goals
 
 No automatic bounty submission, live exploit deployment, wallet/private-key interaction, or automatic live-chain transactions.
+
+## v0.3 Phase A2 implemented
+
+The fork infrastructure now binds a configured read-only upstream to an exact block hash, validates target deployed bytecode, compares local Anvil code against upstream code, and persists safe reproducibility metadata with explicit recreate checks. The proxy rejects forbidden RPC methods and mixed batches before forwarding. No PoC execution or exploit generation is included. Phase B controlled PoC execution remains gated on real Anvil fork compatibility validation and separate PoC egress isolation; its input should be a verified local session ID only.
