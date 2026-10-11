@@ -24,6 +24,7 @@ function registry() {
 }
 
 export function createImpactForkService(): ImpactForkService { return registry().service; }
+export function resolveImpactHandle(sessionId: string): ImpactForkHandle | undefined { return registry().handles.get(sessionId); }
 
 export function createImpactPoCRuntimeService(): ImpactPoCRuntimeService {
   const current = registry();

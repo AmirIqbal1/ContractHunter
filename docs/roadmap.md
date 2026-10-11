@@ -1,5 +1,9 @@
 # Roadmap
 
+## v0.3 Impact Lab Phase B1 — implemented, unreleased
+
+Reviewed manual Forge PoCs can run only against a verified local fork through the fixed networkless worker and per-job RPC bridge. Immutable source review, bounded execution/reset and local transaction provenance are implemented. Autonomous generation, state diff, trace analysis, impact evidence and GUI remain later phases. v0.3 is not released.
+
 ## v0.1.9 — completed
 
 Delivered: typed function arguments, actors/caller identity, address reads/assertions, native ETH funding, native balance observations, and stronger structured access-control verification through the networkless worker.
@@ -58,7 +62,7 @@ Milestone 2 Part 2B-1A is implemented. Two explicit, bodyless POST routes admit 
 
 Milestone 2 Part 2B-1B is implemented. Each advisory eligible planning candidate in the verification-target section has its own explicit **Reuse plan** action, including same-hypothesis and exact related-hypothesis candidates. The browser sends a bodyless selector POST to the Part 2B-1A backend, which always performs fresh authoritative admission. A successful response adds a new structured attempt or invariant proposal to the existing planning history and selects it in the existing review component. The UI shows reuse source, strategy, timestamp, authoritative fingerprint status, and pending validation; prior execution and evidence remain associated with their original artifact or hypothesis history. The user must explicitly validate, then separately choose Verify locally, Run with Foundry, or Run with Echidna. A bounded reuse failure refreshes candidates without retry, AI fallback, validation, or execution. Direct generation remains available. No new migration or authoritative profile was added. At this milestone, v0.2.2 was release-ready but not yet published.
 
-## v0.3 — Fork & Impact Engine / Impact Lab (in development; Phase A3 foundation implemented, not released)
+## v0.3 — Fork & Impact Engine / Impact Lab (in development; Phase B1 implemented, not released)
 
 Phase A1 implements a strict exact-block fork configuration, a bounded internal Anvil lifecycle service, a localhost-only read-method proxy for upstream fork state, runtime-owned local endpoint identity checks, disposable Anvil development accounts, baseline/additional snapshot and revert/reset operations, and guarded local-only impersonation. Migration `0009_v0_3_impact_fork_sessions` records bounded audit state without RPC secrets or private keys; stale active rows become failed on service restart. No public Impact API, CLI, PoC execution, state/asset analysis, or GUI is part of A1. The existing networkless verification worker is unchanged.
 

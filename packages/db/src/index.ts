@@ -10,6 +10,7 @@ import { authoritativeInvariantEvidence, executableInvariantProposals, executabl
 
 export * from "./schema";
 export { recordImpactForkSession, recoverStaleImpactForkSessions, readImpactForkSession } from "./impact-fork-sessions";
+export * from "./impact-poc";
 
 export type DatabaseClient = ReturnType<typeof createDatabase>;
 
@@ -421,9 +422,51 @@ export function createDatabase(databasePath: string) {
     })(); }
     catch (error) { throw new Error(`Database migration 0010_v0_3_impact_fork_identity failed without committing changes: ${error instanceof Error ? error.message : String(error)}`); }
   }
+  if (!sqlite.prepare("SELECT 1 FROM schema_migrations WHERE id = ?").get("0011_v0_3_impact_manual_pocs")) {
+    try { sqlite.transaction(() => {
+      sqlite.exec(`CREATE TABLE impact_poc_artifacts (
+        id TEXT PRIMARY KEY, finding_id TEXT, hypothesis_id TEXT, revision_of TEXT,
+        filename TEXT NOT NULL CHECK(filename='ImpactPoC.s.sol'), source TEXT NOT NULL,
+        source_sha256 TEXT NOT NULL, entry_contract TEXT NOT NULL, origin TEXT NOT NULL CHECK(origin='manual'),
+        review_state TEXT NOT NULL CHECK(review_state IN ('draft','reviewed','rejected')),
+        created_at INTEGER NOT NULL, reviewed_at INTEGER,
+        CHECK((finding_id IS NOT NULL) <> (hypothesis_id IS NOT NULL)),
+        FOREIGN KEY(revision_of) REFERENCES impact_poc_artifacts(id));
+        CREATE TRIGGER impact_poc_source_immutable BEFORE UPDATE ON impact_poc_artifacts
+        WHEN OLD.source IS NOT NEW.source OR OLD.source_sha256 IS NOT NEW.source_sha256 OR
+          OLD.filename IS NOT NEW.filename OR OLD.entry_contract IS NOT NEW.entry_contract OR
+          OLD.finding_id IS NOT NEW.finding_id OR OLD.hypothesis_id IS NOT NEW.hypothesis_id OR
+          OLD.revision_of IS NOT NEW.revision_of OR OLD.origin IS NOT NEW.origin
+        BEGIN SELECT RAISE(ABORT, 'impact PoC identity is immutable'); END;
+        CREATE TABLE impact_poc_executions (
+          id TEXT PRIMARY KEY, artifact_id TEXT NOT NULL REFERENCES impact_poc_artifacts(id),
+          source_sha256 TEXT NOT NULL, session_id TEXT NOT NULL REFERENCES impact_fork_sessions(id),
+          runtime_token_sha256 TEXT NOT NULL, chain_id INTEGER NOT NULL, fork_block INTEGER NOT NULL,
+          fork_block_hash TEXT NOT NULL, target_code_hashes TEXT NOT NULL,
+          forge_version TEXT, forge_sha256 TEXT, status TEXT NOT NULL
+            CHECK(status IN ('created','queued','running','completed','failed','cancelled')),
+          created_at INTEGER NOT NULL, started_at INTEGER, completed_at INTEGER,
+          exit_code INTEGER, compiled INTEGER NOT NULL DEFAULT 0, executed INTEGER NOT NULL DEFAULT 0,
+          stdout TEXT, stderr TEXT, transaction_scope TEXT NOT NULL DEFAULT 'local-impact-lab'
+            CHECK(transaction_scope='local-impact-lab'), transaction_hashes TEXT NOT NULL DEFAULT '[]',
+          error_code TEXT);
+        CREATE INDEX impact_poc_executions_session_idx ON impact_poc_executions(session_id,created_at);
+        CREATE UNIQUE INDEX impact_poc_one_active_execution ON impact_poc_executions((1))
+          WHERE status IN ('created','queued','running');
+        CREATE TRIGGER impact_poc_execution_identity_immutable BEFORE UPDATE ON impact_poc_executions
+        WHEN OLD.artifact_id IS NOT NEW.artifact_id OR OLD.source_sha256 IS NOT NEW.source_sha256 OR
+          OLD.session_id IS NOT NEW.session_id OR OLD.runtime_token_sha256 IS NOT NEW.runtime_token_sha256 OR
+          OLD.chain_id IS NOT NEW.chain_id OR OLD.fork_block IS NOT NEW.fork_block OR
+          OLD.fork_block_hash IS NOT NEW.fork_block_hash OR OLD.target_code_hashes IS NOT NEW.target_code_hashes OR
+          OLD.created_at IS NOT NEW.created_at
+        BEGIN SELECT RAISE(ABORT, 'impact PoC execution identity is immutable'); END;`);
+      sqlite.prepare("INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)").run("0011_v0_3_impact_manual_pocs", Date.now());
+    })(); }
+    catch (error) { throw new Error(`Database migration 0011_v0_3_impact_manual_pocs failed without committing changes: ${error instanceof Error ? error.message : String(error)}`); }
+  }
   const integrity = sqlite.pragma("quick_check") as Array<{ quick_check: string }>;
   const foreignKeyViolations = sqlite.pragma("foreign_key_check") as unknown[];
-  const requiredTables = ["scans", "scan_source_snapshots", "scan_source_snapshot_files", "scan_compilation_provenance", "scan_compilation_source_units", "scan_scanner_alignment", "findings", "scan_scanners", "investigations", "investigation_findings", "protocol_analyses", "invariants", "security_review_plans", "security_reviewer_runs", "vulnerability_hypotheses", "hypothesis_verification_runs", "verification_plan_attempts", "executable_invariant_runs", "executable_invariant_proposals", "invariant_replay_artifacts", "invariant_replay_runs", "authoritative_invariant_evidence", "invariant_evidence_reviews", "hypothesis_lifecycle_transitions", "hypothesis_groups", "hypothesis_group_members", "impact_fork_sessions"];
+  const requiredTables = ["scans", "scan_source_snapshots", "scan_source_snapshot_files", "scan_compilation_provenance", "scan_compilation_source_units", "scan_scanner_alignment", "findings", "scan_scanners", "investigations", "investigation_findings", "protocol_analyses", "invariants", "security_review_plans", "security_reviewer_runs", "vulnerability_hypotheses", "hypothesis_verification_runs", "verification_plan_attempts", "executable_invariant_runs", "executable_invariant_proposals", "invariant_replay_artifacts", "invariant_replay_runs", "authoritative_invariant_evidence", "invariant_evidence_reviews", "hypothesis_lifecycle_transitions", "hypothesis_groups", "hypothesis_group_members", "impact_fork_sessions", "impact_poc_artifacts", "impact_poc_executions"];
   const presentTables = new Set((sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as Array<{ name: string }>).map((row) => row.name));
   const runColumns = new Set((sqlite.prepare("PRAGMA table_info(executable_invariant_runs)").all() as Array<{name:string}>).map((row) => row.name));
   const replayColumns = new Set((sqlite.prepare("PRAGMA table_info(invariant_replay_artifacts)").all() as Array<{name:string}>).map((row) => row.name));
@@ -460,6 +503,7 @@ export function getDatabase(): DatabaseClient {
     singleton = createDatabase(loadConfig().DATABASE_PATH);
     // Runtime process handles never survive a web-process restart. Persisted rows are audit records, not execution authority.
     singleton.sqlite.prepare("UPDATE impact_fork_sessions SET status='failed', failure_code='impact_server_restart', stopped_at=? WHERE status IN ('starting','ready','stopping')").run(Date.now());
+    singleton.sqlite.prepare("UPDATE impact_poc_executions SET status='failed', error_code='impact_server_restart', completed_at=? WHERE status IN ('created','queued','running')").run(Date.now());
     backfillInvestigations(singleton);
   }
   return singleton;

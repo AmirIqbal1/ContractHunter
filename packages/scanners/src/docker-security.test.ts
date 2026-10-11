@@ -47,7 +47,10 @@ describe("production verification worker boundary", () => {
     expect(initializer.security_opt).toContain("no-new-privileges:true");
     expect(initializer.read_only).toBe(true);
     expect(initializer.restart).toBe("no");
-    expect(initializer.volumes).toEqual([expect.objectContaining({ source: "contracthunter-data", target: "/data" })]);
+    expect(initializer.volumes).toEqual([
+      expect.objectContaining({ source: "contracthunter-data", target: "/data" }),
+      expect.objectContaining({ source: "impact-poc-ipc", target: "/run/impact-poc" }),
+    ]);
     expect(initializer.volumes?.[0]?.read_only).not.toBe(true);
     expect(initializer.volumes?.some((volume) => /docker\.sock/.test(volume.target))).toBe(false);
     expect(configured["verification-worker"].depends_on?.["contracthunter-data-init"]?.condition).toBe("service_completed_successfully");

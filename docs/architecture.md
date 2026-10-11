@@ -1,5 +1,9 @@
 # Architecture
 
+## Impact Lab Phase B1
+
+The B1 controller stays in the web service and addresses a pre-created `impact-poc-worker` over a typed Unix-domain control socket. The worker has no Docker socket or network route. It runs pinned Forge and cached solc inside a fixed ephemeral project, and sees only its own loopback JSON-RPC listener. A second per-job Unix socket bridges that listener to the current managed Anvil process. The controller resolves session and reviewed artifact IDs, checks the current runtime token and execution guard, resets the fork before and after, and stores bounded execution provenance in migration `0011_v0_3_impact_manual_pocs`. The existing verification worker is unchanged. The upstream proxy remains a separate read-only path reachable by Anvil, never by the PoC worker. No PoC result changes hypothesis/evidence/lifecycle authority.
+
 ```text
 apps/web          Next.js UI, API routes, scanning runner, verification planner/interpreter
 packages/core     Domain models, Zod schemas, configuration, safety rules
@@ -155,7 +159,7 @@ An upstream reference names a runtime `IMPACT_RPC_*` secret; the service never p
 
 ## v0.3 Phase A2 fork architecture
 
-Impact Lab now accepts a configured `rpcConfigId`, resolves an `IMPACT_RPC_*` secret only on the server, checks upstream chain/exact block/hash/target bytecode through its private read-only proxy, and launches owned Anvil against the proxy at the pinned block. Readiness requires local process/socket identity, chain/block hash, equal local/upstream deployed-code SHA-256 hashes, and a baseline snapshot. The central guard repeats these checks. Session ID is persistent experiment identity; process, port and token are runtime identity. Explicit recreation rechecks saved block/code identity. No PoC execution exists. See [Impact Lab](impact-lab.md).
+Impact Lab now accepts a configured `rpcConfigId`, resolves an `IMPACT_RPC_*` secret only on the server, checks upstream chain/exact block/hash/target bytecode through its private read-only proxy, and launches owned Anvil against the proxy at the pinned block. Readiness requires local process/socket identity, chain/block hash, equal local/upstream deployed-code SHA-256 hashes, and a baseline snapshot. The central guard repeats these checks. Session ID is persistent experiment identity; process, port and token are runtime identity. Explicit recreation rechecks saved block/code identity. That A2 layer runs below the B1 reviewed local-only PoC worker described above. See [Impact Lab](impact-lab.md).
 
 ## v0.3 Phase A3 execution-plane foundation
 

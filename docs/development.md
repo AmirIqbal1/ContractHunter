@@ -1,5 +1,9 @@
 # Development
 
+## Impact Lab B1 local integration
+
+The optional B1 test requires a checksum-approved Anvil, a trusted locally built worker image ID, and an existing cached solc 0.8.36 compiler volume. It never downloads a compiler or uses a third-party provider. Run `CONTRACTHUNTER_LOOPBACK_TEST=1 IMPACT_TEST_ANVIL=/path/to/approved/anvil IMPACT_B1_WORKER_IMAGE=sha256:<image-id> IMPACT_B1_TEST_COMPILER_VOLUME=<local-volume> npx vitest run apps/web/lib/impact-poc-real.test.ts`. It starts local upstream Anvil A, the ContractHunter read-only proxy, fork B and a Docker `network none` worker; the benign reviewed script transfers one wei only on B, verifies upstream unchanged, resets B and checks FFI denial. The normal Compose worker is built from the digest-pinned Foundry 1.7.1 stage and receives only the shared control socket and read-only compiler cache subpath. Web and worker never mount the Docker socket. No PoC runs during `npm test` unless the opt-in environment is set.
+
 Prerequisites are Node.js 20+, npm, Docker, and Docker Compose. The web service uses UID/GID 10001:10001. The separate verification worker uses UID/GID 10002:10001. Docker's default enforcing seccomp and AppArmor profiles are used; there is no custom host profile to install.
 
 ## Impact Lab A3 local integration

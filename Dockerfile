@@ -1,7 +1,8 @@
 FROM debian:bookworm-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251 AS data-initializer
-RUN mkdir -p /data/tool-home \
-  && chown 10001:10001 /data /data/tool-home \
-  && chmod 0755 /data /data/tool-home
+RUN mkdir -p /data/tool-home /run/impact-poc \
+  && chown 10001:10001 /data /data/tool-home /run/impact-poc \
+  && chmod 0755 /data /data/tool-home \
+  && chmod 2770 /run/impact-poc
 USER 10001:10001
 # Compose may pre-create an empty root-owned subpath while creating the worker.
 # rmdir fails closed if that directory contains any existing cache data.
@@ -67,6 +68,24 @@ COPY --from=dependencies /app/node_modules ./node_modules
 COPY packages ./packages
 COPY docker/verification-worker.ts ./docker/verification-worker.ts
 RUN /worker/node_modules/.bin/esbuild docker/verification-worker.ts --bundle --platform=node --format=cjs --target=node22 --outfile=/worker/verification-worker.cjs
+FROM node:22-bookworm-slim@sha256:d649c27dae7ba0137b3cef5dd75baa422c08dc3d9e3fc0c23dfb172dc3cc6436 AS impact-poc-worker-build
+WORKDIR /build
+COPY --from=dependencies /app/node_modules ./node_modules
+COPY packages ./packages
+COPY docker/impact-poc-worker.ts ./docker/impact-poc-worker.ts
+RUN /build/node_modules/.bin/esbuild docker/impact-poc-worker.ts --bundle --platform=node --format=cjs --target=node22 --outfile=/build/impact-poc-worker.cjs
+FROM node:22-bookworm-slim@sha256:d649c27dae7ba0137b3cef5dd75baa422c08dc3d9e3fc0c23dfb172dc3cc6436 AS impact-poc-worker-runtime
+ENV NODE_ENV=production
+LABEL org.contracthunter.impact-poc-worker-schema="v1"
+COPY --from=impact-poc-worker-build /build/impact-poc-worker.cjs /worker/impact-poc-worker.cjs
+COPY --from=foundry /usr/local/bin/forge /usr/local/bin/forge
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/* \
+  && groupadd --gid 10001 contracthunter \
+  && useradd --uid 10003 --gid contracthunter --home-dir /home/impact --no-create-home --shell /usr/sbin/nologin contracthunter-impact \
+  && mkdir -p /run/impact-poc /work /home/impact /data/tool-home \
+  && chown 10003:10001 /run/impact-poc /work /home/impact
+USER 10003:10001
+CMD ["node", "/worker/impact-poc-worker.cjs"]
 FROM node:22-bookworm-slim@sha256:d649c27dae7ba0137b3cef5dd75baa422c08dc3d9e3fc0c23dfb172dc3cc6436 AS verification-worker-runtime
 ENV NODE_ENV=production
 COPY --from=verification-worker /worker/verification-worker.cjs /worker/verification-worker.cjs

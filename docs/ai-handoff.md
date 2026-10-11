@@ -1,5 +1,9 @@
 # ContractHunter AI Handoff
 
+## Current Impact Lab milestone: Phase B1
+
+Manual reviewed PoC artifacts and explicit local-only Forge execution are implemented. The dedicated Compose `impact-poc-worker` uses a narrow Unix control socket and `network_mode: none`; neither it nor web mounts Docker's socket. It receives no upstream RPC, secrets, repository or wallet. A per-job guarded bridge permits bounded local reads and only disposable-sender `eth_sendTransaction`; upstream remains read-only. Reset occurs before and after each run. The successful local Forge fixture is reproduction data only and does not update authoritative evidence or hypothesis lifecycle. Migration `0011_v0_3_impact_manual_pocs` is latest. Phase C state capture/diff remains future work; do not infer vulnerability verification from Forge success.
+
 > Read this file before making significant changes to ContractHunter.
 
 ## Project purpose
@@ -8,7 +12,7 @@ ContractHunter is a locally hosted smart-contract security analysis workstation 
 
 ## Current version state
 
-Current released application/workspace version: `v0.2.2`. v0.3 Impact Lab is in development through Phase A3: A1 managed local fork lifecycle, A2 exact upstream identity and configured-reference API, and A3 real local-Anvil fork compatibility plus an isolated probe runtime. No vulnerability PoC executes yet. The latest migration remains `0010_v0_3_impact_fork_identity`; A3 adds no schema change. The default suite has 631 passing tests across 74 active files plus five opt-in skips across two files; four A3 loopback/Docker cases passed separately. Git commit/tag/push and publication remain manual operations outside AI/Codex.
+Current released application/workspace version: `v0.2.2`. v0.3 Impact Lab is in development through Phase B1: A1 managed local fork lifecycle, A2 configured exact-block upstream identity, A3 real local-Anvil fork compatibility and isolated probe runtime, and B1 manually reviewed local-only Forge execution. Migration `0011_v0_3_impact_manual_pocs` is latest. The default suite has 634 passing tests and six opt-in skips; the B1 local Anvil/Forge/Docker case passes separately. No v0.3 release has been made.
 
 v0.2.0 includes executable invariant plan v1, bounded fuzz/stateful worker execution, manual AI semantic proposals, deterministic counterexample replay, explicit relevance review, authoritative invariant evidence, centralized lifecycle transitions, transactional v0.1.9 migration, retry workspaces and release regression probes.
 

@@ -1,6 +1,16 @@
 # API reference
 
-Impact Lab Phase A2 has configured-reference session routes described below. Phase A3 adds an internal session-ID-only probe-runtime service and no public runtime route. There is no generic raw RPC API or PoC execution.
+## Impact Lab Phase B1 manual PoCs
+
+- `POST /api/impact/pocs` — create a **draft** manual artifact with exactly one `findingId` or `hypothesisId`, literal `filename: "ImpactPoC.s.sol"`, bounded `source`, `entryContract`, and optional `revisionOf`. No execution occurs.
+- `GET /api/impact/pocs/:id` — inspect artifact and review state.
+- `POST /api/impact/pocs/:id/review` — body `{ "decision": "reviewed" | "rejected" }` for a draft. Reviewed source is immutable.
+- `POST /api/impact/sessions/:sessionId/poc-executions` — explicit body `{ "pocArtifactId": "<uuid>" }`. The service reloads a ready managed fork, checks its current runtime token, reviewed source identity and target, then executes on the local fork only.
+- `GET /api/impact/poc-executions/:id` — bounded local reproduction status, diagnostics and provenance. Transaction hashes are local Impact Lab transactions.
+
+All request objects are strict. Raw RPC URL, image, command, argv, Foundry flags, wallet and environment fields are rejected. B1 has no generic RPC or automatic evidence/lifecycle promotion endpoint.
+
+Impact Lab Phase A2 has configured-reference session routes described below. Phase A3 adds an internal session-ID-only probe-runtime service and no public runtime route. There is no generic raw RPC API. B1 adds the narrow reviewed manual PoC routes above.
 
 ## Scans
 

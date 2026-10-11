@@ -1,5 +1,9 @@
 # Security model
 
+## Impact Lab Phase B1 boundary
+
+B1's fixed Compose worker uses `network_mode: none` and no Docker socket, host networking, privileges, database, repository, secrets or wallet mount. The worker's nonroot/read-only/capability-free/seccomp/AppArmor/resource-bound profile is checked at startup. The only RPC it can reach is its in-container loopback bridge. A per-job Unix socket to the web controller is created after a ready-session guard and runtime-token check; each request repeats both checks. Only a closed local read allowlist plus at most four `eth_sendTransaction` calls from the disposable Anvil account can cross it. The upstream proxy still rejects all transaction submission and signing. Forge's optional `anvil_nodeInfo` and `eth_getAccountInfo` probes receive method-not-found without passthrough. No browser input controls RPC, command, image, env, wallet or Foundry flags. Source is bounded to one UTF-8 Solidity file, hashed, immutable once reviewed, and FFI is disabled. Execution records are reproduction data, never authoritative vulnerability evidence.
+
 ## Impact Lab Phase A3 boundary
 
 The A2 provider boundary remains HTTPS configuration by `rpcConfigId` only, with a private localhost read-only proxy and an unchanged 18-method allowlist. A real Anvil 1.7.1 fork from a deterministic local fixture succeeded through that proxy. The fixture recorded seven forwarded read methods; Anvil's optional `eth_getAccountInfo` was denied and it recovered. The fork-only transaction and snapshot/revert did not reach the fixture.
