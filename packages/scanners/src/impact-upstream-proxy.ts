@@ -4,8 +4,9 @@ import { assertUpstreamReadMethod } from "@contracthunter/core";
 
 const MAX_REQUEST_BYTES = 256 * 1024;
 const MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
+const NO_PARAM_METHODS: ReadonlySet<string> = new Set(["eth_chainId", "eth_blockNumber", "net_version", "eth_gasPrice", "eth_maxPriorityFeePerGas"]);
 
-export function validateUpstreamPayload(raw: Buffer): void {
+export function validateUpstreamPayload(raw: Buffer, observeMethod?: (method: string) => void): void {
   if (raw.length === 0 || raw.length > MAX_REQUEST_BYTES) throw new Error("impact_upstream_request_invalid");
   let value: unknown;
   try { value = JSON.parse(raw.toString("utf8")); }
@@ -16,9 +17,11 @@ export function validateUpstreamPayload(raw: Buffer): void {
     if (typeof call !== "object" || call === null || Array.isArray(call)) throw new Error("impact_upstream_request_invalid");
     const candidate = call as Record<string, unknown>;
     if (candidate.jsonrpc !== "2.0" || typeof candidate.method !== "string" || candidate.method.length > 64 ||
-      !/^[a-zA-Z][a-zA-Z0-9_]*$/.test(candidate.method) || !Array.isArray(candidate.params) || candidate.params.length > 32 ||
+      !/^[a-zA-Z][a-zA-Z0-9_]*$/.test(candidate.method) ||
+      !(Array.isArray(candidate.params) && candidate.params.length <= 32 || candidate.params === undefined && NO_PARAM_METHODS.has(candidate.method)) ||
       !(typeof candidate.id === "string" && candidate.id.length <= 64 ||
         typeof candidate.id === "number" && Number.isSafeInteger(candidate.id))) throw new Error("impact_upstream_request_invalid");
+    observeMethod?.(candidate.method);
     assertUpstreamReadMethod(candidate.method);
   }
 }
@@ -64,7 +67,8 @@ export async function forwardApprovedUpstreamRequest(upstreamUrl: URL, body: Buf
   catch { throw new Error("impact_upstream_response_invalid"); }
 }
 
-export async function startReadOnlyUpstreamProxy(upstreamUrl: string, fetchImpl: typeof fetch = fetch): Promise<ReadOnlyUpstreamProxy> {
+export async function startReadOnlyUpstreamProxy(upstreamUrl: string, fetchImpl: typeof fetch = fetch,
+  observeMethod?: (method: string) => void): Promise<ReadOnlyUpstreamProxy> {
   let parsed: URL;
   try { parsed = new URL(upstreamUrl); }
   catch { throw new Error("impact_upstream_unavailable"); }
@@ -85,6 +89,7 @@ export async function startReadOnlyUpstreamProxy(upstreamUrl: string, fetchImpl:
         chunks.push(chunk as Buffer);
       }
       const body = Buffer.concat(chunks);
+      if (observeMethod) validateUpstreamPayload(body, observeMethod);
       const forwarded = await forwardApprovedUpstreamRequest(parsed, body, fetchImpl); // Reject the whole batch before any forwarding.
       response.writeHead(forwarded.status, { "content-type": "application/json" }).end(forwarded.body);
     } catch (error) {

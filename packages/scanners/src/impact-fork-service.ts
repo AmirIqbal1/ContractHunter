@@ -290,8 +290,10 @@ export class ImpactForkService {
         if (!runtime.proxy.isListening()) throw new ImpactForkError("impact_proxy_unavailable");
         if (child.exitCode !== null || (runtime.view.status as string) === "failed") break;
         try {
-          if ((this.deps.processToken ?? processStartToken)(child.pid) !== runtime.startToken ||
-            !(this.deps.ownsPort ?? processOwnsLoopbackPort)(child.pid, port)) throw new ImpactForkError("impact_process_identity_lost");
+          if ((this.deps.processToken ?? processStartToken)(child.pid) !== runtime.startToken)
+            throw new ImpactForkError("impact_process_identity_lost");
+          // The owned process may need a moment to bind; never accept an unrelated listener.
+          if (!(this.deps.ownsPort ?? processOwnsLoopbackPort)(child.pid, port)) throw new ImpactForkError("impact_rpc_unavailable");
           const version = await call(endpoint, "web3_clientVersion", []);
           const chain = hexNumber(await call(endpoint, "eth_chainId", []));
           const block = blockIdentity(await call(endpoint, "eth_getBlockByNumber", [`0x${config.forkBlock.toString(16)}`, false]), config.forkBlock);

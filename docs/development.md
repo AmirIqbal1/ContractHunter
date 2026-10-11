@@ -2,6 +2,12 @@
 
 Prerequisites are Node.js 20+, npm, Docker, and Docker Compose. The web service uses UID/GID 10001:10001. The separate verification worker uses UID/GID 10002:10001. Docker's default enforcing seccomp and AppArmor profiles are used; there is no custom host profile to install.
 
+## Impact Lab A3 local integration
+
+The pinned Foundry v1.7.1 Docker build stage now installs both Forge and Anvil; the runner image receives Anvil, while the verification-worker image still receives Forge only. The host integration accepts an Anvil binary only when `IMPACT_TEST_ANVIL` points to a regular, non-group/world-writable file with the exact checksum of the pinned amd64 artifact. It never downloads a binary. The test first creates a disposable local Anvil upstream fixture, then launches a second Anvil through ContractHunter's read-only proxy. It exercises exact identity, state reads, fork-only transfer, snapshot and revert, and method recording. Run it explicitly with `CONTRACTHUNTER_LOOPBACK_TEST=1 IMPACT_TEST_ANVIL=/path/to/approved/anvil npx vitest run packages/scanners/src/impact-real-anvil.test.ts` on a Linux amd64 host with loopback binding allowed. The test skips otherwise; it does not use `IMPACT_RPC_CONFIGS` or a third-party endpoint.
+
+Build the fixed probe image with `docker build --network none -t contracthunter-impact-probe:local docker/impact-probe`, inspect its immutable `sha256:` image ID, and set `IMPACT_PROBE_IMAGE_ID` to that ID for the same integration command to run the live Docker isolation probe. This requires a trusted local Docker controller and daemon permission; the standard Compose web container does not get a Docker socket. The probe uses one per-session Unix socket, Docker network mode `none`, and no host filesystem/data mount. Test-only Docker `exec` performs harmless TCP and cross-session socket probes. The ordinary `npm test` skips opt-in loopback/Docker integration tests when their prerequisites are absent. The dedicated runtime unit tests can be run with `CONTRACTHUNTER_LOOPBACK_TEST=1 npx vitest run packages/scanners/src/impact-poc-runtime.test.ts` where Unix-socket listening is allowed. No solc or live RPC is needed.
+
 ```bash
 cp .env.example .env
 npm install

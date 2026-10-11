@@ -44,9 +44,11 @@ ARG TARGETARCH
 ADD --checksum=sha256:cf7e688ed0c4c48adffca788b496076e31060b67ac5afe1e43dbb5499c20c88b https://github.com/foundry-rs/foundry/releases/download/v1.7.1/foundry_v1.7.1_linux_amd64.tar.gz /tmp/foundry-amd64.tar.gz
 ADD --checksum=sha256:c8fe8fa09ae3aba2c81b510c6f9da3a9d468029b9580e690b245b3f0aea687ae https://github.com/foundry-rs/foundry/releases/download/v1.7.1/foundry_v1.7.1_linux_arm64.tar.gz /tmp/foundry-arm64.tar.gz
 RUN case "${TARGETARCH}" in amd64) archive=/tmp/foundry-amd64.tar.gz ;; arm64) archive=/tmp/foundry-arm64.tar.gz ;; *) exit 1 ;; esac \
-  && tar -xzf "${archive}" -C /tmp forge \
+  && tar -xzf "${archive}" -C /tmp forge anvil \
   && install -m 0755 /tmp/forge /usr/local/bin/forge \
-  && forge --version
+  && install -m 0755 /tmp/anvil /usr/local/bin/anvil \
+  && forge --version \
+  && anvil --version
 
 FROM nixos/nix:2.24.14@sha256:4411619b45575be9fb47063c0878e2d9ef86988678b23c01bf3dd1b967d753fc AS echidna-compat
 COPY third_party/echidna/upstream-v2.3.3.tar.gz third_party/echidna/contracthunter-compat-v1.patch /build/
@@ -124,6 +126,7 @@ ENV PATH="/usr/local/bin:/opt/slither/bin:${PATH}"
 COPY docker/solc-select-wrapper.py /usr/local/bin/solc-select
 COPY --from=aderyn /usr/local/bin/aderyn /usr/local/bin/aderyn
 COPY --from=foundry /usr/local/bin/forge /usr/local/bin/forge
+COPY --from=foundry /usr/local/bin/anvil /usr/local/bin/anvil
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates python3 python3-venv && rm -rf /var/lib/apt/lists/* \
   && python3 -m venv /opt/slither \
   && /opt/slither/bin/pip install --no-cache-dir "slither-analyzer==${SLITHER_VERSION}" \

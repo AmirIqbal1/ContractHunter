@@ -234,6 +234,8 @@ describe("Impact Lab Phase A1 safety boundary", () => {
 
   it("bounds JSON-RPC and redacts provider URL errors", async () => {
     const call = (method: string, id: unknown = 1) => ({ jsonrpc: "2.0", id, method, params: [] });
+    expect(() => validateUpstreamPayload(Buffer.from(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_chainId" })))).not.toThrow();
+    expect(() => validateUpstreamPayload(Buffer.from(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_getCode" })))).toThrow();
     for (const payload of [[], [call("eth_chainId"), call("eth_sendRawTransaction")], call("eth_chainId", null),
       call("x".repeat(65)), { ...call("eth_chainId"), params: {} }, Array.from({ length: 21 }, (_, i) => call("eth_chainId", i))])
       expect(() => validateUpstreamPayload(Buffer.from(JSON.stringify(payload)))).toThrow();

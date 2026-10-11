@@ -1,6 +1,6 @@
 import { impactCreateSessionSchema, impactRpcConfigurationSchema, type ImpactForkSession, type ImpactRpcConfiguration } from "@contracthunter/core";
 import { getDatabase, readImpactForkSession, recordImpactForkSession } from "@contracthunter/db";
-import { ImpactForkService, type ImpactForkHandle } from "@contracthunter/scanners";
+import { ImpactForkService, ImpactPoCRuntimeService, type ImpactForkHandle } from "@contracthunter/scanners";
 
 // Only server configuration names a provider. Browser input can select an ID, never a URL or secret reference.
 export function configuredImpactRpcs(): ImpactRpcConfiguration[] {
@@ -13,7 +13,8 @@ export function configuredImpactRpcs(): ImpactRpcConfiguration[] {
   return configs;
 }
 
-const state = globalThis as typeof globalThis & { contractHunterImpact?: { service: ImpactForkService; handles: Map<string, ImpactForkHandle> } };
+const state = globalThis as typeof globalThis & { contractHunterImpact?: { service: ImpactForkService; handles: Map<string, ImpactForkHandle>;
+  pocRuntime?: ImpactPoCRuntimeService } };
 function registry() {
   if (!state.contractHunterImpact) state.contractHunterImpact = {
     service: new ImpactForkService({ onStatus: (session) => recordImpactForkSession(getDatabase(), session) }),
@@ -23,6 +24,13 @@ function registry() {
 }
 
 export function createImpactForkService(): ImpactForkService { return registry().service; }
+
+export function createImpactPoCRuntimeService(): ImpactPoCRuntimeService {
+  const current = registry();
+  if (!current.pocRuntime) current.pocRuntime = new ImpactPoCRuntimeService(current.service,
+    (sessionId) => current.handles.get(sessionId), process.env.IMPACT_PROBE_IMAGE_ID ?? "");
+  return current.pocRuntime;
+}
 
 export function publicImpactSession(session: ImpactForkSession) {
   return { id: session.id, status: session.status, findingId: session.findingId, hypothesisId: session.hypothesisId,
@@ -49,12 +57,17 @@ export async function stopImpactSession(id: string): Promise<ImpactForkSession> 
   const { service, handles } = registry();
   const handle = handles.get(id);
   if (!handle) throw new Error("impact_session_unavailable");
-  const stopped = await service.stopForkSession(handle);
-  handles.delete(id);
+  try { await registry().pocRuntime?.stopForSession(id); }
+  finally {
+    try { await service.stopForkSession(handle); }
+    finally { handles.delete(id); }
+  }
+  const stopped = service.getSession(id)!;
   return stopped;
 }
 
 export async function recreateImpactSession(id: string): Promise<ImpactForkSession> {
+  await registry().pocRuntime?.stopForSession(id);
   const previous = readImpactForkSession(getDatabase(), id);
   if (!previous?.rpcConfigId) throw new Error("impact_recreate_identity_invalid");
   const config = configuredImpactRpcs().find((item) => item.id === previous.rpcConfigId && item.enabled &&

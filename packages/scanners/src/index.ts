@@ -31,3 +31,4 @@ export * from "./invariant-replay-workspace-integrity";
 export * from "./invariant-replay-result";
 export * from "./impact-upstream-proxy";
 export * from "./impact-fork-service";
+export * from "./impact-poc-runtime";

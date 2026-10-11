@@ -1,6 +1,6 @@
 # API reference
 
-Impact Lab Phase A2 has configured-reference session routes described below. There is no generic raw RPC API or PoC execution.
+Impact Lab Phase A2 has configured-reference session routes described below. Phase A3 adds an internal session-ID-only probe-runtime service and no public runtime route. There is no generic raw RPC API or PoC execution.
 
 ## Scans
 
@@ -72,3 +72,5 @@ The hypothesis page shows **Reuse plan** only for advisory `eligible` candidates
 ## Impact Lab Phase A2 internal API
 
 `GET /api/impact/rpc-configs` returns enabled `{id, chainId, network}` entries only. `POST /api/impact/sessions` accepts exactly one `findingId` or `hypothesisId`, `rpcConfigId`, exact numeric `forkBlock`, and 1–20 `targetContracts` addresses. It rejects raw URLs, executable paths, argv and keys. `GET /api/impact/sessions/:id` returns safe identity/status; `DELETE` stops an active session; `POST /api/impact/sessions/:id/recreate` explicitly rebuilds a stopped/failed session from saved identity. Responses include block hash and target `sha256:` bytecode hashes when resolved, but omit provider URL/ref, local execution endpoint, process data and keys. No PoC API exists.
+
+Phase A3's internal `createPoCRuntime({sessionId})`, `inspect(runtimeId)`, and `destroy(runtimeId)` service methods are not browser routes. Creation rejects extra keys such as RPC URL, image, command, argv, or environment. The server resolves the current guarded fork handle and fixed image ID. This runtime executes only ContractHunter's harmless network probe; no Solidity, Forge or vulnerability PoC is accepted.

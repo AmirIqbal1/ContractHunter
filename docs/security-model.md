@@ -1,5 +1,13 @@
 # Security model
 
+## Impact Lab Phase A3 boundary
+
+The A2 provider boundary remains HTTPS configuration by `rpcConfigId` only, with a private localhost read-only proxy and an unchanged 18-method allowlist. A real Anvil 1.7.1 fork from a deterministic local fixture succeeded through that proxy. The fixture recorded seven forwarded read methods; Anvil's optional `eth_getAccountInfo` was denied and it recovered. The fork-only transaction and snapshot/revert did not reach the fixture.
+
+A3 adds a separate Docker probe runtime, without changing the existing networkless verification worker. The probe accepts only a trusted active fork session ID, then pins its current runtime token. Its fixed image ID and schema are inspected. Docker `--network none` supplies only loopback, with no route to the proxy, host/LAN, public internet, or another fork. One private per-session Unix socket is the only mount and RPC path. The host bridge permits six bounded local read methods and rechecks token and managed-Anvil endpoint identity on every request. The probe runs as nonroot UID 10003, read-only root, capability-free, no-new-privileges, default seccomp/AppArmor, PID 32, half CPU, 128 MiB memory, and 16 MiB tmpfs; it has no Docker socket, database, repository store, provider URL, private key, or app secrets. Live container inspection and negative network probes verify these properties. Socket/token revocation and container removal accompany session stop/recreate. There is no PoC execution or browser-selectable command/image/RPC URL in A3.
+
+This foundation is exercised by a host-side internal test harness. The standard Compose web service does not yet have an approved production controller for creating these containers; later PoC execution requires one without exposing the Docker daemon to a PoC container or weakening the verification worker.
+
 ContractHunter is a single-user local tool for authorised analysis. It has no application authentication; do not expose the web port to an untrusted network. Repository content is hostile input. Dependency preparation accepts only approved pinned Git submodules and lockfile-backed npm dependencies with lifecycle scripts disabled. AI receives bounded context and can propose structured data, but has no command, filesystem, RPC, wallet, or verification execution authority.
 
 ## v0.1.9 verification boundary
