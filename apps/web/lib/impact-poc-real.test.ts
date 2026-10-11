@@ -7,7 +7,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
 import { createDatabase, closeDatabase, createScan, insertFindings, createImpactPoCArtifact,
-  reviewImpactPoCArtifact, recordImpactForkSession } from "@contracthunter/db";
+  reviewImpactPoCArtifact, recordImpactForkSession, readImpactExecutionState } from "@contracthunter/db";
 import { ImpactForkService, startReadOnlyUpstreamProxy } from "@contracthunter/scanners";
 
 const binary = process.env.IMPACT_TEST_ANVIL;
@@ -23,7 +23,7 @@ contract ImpactPoC {
   Vm constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
   function run() external {
     vm.startBroadcast();
-    (bool ok,) = payable(${target}).call{value: 1 wei}("");
+    (bool ok,) = payable(${target}).call{value: 1 wei}(abi.encodeWithSignature("set(uint256)", uint256(43)));
     require(ok, "local transfer failed");
     vm.stopBroadcast();
   }
@@ -85,12 +85,14 @@ describe.skipIf(!enabled)("Phase B1 real local Forge worker", () => {
     const database = createDatabase(path.join(dbDir, "test.db"));
     try {
       await ready(upstreamEndpoint, upstream);
-      await rpc(upstreamEndpoint, "anvil_setCode", [target, "0x60005460005260206000f3"]);
+      await rpc(upstreamEndpoint, "anvil_setCode", [target, "0x3615600c57600435600055005b60005460005260206000f3"]);
       await rpc(upstreamEndpoint, "anvil_setStorageAt", [target, `0x${"0".repeat(64)}`, `0x${"0".repeat(62)}2a`]);
       await rpc(upstreamEndpoint, "anvil_mine", ["0x1"]);
       const blockNumber = Number(BigInt(await rpc(upstreamEndpoint, "eth_blockNumber") as string));
       const block = await rpc(upstreamEndpoint, "eth_getBlockByNumber", [`0x${blockNumber.toString(16)}`, false]) as { hash: string };
       const before = await rpc(upstreamEndpoint, "eth_getBalance", [target, "latest"]);
+      const storageSlot = `0x${"0".repeat(64)}`;
+      const storageBefore = await rpc(upstreamEndpoint, "eth_getStorageAt", [target, storageSlot, "latest"]);
       const forwarded: string[] = [];
       const provider: typeof fetch = async (_url, init) => {
         const call = JSON.parse(Buffer.from(init?.body as Uint8Array).toString("utf8")) as { method: string };
@@ -175,7 +177,8 @@ describe.skipIf(!enabled)("Phase B1 real local Forge worker", () => {
         if (resets === 2) balanceBeforeFinalReset = await rpc(session.localRpcEndpoint!, "eth_getBalance", [target, "latest"]);
         return resetFork(currentHandle);
       };
-      const executing = executeManualPoC(session.id, { pocArtifactId: poc.id }, { database, service,
+      const executing = executeManualPoC(session.id, { pocArtifactId: poc.id,
+        observations: { storageSlots: [{ contract: target, slot: storageSlot }] } }, { database, service,
         resolveHandle: (id) => id === handle.id ? handle : undefined });
       for (let i = 0; i < 30 && !statSync(path.join(directory, "fork.sock"), { throwIfNoEntry: false }); i++)
         await new Promise((resolve) => setTimeout(resolve, 20));
@@ -191,8 +194,24 @@ describe.skipIf(!enabled)("Phase B1 real local Forge worker", () => {
       expect(outcome.transactionScope).toBe("local-impact-lab");
       expect(outcome.transactionHashes.length).toBeGreaterThan(0);
       expect(BigInt(balanceBeforeFinalReset as string)).toBe(BigInt(before as string) + 1n);
+      expect(outcome.stateCaptureAvailable).toBe(true);
+      const state = readImpactExecutionState(database, outcome.id)!;
+      expect(state.pre?.observations.find((item) => item.id === `storage:${target}:${storageSlot}`)?.value).toBe(storageBefore);
+      expect(state.post?.observations.find((item) => item.id === `storage:${target}:${storageSlot}`)?.value)
+        .toBe(`0x${"0".repeat(62)}2b`);
+      expect(state.diff?.changes.find((item) => item.id === `native:${target}`)?.delta).toBe("1");
+      expect(BigInt(state.diff?.changes.find((item) => item.id === `native:${session.disposableAccounts[0]}`)?.delta ?? "0"))
+        .toBeLessThan(0n);
+      expect(state.diff?.changes.find((item) => item.id === `storage:${target}:${storageSlot}`)?.after)
+        .toBe(`0x${"0".repeat(62)}2b`);
       expect(await rpc(upstreamEndpoint, "eth_getBalance", [target, "latest"])).toBe(before);
+      expect(await rpc(upstreamEndpoint, "eth_getStorageAt", [target, storageSlot, "latest"])).toBe(storageBefore);
       expect(await rpc(session.localRpcEndpoint!, "eth_getBalance", [target, "latest"])).toBe(before);
+      expect(await rpc(session.localRpcEndpoint!, "eth_getStorageAt", [target, storageSlot, "latest"])).toBe(storageBefore);
+      const retained = readImpactExecutionState(database, outcome.id)!;
+      expect(retained.pre?.contentSha256).toBe(state.pre?.contentSha256);
+      expect(retained.post?.contentSha256).toBe(state.post?.contentSha256);
+      expect(retained.diff?.contentSha256).toBe(state.diff?.contentSha256);
       expect((database.sqlite.prepare("SELECT status FROM findings WHERE id=?").get(finding.id) as { status: string }).status)
         .toBe("candidate");
       expect((database.sqlite.prepare("SELECT count(*) AS n FROM authoritative_invariant_evidence").get() as { n: number }).n)
@@ -204,9 +223,42 @@ describe.skipIf(!enabled)("Phase B1 real local Forge worker", () => {
       const ffiResult = await executeManualPoC(session.id, { pocArtifactId: ffi.id }, { database, service,
         resolveHandle: (id) => id === handle.id ? handle : undefined });
       expect(ffiResult.status).toBe("failed");
+      expect(ffiResult.stateCaptureAvailable).toBe(true);
+      expect(readImpactExecutionState(database, ffiResult.id)?.diff?.changeCount).toBe(0);
       expect(`${ffiResult.stdout}\n${ffiResult.stderr}`).toMatch(/ffi|permission|disabled/i);
       const { stdout: ffiSentinel } = await exec("/usr/bin/docker", ["exec", workerName, "test", "!", "-e", "/tmp/impact-ffi-sentinel"]);
       expect(ffiSentinel).toBe("");
+      const invalidSource = createImpactPoCArtifact(database, { findingId: finding.id, filename: "ImpactPoC.s.sol",
+        source: "pragma solidity 0.8.36; contract ImpactPoC { function run() external { missingSymbol(); } }",
+        entryContract: "ImpactPoC" });
+      reviewImpactPoCArtifact(database, invalidSource.id, "reviewed");
+      const compileFailure = await executeManualPoC(session.id, { pocArtifactId: invalidSource.id }, { database, service,
+        resolveHandle: (id) => id === handle.id ? handle : undefined });
+      expect(compileFailure.status).toBe("failed");
+      expect(compileFailure.compiled).toBe(false);
+      expect(compileFailure.preSnapshotId).not.toBeNull();
+      expect(compileFailure.postSnapshotId).toBeNull();
+      expect(compileFailure.transactionHashes).toEqual([]);
+      const originalStateRead = service.readLocalImpactState.bind(service);
+      let blockReads = 0;
+      service.readLocalImpactState = async (currentHandle, method, params) => {
+        if (method === "eth_blockNumber" && ++blockReads === 2) throw Error("test post capture unavailable");
+        return originalStateRead(currentHandle, method, params);
+      };
+      const postFailed = await executeManualPoC(session.id, { pocArtifactId: poc.id }, { database, service,
+        resolveHandle: (id) => id === handle.id ? handle : undefined });
+      service.readLocalImpactState = originalStateRead;
+      expect(postFailed.errorCode).toBe("impact_post_capture_failed");
+      expect(postFailed.preSnapshotId).not.toBeNull();
+      expect(postFailed.postSnapshotId).toBeNull();
+      expect(await rpc(session.localRpcEndpoint!, "eth_getBalance", [target, "latest"])).toBe(before);
+      service.readLocalImpactState = async () => { throw Error("test pre capture unavailable"); };
+      const preFailed = await executeManualPoC(session.id, { pocArtifactId: poc.id }, { database, service,
+        resolveHandle: (id) => id === handle.id ? handle : undefined });
+      service.readLocalImpactState = originalStateRead;
+      expect(preFailed.errorCode).toBe("impact_pre_capture_failed");
+      expect(preFailed.transactionHashes).toEqual([]);
+      expect(preFailed.preSnapshotId).toBeNull();
       await service.stopForkSession(handle);
       await expect(executeManualPoC(session.id, { pocArtifactId: poc.id }, { database, service,
         resolveHandle: (id) => id === handle.id ? handle : undefined })).rejects.toThrow();

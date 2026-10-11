@@ -1,11 +1,15 @@
 # API reference
 
+## Impact Lab Phase C1 state capture
+
+`POST /api/impact/sessions/:sessionId/poc-executions` accepts `pocArtifactId` and optional `observations` with typed `nativeBalances`, `erc20Balances` (`token`, `holder`), `erc721Owners` (`token`, decimal `tokenId`), `erc1155Balances` (`token`, `holder`, decimal `tokenId`), `storageSlots` (`contract`, exact 32-byte `slot`), and `viewCalls` (fixed `erc20_totalSupply`, `target`). Unknown keys, arbitrary methods/calldata and oversized plans are rejected. Defaults include sender and target native balances. `GET /api/impact/poc-executions/:id` includes nullable `preSnapshotId`, `postSnapshotId`, `diffId`, `stateCaptureAvailable` and `stateChangeCount`. `GET /api/impact/poc-executions/:id/state` returns the finalized PRE/POST and diff artifacts or null links for historical B1 runs. State endpoints are read-only and do not admit vulnerability evidence.
+
 ## Impact Lab Phase B1 manual PoCs
 
 - `POST /api/impact/pocs` — create a **draft** manual artifact with exactly one `findingId` or `hypothesisId`, literal `filename: "ImpactPoC.s.sol"`, bounded `source`, `entryContract`, and optional `revisionOf`. No execution occurs.
 - `GET /api/impact/pocs/:id` — inspect artifact and review state.
 - `POST /api/impact/pocs/:id/review` — body `{ "decision": "reviewed" | "rejected" }` for a draft. Reviewed source is immutable.
-- `POST /api/impact/sessions/:sessionId/poc-executions` — explicit body `{ "pocArtifactId": "<uuid>" }`. The service reloads a ready managed fork, checks its current runtime token, reviewed source identity and target, then executes on the local fork only.
+- `POST /api/impact/sessions/:sessionId/poc-executions` — explicit reviewed artifact selector and optional C1 typed observation plan. The service reloads a ready managed fork, checks its current runtime token, reviewed source identity and target, then executes on the local fork only.
 - `GET /api/impact/poc-executions/:id` — bounded local reproduction status, diagnostics and provenance. Transaction hashes are local Impact Lab transactions.
 
 All request objects are strict. Raw RPC URL, image, command, argv, Foundry flags, wallet and environment fields are rejected. B1 has no generic RPC or automatic evidence/lifecycle promotion endpoint.
@@ -81,6 +85,6 @@ The hypothesis page shows **Reuse plan** only for advisory `eligible` candidates
 
 ## Impact Lab Phase A2 internal API
 
-`GET /api/impact/rpc-configs` returns enabled `{id, chainId, network}` entries only. `POST /api/impact/sessions` accepts exactly one `findingId` or `hypothesisId`, `rpcConfigId`, exact numeric `forkBlock`, and 1–20 `targetContracts` addresses. It rejects raw URLs, executable paths, argv and keys. `GET /api/impact/sessions/:id` returns safe identity/status; `DELETE` stops an active session; `POST /api/impact/sessions/:id/recreate` explicitly rebuilds a stopped/failed session from saved identity. Responses include block hash and target `sha256:` bytecode hashes when resolved, but omit provider URL/ref, local execution endpoint, process data and keys. No PoC API exists.
+`GET /api/impact/rpc-configs` returns enabled `{id, chainId, network}` entries only. `POST /api/impact/sessions` accepts exactly one `findingId` or `hypothesisId`, `rpcConfigId`, exact numeric `forkBlock`, and 1–20 `targetContracts` addresses. It rejects raw URLs, executable paths, argv and keys. `GET /api/impact/sessions/:id` returns safe identity/status; `DELETE` stops an active session; `POST /api/impact/sessions/:id/recreate` explicitly rebuilds a stopped/failed session from saved identity. Responses include block hash and target `sha256:` bytecode hashes when resolved, but omit provider URL/ref, local execution endpoint, process data and keys. B1/C1 PoC and state routes are described above.
 
 Phase A3's internal `createPoCRuntime({sessionId})`, `inspect(runtimeId)`, and `destroy(runtimeId)` service methods are not browser routes. Creation rejects extra keys such as RPC URL, image, command, argv, or environment. The server resolves the current guarded fork handle and fixed image ID. This runtime executes only ContractHunter's harmless network probe; no Solidity, Forge or vulnerability PoC is accepted.

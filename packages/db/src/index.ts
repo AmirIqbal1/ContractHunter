@@ -11,6 +11,7 @@ import { authoritativeInvariantEvidence, executableInvariantProposals, executabl
 export * from "./schema";
 export { recordImpactForkSession, recoverStaleImpactForkSessions, readImpactForkSession } from "./impact-fork-sessions";
 export * from "./impact-poc";
+export * from "./impact-state";
 
 export type DatabaseClient = ReturnType<typeof createDatabase>;
 
@@ -464,9 +465,71 @@ export function createDatabase(databasePath: string) {
     })(); }
     catch (error) { throw new Error(`Database migration 0011_v0_3_impact_manual_pocs failed without committing changes: ${error instanceof Error ? error.message : String(error)}`); }
   }
+  if (!sqlite.prepare("SELECT 1 FROM schema_migrations WHERE id = ?").get("0012_v0_3_impact_state_capture")) {
+    try { sqlite.transaction(() => {
+      sqlite.exec(`ALTER TABLE impact_poc_executions ADD COLUMN observation_plan TEXT;
+        ALTER TABLE impact_poc_executions ADD COLUMN observation_plan_sha256 TEXT;
+        ALTER TABLE impact_poc_executions ADD COLUMN pre_snapshot_id TEXT;
+        ALTER TABLE impact_poc_executions ADD COLUMN post_snapshot_id TEXT;
+        ALTER TABLE impact_poc_executions ADD COLUMN state_diff_id TEXT;
+        ALTER TABLE impact_poc_executions ADD COLUMN state_change_count INTEGER;
+        CREATE TABLE impact_state_snapshots (
+          id TEXT PRIMARY KEY, schema TEXT NOT NULL CHECK(schema='impact-state-snapshot-v1'),
+          execution_id TEXT NOT NULL REFERENCES impact_poc_executions(id),
+          phase TEXT NOT NULL CHECK(phase IN ('pre','post')),
+          session_id TEXT NOT NULL, runtime_token_sha256 TEXT NOT NULL, chain_id INTEGER NOT NULL,
+          fork_block INTEGER NOT NULL, fork_block_hash TEXT NOT NULL, target_code_hashes TEXT NOT NULL,
+          artifact_id TEXT NOT NULL, source_sha256 TEXT NOT NULL, plan_sha256 TEXT NOT NULL,
+          observed_at_block INTEGER NOT NULL, observed_at_timestamp TEXT NOT NULL,
+          observation_count INTEGER NOT NULL CHECK(observation_count BETWEEN 1 AND 64),
+          content_sha256 TEXT NOT NULL, status TEXT NOT NULL CHECK(status='finalized'),
+          UNIQUE(execution_id,phase));
+        CREATE TABLE impact_state_observations (
+          snapshot_id TEXT NOT NULL REFERENCES impact_state_snapshots(id),
+          identity TEXT NOT NULL, kind TEXT NOT NULL CHECK(kind IN ('native','erc20','erc721','erc1155','storage','view')),
+          status TEXT NOT NULL CHECK(status IN ('available','unavailable')),
+          value TEXT, error_code TEXT CHECK(error_code IN ('rpc_error','invalid_response')),
+          PRIMARY KEY(snapshot_id,identity),
+          CHECK((status='available' AND value IS NOT NULL AND error_code IS NULL) OR
+            (status='unavailable' AND value IS NULL AND error_code IS NOT NULL)));
+        CREATE TABLE impact_state_diffs (
+          id TEXT PRIMARY KEY, schema TEXT NOT NULL CHECK(schema='impact-state-diff-v1'),
+          execution_id TEXT NOT NULL UNIQUE REFERENCES impact_poc_executions(id),
+          pre_snapshot_id TEXT NOT NULL REFERENCES impact_state_snapshots(id),
+          post_snapshot_id TEXT NOT NULL REFERENCES impact_state_snapshots(id),
+          pre_snapshot_sha256 TEXT NOT NULL, post_snapshot_sha256 TEXT NOT NULL,
+          change_count INTEGER NOT NULL CHECK(change_count BETWEEN 0 AND 64),
+          content_sha256 TEXT NOT NULL, status TEXT NOT NULL CHECK(status='finalized'));
+        CREATE TABLE impact_state_changes (
+          diff_id TEXT NOT NULL REFERENCES impact_state_diffs(id), identity TEXT NOT NULL,
+          kind TEXT NOT NULL, type TEXT NOT NULL,
+          before_status TEXT NOT NULL, after_status TEXT NOT NULL,
+          before_value TEXT, after_value TEXT, before_error_code TEXT, after_error_code TEXT, delta TEXT,
+          PRIMARY KEY(diff_id,identity));
+        CREATE TRIGGER impact_state_snapshots_immutable BEFORE UPDATE ON impact_state_snapshots BEGIN SELECT RAISE(ABORT,'state snapshot immutable'); END;
+        CREATE TRIGGER impact_state_snapshots_no_delete BEFORE DELETE ON impact_state_snapshots BEGIN SELECT RAISE(ABORT,'state snapshot immutable'); END;
+        CREATE TRIGGER impact_state_observations_immutable BEFORE UPDATE ON impact_state_observations BEGIN SELECT RAISE(ABORT,'state observation immutable'); END;
+        CREATE TRIGGER impact_state_observations_no_delete BEFORE DELETE ON impact_state_observations BEGIN SELECT RAISE(ABORT,'state observation immutable'); END;
+        CREATE TRIGGER impact_state_diffs_immutable BEFORE UPDATE ON impact_state_diffs BEGIN SELECT RAISE(ABORT,'state diff immutable'); END;
+        CREATE TRIGGER impact_state_diffs_no_delete BEFORE DELETE ON impact_state_diffs BEGIN SELECT RAISE(ABORT,'state diff immutable'); END;
+        CREATE TRIGGER impact_state_changes_immutable BEFORE UPDATE ON impact_state_changes BEGIN SELECT RAISE(ABORT,'state change immutable'); END;
+        CREATE TRIGGER impact_state_changes_no_delete BEFORE DELETE ON impact_state_changes BEGIN SELECT RAISE(ABORT,'state change immutable'); END;`);
+      sqlite.exec(`CREATE TRIGGER impact_execution_state_links_immutable BEFORE UPDATE ON impact_poc_executions
+        WHEN OLD.observation_plan IS NOT NULL AND (
+          OLD.observation_plan IS NOT NEW.observation_plan OR
+          OLD.observation_plan_sha256 IS NOT NEW.observation_plan_sha256 OR
+          OLD.pre_snapshot_id IS NOT NEW.pre_snapshot_id OR
+          OLD.post_snapshot_id IS NOT NEW.post_snapshot_id OR
+          OLD.state_diff_id IS NOT NEW.state_diff_id OR
+          OLD.state_change_count IS NOT NEW.state_change_count)
+        BEGIN SELECT RAISE(ABORT,'execution state links immutable'); END;`);
+      sqlite.prepare("INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)").run("0012_v0_3_impact_state_capture", Date.now());
+    })(); }
+    catch (error) { throw new Error(`Database migration 0012_v0_3_impact_state_capture failed without committing changes: ${error instanceof Error ? error.message : String(error)}`); }
+  }
   const integrity = sqlite.pragma("quick_check") as Array<{ quick_check: string }>;
   const foreignKeyViolations = sqlite.pragma("foreign_key_check") as unknown[];
-  const requiredTables = ["scans", "scan_source_snapshots", "scan_source_snapshot_files", "scan_compilation_provenance", "scan_compilation_source_units", "scan_scanner_alignment", "findings", "scan_scanners", "investigations", "investigation_findings", "protocol_analyses", "invariants", "security_review_plans", "security_reviewer_runs", "vulnerability_hypotheses", "hypothesis_verification_runs", "verification_plan_attempts", "executable_invariant_runs", "executable_invariant_proposals", "invariant_replay_artifacts", "invariant_replay_runs", "authoritative_invariant_evidence", "invariant_evidence_reviews", "hypothesis_lifecycle_transitions", "hypothesis_groups", "hypothesis_group_members", "impact_fork_sessions", "impact_poc_artifacts", "impact_poc_executions"];
+  const requiredTables = ["scans", "scan_source_snapshots", "scan_source_snapshot_files", "scan_compilation_provenance", "scan_compilation_source_units", "scan_scanner_alignment", "findings", "scan_scanners", "investigations", "investigation_findings", "protocol_analyses", "invariants", "security_review_plans", "security_reviewer_runs", "vulnerability_hypotheses", "hypothesis_verification_runs", "verification_plan_attempts", "executable_invariant_runs", "executable_invariant_proposals", "invariant_replay_artifacts", "invariant_replay_runs", "authoritative_invariant_evidence", "invariant_evidence_reviews", "hypothesis_lifecycle_transitions", "hypothesis_groups", "hypothesis_group_members", "impact_fork_sessions", "impact_poc_artifacts", "impact_poc_executions", "impact_state_snapshots", "impact_state_observations", "impact_state_diffs", "impact_state_changes"];
   const presentTables = new Set((sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as Array<{ name: string }>).map((row) => row.name));
   const runColumns = new Set((sqlite.prepare("PRAGMA table_info(executable_invariant_runs)").all() as Array<{name:string}>).map((row) => row.name));
   const replayColumns = new Set((sqlite.prepare("PRAGMA table_info(invariant_replay_artifacts)").all() as Array<{name:string}>).map((row) => row.name));

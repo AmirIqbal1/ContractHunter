@@ -34,7 +34,7 @@ describe("Impact Lab Phase A1 persistence", () => {
     expect(database.sqlite.prepare("SELECT local_port FROM impact_fork_sessions WHERE id=?").get(session.id)).toEqual({ local_port: 49001 });
     expect(database.sqlite.pragma("foreign_key_check")).toEqual([]);
     expect(database.sqlite.pragma("integrity_check", { simple: true })).toBe("ok");
-    expect((database.sqlite.prepare("SELECT id FROM schema_migrations ORDER BY id").all() as Array<{ id: string }>).at(-1)?.id).toBe("0011_v0_3_impact_manual_pocs");
+    expect((database.sqlite.prepare("SELECT id FROM schema_migrations ORDER BY id").all() as Array<{ id: string }>).at(-1)?.id).toBe("0012_v0_3_impact_state_capture");
     closeDatabase(database);
   });
 

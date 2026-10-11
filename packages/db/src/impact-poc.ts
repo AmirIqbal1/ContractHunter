@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { impactPoCCreateSchema, impactPoCSourceHash, type ImpactPoCReviewState, type ImpactPoCExecutionStatus } from "@contracthunter/core";
+import { impactPoCCreateSchema, impactPoCSourceHash, type ImpactObservationPlan,
+  type ImpactPoCReviewState, type ImpactPoCExecutionStatus } from "@contracthunter/core";
 import type { DatabaseClient } from "./index";
 
 export type ImpactPoCArtifact = Readonly<{ id: string; findingId: string | null; hypothesisId: string | null;
@@ -12,7 +13,9 @@ export type ImpactPoCExecution = Readonly<{ id: string; artifactId: string; sour
   status: ImpactPoCExecutionStatus; createdAt: number; startedAt: number | null; completedAt: number | null;
   exitCode: number | null; compiled: boolean; executed: boolean; transactionScope: "local-impact-lab";
   stdout: string | null; stderr: string | null; transactionHashes: string[];
-  errorCode: string | null }>;
+  errorCode: string | null; observationPlan: ImpactObservationPlan | null;
+  observationPlanSha256: string | null; preSnapshotId: string | null; postSnapshotId: string | null;
+  stateDiffId: string | null; stateChangeCount: number | null; stateCaptureAvailable: boolean }>;
 function artifact(row: Record<string, unknown>): ImpactPoCArtifact {
   return { id: String(row.id), findingId: row.finding_id as string | null, hypothesisId: row.hypothesis_id as string | null,
     revisionOf: row.revision_of as string | null, filename: "ImpactPoC.s.sol", source: String(row.source),
@@ -29,7 +32,12 @@ function execution(row: Record<string, unknown>): ImpactPoCExecution {
     startedAt: row.started_at as number | null, completedAt: row.completed_at as number | null,
     exitCode: row.exit_code as number | null, compiled: Boolean(row.compiled), executed: Boolean(row.executed),
     transactionScope: row.transaction_scope as "local-impact-lab", stdout: row.stdout as string | null, stderr: row.stderr as string | null,
-    transactionHashes: JSON.parse(String(row.transaction_hashes)) as string[], errorCode: row.error_code as string | null };
+    transactionHashes: JSON.parse(String(row.transaction_hashes)) as string[], errorCode: row.error_code as string | null,
+    observationPlan: row.observation_plan ? JSON.parse(String(row.observation_plan)) as ImpactObservationPlan : null,
+    observationPlanSha256: row.observation_plan_sha256 as string | null,
+    preSnapshotId: row.pre_snapshot_id as string | null, postSnapshotId: row.post_snapshot_id as string | null,
+    stateDiffId: row.state_diff_id as string | null, stateChangeCount: row.state_change_count as number | null,
+    stateCaptureAvailable: row.state_diff_id !== null };
 }
 export function createImpactPoCArtifact(database: DatabaseClient, raw: unknown): ImpactPoCArtifact {
   const input = impactPoCCreateSchema.parse(raw);
@@ -56,7 +64,7 @@ export function reviewImpactPoCArtifact(database: DatabaseClient, id: string, de
     .run(decision, Date.now(), id).changes) throw Error("impact_poc_not_draft");
   return readImpactPoCArtifact(database, id)!;
 }
-export function createImpactPoCExecution(database: DatabaseClient, input: Omit<ImpactPoCExecution, "status" | "createdAt" | "startedAt" | "completedAt" | "exitCode" | "compiled" | "executed" | "transactionScope" | "stdout" | "stderr" | "transactionHashes" | "errorCode">): ImpactPoCExecution {
+export function createImpactPoCExecution(database: DatabaseClient, input: Omit<ImpactPoCExecution, "status" | "createdAt" | "startedAt" | "completedAt" | "exitCode" | "compiled" | "executed" | "transactionScope" | "stdout" | "stderr" | "transactionHashes" | "errorCode" | "observationPlan" | "observationPlanSha256" | "preSnapshotId" | "postSnapshotId" | "stateDiffId" | "stateChangeCount" | "stateCaptureAvailable">): ImpactPoCExecution {
   const createdAt = Date.now();
   database.sqlite.prepare(`INSERT INTO impact_poc_executions
     (id,artifact_id,source_sha256,session_id,runtime_token_sha256,chain_id,fork_block,fork_block_hash,target_code_hashes,forge_version,forge_sha256,status,created_at)

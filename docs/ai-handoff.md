@@ -1,8 +1,12 @@
 # ContractHunter AI Handoff
 
-## Current Impact Lab milestone: Phase B1
+## Current Impact Lab milestone: Phase C1
 
-Manual reviewed PoC artifacts and explicit local-only Forge execution are implemented. The dedicated Compose `impact-poc-worker` uses a narrow Unix control socket and `network_mode: none`; neither it nor web mounts Docker's socket. It receives no upstream RPC, secrets, repository or wallet. A per-job guarded bridge permits bounded local reads and only disposable-sender `eth_sendTransaction`; upstream remains read-only. Reset occurs before and after each run. The successful local Forge fixture is reproduction data only and does not update authoritative evidence or hypothesis lifecycle. Migration `0011_v0_3_impact_manual_pocs` is latest. Phase C state capture/diff remains future work; do not infer vulnerability verification from Forge success.
+Phase C1 adds versioned bounded observation plans, controller-owned PRE/POST reads from the guarded local fork, exact typed differences, and immutable normalized artifacts in migration `0012_v0_3_impact_state_capture`. The execution flow resets baseline, captures PRE, runs reviewed manual Forge, captures POST before reset where execution may have occurred, atomically stores finalized state, and resets baseline again. Compilation failure retains PRE only. Failed observations remain explicitly unavailable; failed POST capture cannot create a complete diff. Hashes and read-time checks bind observations and diffs to execution, runtime token, reviewed source, fork block/hash and target code. No trace, asset-flow inference, vulnerability authority or lifecycle promotion was added. The opt-in local A→proxy→B→worker test proves +1 wei and storage-slot changes on B, upstream unchanged and zero upstream submissions. Historical B1 rows keep null state links. v0.3 remains unreleased.
+
+Release hardening: the older cached `contracthunter-impact-poc-worker:b1` image failed the loopback bridge smoke; the newer pinned local test image passed. Rebuild the production Compose worker from current trusted sources and repeat the live smoke before release. C1 did not download remote Foundry or compiler inputs.
+
+Manual reviewed PoC artifacts and explicit local-only Forge execution are implemented. The dedicated Compose `impact-poc-worker` uses a narrow Unix control socket and `network_mode: none`; neither it nor web mounts Docker's socket. It receives no upstream RPC, secrets, repository or wallet. A per-job guarded bridge permits bounded local reads and only disposable-sender `eth_sendTransaction`; upstream remains read-only. C1 captures bounded local PRE/POST state before the final reset. Forge success and a state diff remain reproduction data only and do not update authoritative evidence or hypothesis lifecycle.
 
 > Read this file before making significant changes to ContractHunter.
 
@@ -12,7 +16,7 @@ ContractHunter is a locally hosted smart-contract security analysis workstation 
 
 ## Current version state
 
-Current released application/workspace version: `v0.2.2`. v0.3 Impact Lab is in development through Phase B1: A1 managed local fork lifecycle, A2 configured exact-block upstream identity, A3 real local-Anvil fork compatibility and isolated probe runtime, and B1 manually reviewed local-only Forge execution. Migration `0011_v0_3_impact_manual_pocs` is latest. The default suite has 634 passing tests and six opt-in skips; the B1 local Anvil/Forge/Docker case passes separately. No v0.3 release has been made.
+Current released application/workspace version: `v0.2.2`. v0.3 Impact Lab is in development through Phase C1: A1 managed fork lifecycle, A2 configured exact-block upstream identity, A3 real local-Anvil fork compatibility and isolation, B1 manually reviewed local-only Forge execution, and C1 bounded state capture/diff. Migration `0012_v0_3_impact_state_capture` is latest. No v0.3 release has been made.
 
 v0.2.0 includes executable invariant plan v1, bounded fuzz/stateful worker execution, manual AI semantic proposals, deterministic counterexample replay, explicit relevance review, authoritative invariant evidence, centralized lifecycle transitions, transactional v0.1.9 migration, retry workspaces and release regression probes.
 

@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
+import { impactObservationPlanInputSchema } from "./impact-state";
 
 const id = z.string().uuid();
 const source = z.string().min(1).max(16_384).superRefine((value, context) => {
@@ -14,7 +15,8 @@ export const impactPoCCreateSchema = z.object({
   entryContract: z.string().regex(/^[A-Za-z_][A-Za-z0-9_]{0,63}$/),
 }).strict().refine((value) => Number(Boolean(value.findingId)) + Number(Boolean(value.hypothesisId)) === 1,
   { message: "exactly one finding or hypothesis ID is required" });
-export const impactPoCExecutionSchema = z.object({ pocArtifactId: id }).strict();
+export const impactPoCExecutionSchema = z.object({ pocArtifactId: id,
+  observations: impactObservationPlanInputSchema.optional() }).strict();
 export const impactPoCReviewSchema = z.object({ decision: z.enum(["reviewed", "rejected"]) }).strict();
 export type ImpactPoCCreate = z.infer<typeof impactPoCCreateSchema>;
 export type ImpactPoCReviewState = "draft" | "reviewed" | "rejected";

@@ -357,6 +357,13 @@ export class ImpactForkService {
     }
   }
 
+  async readLocalImpactState(handle: ImpactForkHandle, method: string, params: unknown[]): Promise<unknown> {
+    if (!["eth_blockNumber", "eth_getBlockByNumber", "eth_getBalance", "eth_getStorageAt", "eth_call"].includes(method))
+      throw new ImpactForkError("impact_state_method_rejected");
+    const session = await this.assertSafeImpactExecutionEndpoint(handle);
+    return (this.deps.rpc ?? rpcCall)(session.localRpcEndpoint!, method, params);
+  }
+
   private async local(handle: ImpactForkHandle, method: string, params: unknown[]): Promise<unknown> {
     assertLocalImpactMethod(method);
     const session = await this.assertSafeImpactExecutionEndpoint(handle);

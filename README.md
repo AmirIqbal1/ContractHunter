@@ -1,8 +1,8 @@
 # ContractHunter
 
-## Impact Lab Phase B1 (unreleased v0.3)
+## Impact Lab Phase C1 (unreleased v0.3)
 
-ContractHunter now supports an internal API workflow for manually submitted, explicitly reviewed Solidity PoCs against verified local Anvil forks. A separate networkless Forge worker uses a fixed command and a guarded local-only RPC bridge; execution resets the fork and records bounded reproduction results. There is no autonomous PoC generation, live-chain submission, state diff, or automatic vulnerability verification. See [Impact Lab](docs/impact-lab.md).
+ContractHunter supports manually reviewed Solidity PoCs against verified local Anvil forks. Phase C1 captures selected local state before and after a run, stores an exact bounded diff, then resets the fork. The networkless Forge worker and read-only upstream boundary remain separate. There is no autonomous PoC generation, live-chain submission, tracing, asset-flow inference, or automatic vulnerability verification. See [Impact Lab](docs/impact-lab.md).
 
 ContractHunter is a locally hosted smart-contract security analysis workstation combining deterministic static analysis, optional AI-assisted protocol/security reasoning, and explicit local verification.
 
@@ -49,7 +49,7 @@ Echidna supports a bounded compatible subset; bounded success means no counterex
 
 Deterministic verification options and strategy-aware planning, conservative target grouping with representative navigation, and explicit plan reuse. Supported plain-profile scans preserve immutable source snapshots, authoritative compilation provenance, and raw-byte source-closure fingerprints. Compatibility and grouping are advisory; a reused plan needs fresh review and validation before separate execution, with no inherited evidence or lifecycle state. Authoritative source and reuse support is limited to `plain-solidity-exact-pragma-v1`; broader Foundry and Hardhat projects may be scanned but are not yet authoritative-supported.
 
-**v0.3 — Fork & Impact Engine / Impact Lab** · In development; Phase B1 reviewed manual local-fork PoCs implemented, not released
+**v0.3 — Fork & Impact Engine / Impact Lab** · In development; Phase C1 local state capture and diff implemented, not released
 
 Phase A2 adds exact-block fork creation, target bytecode identity checks, configured RPC references, and safe session APIs on the Phase A1 lifecycle and RPC safety boundary. Phase A3 proves a real local Anvil fork through the read-only proxy and a separate networkless Docker probe bound to one verified fork session. PoC execution, traces, impact measurement, export, and the full GUI remain future work.
 

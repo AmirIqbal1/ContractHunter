@@ -22,6 +22,10 @@ describe("manual Impact PoC admission", () => {
       { source: "pragma solidity 0.8.36;\u0000" }]) expect(impactPoCCreateSchema.safeParse(create(extra)).success).toBe(false);
     expect(impactPoCExecutionSchema.safeParse({ pocArtifactId: findingId, rpcUrl: "http://127.0.0.1" }).success).toBe(false);
     expect(impactPoCExecutionSchema.safeParse({ pocArtifactId: findingId, forgeFlags: ["--ffi"] }).success).toBe(false);
+    expect(impactPoCExecutionSchema.safeParse({ pocArtifactId: findingId,
+      observations: { storageSlots: [{ contract: `0x${"1".repeat(40)}`, slot: `0x${"0".repeat(64)}` }] } }).success).toBe(true);
+    expect(impactPoCExecutionSchema.safeParse({ pocArtifactId: findingId,
+      observations: { viewCalls: [{ target: sender, selector: "0xdeadbeef" }] } }).success).toBe(false);
   });
 
   it("accepts only bounded, disposable-sender local RPC and rejects admin, raw transaction and mixed batches", () => {

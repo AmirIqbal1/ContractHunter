@@ -1,5 +1,9 @@
 # Architecture
 
+## Impact Lab Phase C1
+
+`packages/core/src/impact-state.ts` owns the versioned typed observation plan, canonical identities, exact-value snapshot/diff model and framed SHA-256 hashes. The web controller constructs the bounded plan, resets the verified fork, captures PRE through five guarded local read methods, runs the existing isolated Forge worker, captures POST before reset, derives typed changes and persists artifacts atomically. The worker cannot choose observations or write state artifacts. Migration `0012_v0_3_impact_state_capture` adds normalized immutable snapshot, observation, diff and change tables plus nullable execution links. Database readers recheck hash, cardinality, provenance, binding and semantic changes. Historical executions keep null links. The verification worker and hypothesis authority are unchanged.
+
 ## Impact Lab Phase B1
 
 The B1 controller stays in the web service and addresses a pre-created `impact-poc-worker` over a typed Unix-domain control socket. The worker has no Docker socket or network route. It runs pinned Forge and cached solc inside a fixed ephemeral project, and sees only its own loopback JSON-RPC listener. A second per-job Unix socket bridges that listener to the current managed Anvil process. The controller resolves session and reviewed artifact IDs, checks the current runtime token and execution guard, resets the fork before and after, and stores bounded execution provenance in migration `0011_v0_3_impact_manual_pocs`. The existing verification worker is unchanged. The upstream proxy remains a separate read-only path reachable by Anvil, never by the PoC worker. No PoC result changes hypothesis/evidence/lifecycle authority.

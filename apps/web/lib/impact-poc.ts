@@ -2,11 +2,14 @@ import { createHash, randomUUID } from "node:crypto";
 import { chmod, unlink } from "node:fs/promises";
 import { createServer, request as httpRequest, type Server } from "node:http";
 import path from "node:path";
-import { impactPoCExecutionSchema, impactPoCReviewSchema, type ImpactForkSession } from "@contracthunter/core";
+import { impactPoCExecutionSchema, impactPoCReviewSchema, makeImpactObservationPlan, planHash,
+  type ImpactForkSession, type ImpactStateProvenance, type ImpactStateSnapshot } from "@contracthunter/core";
 import { createImpactPoCArtifact, createImpactPoCExecution, getDatabase, readImpactPoCArtifact,
-  readImpactPoCExecution, reviewImpactPoCArtifact, updateImpactPoCExecution, type DatabaseClient } from "@contracthunter/db";
+  readImpactPoCExecution, reviewImpactPoCArtifact, updateImpactPoCExecution, persistImpactStateArtifacts,
+  readImpactExecutionState, type DatabaseClient } from "@contracthunter/db";
 import { type ImpactForkHandle, type ImpactForkService } from "@contracthunter/scanners";
 import { createImpactForkService, resolveImpactHandle } from "./impact-lab";
+import { captureImpactState, makeImpactStateDiff } from "./impact-state";
 
 const IPC_DIR = process.env.IMPACT_POC_IPC_DIR ?? "/run/impact-poc";
 if (IPC_DIR !== "/run/impact-poc" && !(process.env.NODE_ENV === "test" && IPC_DIR.startsWith("/tmp/")))
@@ -133,10 +136,11 @@ export function reviewManualPoC(id: string, input: unknown) {
   return reviewImpactPoCArtifact(getDatabase(), id, decision);
 }
 export function getManualPoCExecution(id: string) { return readImpactPoCExecution(getDatabase(), id); }
+export function getManualPoCExecutionState(id: string) { return readImpactExecutionState(getDatabase(), id); }
 export async function executeManualPoC(sessionId: string, input: unknown, deps: {
   database?: DatabaseClient; service?: ImpactForkService; resolveHandle?: (id: string) => ImpactForkHandle | undefined;
 } = {}) {
-  const { pocArtifactId } = impactPoCExecutionSchema.parse(input);
+  const { pocArtifactId, observations } = impactPoCExecutionSchema.parse(input);
   const database = deps.database ?? getDatabase();
   const artifact = readImpactPoCArtifact(database, pocArtifactId);
   const handleFor = deps.resolveHandle ?? resolveImpactHandle;
@@ -148,8 +152,13 @@ export async function executeManualPoC(sessionId: string, input: unknown, deps: 
     artifact.findingId !== session.findingId || artifact.hypothesisId !== session.hypothesisId ||
     artifact.sourceSha256 !== createHash("sha256").update(Buffer.from(artifact.source, "utf8")).digest("hex").replace(/^/, "sha256:"))
     throw Error("impact_poc_identity_invalid");
+  const plan = makeImpactObservationPlan(session.disposableAccounts[0]!, session.targetContracts, observations);
   if (activeJob) throw Error("impact_worker_busy");
   const executionId = randomUUID(), token = handle.token;
+  const provenance: ImpactStateProvenance = { executionId, sessionId, runtimeTokenSha256: hashToken(token),
+    chainId: session.chainId, forkBlock: session.resolvedForkBlock, forkBlockHash: session.forkBlockHash!,
+    targetCodeHashes: session.targetCodeHashes, artifactId: artifact.id, sourceSha256: artifact.sourceSha256,
+    planSha256: planHash(plan) };
   createImpactPoCExecution(database, { id: executionId, artifactId: artifact.id,
     sourceSha256: artifact.sourceSha256, sessionId, runtimeTokenSha256: hashToken(token), chainId: session.chainId,
     forkBlock: session.resolvedForkBlock, forkBlockHash: session.forkBlockHash!, targetCodeHashes: session.targetCodeHashes,
@@ -159,17 +168,40 @@ export async function executeManualPoC(sessionId: string, input: unknown, deps: 
   let bridge: Awaited<ReturnType<typeof startBridge>> | null = null;
   let result: Record<string, unknown> | null = null;
   let failureCode: string | null = null;
+  let pre: ImpactStateSnapshot | null = null;
+  let post: ImpactStateSnapshot | null = null;
+  let workerInvoked = false;
+  let stage: "reset" | "pre" | "worker" | "post" | "persist" = "reset";
+  const read = (method: string, params: unknown[]) => service.readLocalImpactState(handle, method, params);
   try {
     await service.resetForkSession(handle);
+    stage = "pre";
+    pre = await captureImpactState(plan, provenance, "pre", read);
+    stage = "worker";
     bridge = await startBridge(sessionId, token, session.disposableAccounts[0]!, handleFor, service, txHashes);
     updateImpactPoCExecution(database, executionId, "running");
+    workerInvoked = true;
     result = await callWorker({ operation: "run", executionId, sessionId, runtimeTokenSha256: hashToken(token),
       source: artifact.source, sourceSha256: artifact.sourceSha256, entryContract: artifact.entryContract,
       sender: session.disposableAccounts[0], chainId: session.chainId, forkBlock: session.resolvedForkBlock,
       forkBlockHash: session.forkBlockHash });
-  } catch { failureCode = "impact_execution_failed"; }
+  } catch { failureCode = stage === "pre" ? "impact_pre_capture_failed" : "impact_execution_failed"; }
   finally {
-    try { await bridge?.close(); }
+    try {
+      try { await bridge?.close(); }
+      catch { failureCode = "impact_bridge_cleanup_failed"; }
+      if (pre) {
+        if (workerInvoked && (result?.compiled === true || result?.executed === true || result === null)) {
+          stage = "post";
+          try { post = await captureImpactState(plan, provenance, "post", read); }
+          catch { failureCode = "impact_post_capture_failed"; }
+        }
+        stage = "persist";
+        try { persistImpactStateArtifacts(database, plan, pre, post,
+          post ? makeImpactStateDiff(pre, post) : null); }
+        catch { failureCode = "impact_state_persist_failed"; }
+      }
+    }
     finally {
       try { await service.resetForkSession(handle); }
       catch { failureCode = "impact_reset_failed"; await service.stopForkSession(handle).catch(() => undefined); }
