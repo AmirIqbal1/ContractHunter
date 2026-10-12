@@ -113,5 +113,6 @@ describe("Contract Explorer read model", () => {
     const fullHtml = renderToStaticMarkup(<ContractFunctions items={view.functions} scanId="scan-one" />);
     expect(fullHtml.match(/id="function-/g)?.length).toBe(60);
     expect(fullHtml).toContain("src/core/Vault.sol");
+    expect(fullHtml).toContain("/hunts/scan-one/contracts/vault/functions/withdraw");
   });
 });

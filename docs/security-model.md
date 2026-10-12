@@ -1,5 +1,9 @@
 # Security model
 
+## Function Explorer Phase 6B UI boundary
+
+The server rejects malformed or cross-contract function selectors and loads only the validated scan-bound Phase 6A artifact. Source previews use exact graph source-unit identity and checksum-matched immutable snapshot bytes. Repository-derived signatures, expressions, source and finding text render through React text escaping; no raw HTML or checkout path is exposed. Browser filters, mode and selection alter only presentation. The UI presents source order explicitly, marks partial analysis, and never treats a call, write, modifier, finding or review cue as proof of a vulnerability. Impact Lab execution, finding status, confidence, severity and lifecycle remain unchanged.
+
 ## Function Explorer Phase 6A boundary
 
 The API accepts only canonical scan/contract/function IDs and rejects wrong ownership. The model reads validated immutable static graph artifacts and exact source-unit snapshots; a source preview is capped at 4 KiB and decoded as strict UTF-8. Repository-controlled expressions remain plain data, with bounded excerpts and SHA-256 identities. It executes no repository code, accepts no arbitrary source path, and has no Impact Lab, finding-status or lifecycle mutation authority. Source-order write/call cues are research prompts, not runtime path proofs or vulnerability verdicts. Missing syntax facts and collapsed state-access sites are reported as partial analysis.

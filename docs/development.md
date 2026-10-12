@@ -1,8 +1,12 @@
 # Development
 
+## Visual Function Explorer Phase 6B
+
+Start the web app with `npm run dev` (or the documented Compose workflow). Open a completed hunt that has a finalized static graph, follow Protocol Map → Contract Explorer → a function signature, and verify the source-order warning, operation selection, immutable source links, filters, Beginner/Researcher display switch and return navigation. A supported exact-pragma scan with trusted AST facts gives the richest flow; older scans may show partial analysis or no graph. Run `npx vitest run apps/web/components/function-explorer.test.tsx apps/web/app/hunts/'[id]'/contracts/'[contractId]'/functions/'[functionId]'/page.test.tsx` for focused UI/route tests. No new migration or dependency is needed.
+
 ## Function Explorer Phase 6A
 
-The backend model is derived from the persisted static graph, so no migration or new dependency is required. New trusted compiler-AST graph generations include bounded syntax facts; existing graphs still load with `partial` analysis. Run `npx vitest run packages/core/src/function-explorer.test.ts packages/scanners/src/static-protocol-graph.test.ts` for focused coverage, then the standard typecheck/test/lint/build gates. The API requires a scan with a finalized static graph and an exact contract/function node ID. Phase 6B will add the visual route; this phase has no Function Explorer page.
+The backend model is derived from the persisted static graph, so no migration or new dependency is required. New trusted compiler-AST graph generations include bounded syntax facts; existing graphs still load with `partial` analysis. Run `npx vitest run packages/core/src/function-explorer.test.ts packages/scanners/src/static-protocol-graph.test.ts` for backend coverage, then the standard typecheck/test/lint/build gates. The API requires a scan with a finalized static graph and an exact contract/function node ID. The visual route is documented above.
 
 
 ## Contract Explorer local check

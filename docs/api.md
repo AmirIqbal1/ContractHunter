@@ -1,8 +1,12 @@
 # API reference
 
+## Visual Function Explorer (Phase 6B)
+
+The page route is `/hunts/:scanId/contracts/:contractId/functions/:functionId`, linked from Contract Explorer. It reuses the read-only Phase 6A API/service and adds no browser-controlled analysis or mutation endpoint. The function response includes bounded exact related node labels, proven control-role labels and a proven-proxy flag to support navigation; it still returns only one function model, not the full graph. Wrong scan/contract/function ownership is rejected. Presentation query keys `operation`, `mode` and `filter` are bounded selectors and carry no source content.
+
 ## Function Explorer Phase 6A
 
-`GET /api/scans/:scanId/protocol-graph/contracts/:contractId/functions/:functionId` returns `{ model, sourcePreview, sourcePreviewTruncated }` for an exact function owned by the selected contract in the selected scan. IDs are validated; malformed selectors return 400, missing scan or function returns 404, and graph integrity failure returns a sanitized 500. The versioned model contains source-order operations, callers/callees, state references, finding IDs, review cues, summary, provenance, analysis status and warnings. The optional strict UTF-8 preview comes only from a checksum-matched immutable scan snapshot and is limited to 4 KiB. This endpoint is read-only; it does not expose a CFG, raw scanner JSON or a full Function Explorer UI.
+`GET /api/scans/:scanId/protocol-graph/contracts/:contractId/functions/:functionId` returns the exact function model plus a bounded source preview and Phase 6B related-node/control labels for the selected scan and contract. IDs are validated; malformed selectors return 400, missing scan or function returns 404, and graph integrity failure returns a sanitized 500. The versioned model contains source-order operations, callers/callees, state references, finding IDs, review cues, summary, provenance, analysis status and warnings. The optional strict UTF-8 preview comes only from a checksum-matched immutable scan snapshot and is limited to 4 KiB. This endpoint is read-only; it does not expose a CFG or raw scanner JSON.
 
 ## Protocol Intelligence Phase 5 Contract Explorer
 
