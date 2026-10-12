@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { calculateAICost, loadConfig } from "@contracthunter/core";
-import { getCurrentProtocolAnalysis, getCurrentSecurityReviewPlan, getDatabase, getScan, listFindings, listInvestigations, listInvariants, listProtocolAnalyses, listScanScanners, listSecurityReviewerRuns, listSecurityReviewPlans, listVulnerabilityHypotheses } from "@contracthunter/db";
+import { getCurrentProtocolAnalysis, getCurrentSecurityReviewPlan, getDatabase, getScan, listFindings, listInvestigations, listInvariants, listProtocolAnalyses, listScanScanners, listSecurityReviewerRuns, listSecurityReviewPlans, listVulnerabilityHypotheses, readStaticProtocolGraph } from "@contracthunter/db";
 import { ScanBadge, SeverityBadge, FindingStatusBadge } from "@/components/badges";
 import { formatDate } from "@/components/format";
 import { ScanPoller } from "@/components/scan-poller";
@@ -27,6 +27,8 @@ export default async function HuntPage({ params }: { params: Promise<{ id: strin
   const database = getDatabase();
   const scan = getScan(database, id);
   if (!scan) notFound();
+  let protocolGraphReady = false;
+  try { protocolGraphReady = Boolean(readStaticProtocolGraph(database, id)); } catch { protocolGraphReady = false; }
   const found = listFindings(database, { scanId: scan.id });
   const investigations = listInvestigations(database, { scanId: scan.id });
   const scanners = listScanScanners(database, scan.id);
@@ -69,6 +71,11 @@ export default async function HuntPage({ params }: { params: Promise<{ id: strin
       />
       <div className="progress-track"><div className="progress-bar" style={{ width: `${progress[scan.status]}%`, background: scan.status === "failed" ? "#ff6767" : undefined }} /></div>
     </section>
+    <section className="section"><div className="section-head"><h2>Protocol Map</h2>
+      {protocolGraphReady && <Link className="muted-link" href={`/hunts/${scan.id}/protocol-map`}>OPEN PROTOCOL MAP →</Link>}</div>
+      <div className="card"><p className="muted">Explore contracts, exact static relationships, findings and source locations.</p>
+        {protocolGraphReady ? <Link className="button secondary-button" href={`/hunts/${scan.id}/protocol-map`}>OPEN PROTOCOL MAP</Link> :
+          <span className="muted">A finalized graph is unavailable for this scan. Existing scans are not backfilled.</span>}</div></section>
     {scan.status === "completed" && <div className="verification-safety">Static analysis is complete. Review the findings before spending API tokens on AI analysis.</div>}
     <section className="section"><div className="section-head"><h2>Dependencies</h2></div><div className="card"><dl className="details"><div className="detail"><dt>Git submodules</dt><dd>{dependencies.gitSubmodulesDetected ? `${dependencies.gitSubmodulesPrepared ?? 0} of ${dependencies.gitSubmodulesDetected} prepared` : "Not required"}</dd></div><div className="detail"><dt>npm</dt><dd>{dependencies.lockfile ? `${dependencies.npmDependenciesPrepared ?? 0} packages prepared from ${dependencies.lockfile}` : dependencies.warnings?.some((warning) => warning.includes("lockfile")) ? "Skipped — no lockfile" : "Not required"}</dd></div><div className="detail"><dt>Status</dt><dd><span className={`badge ${scan.dependencyStatus === "ready" ? "green" : scan.dependencyStatus === "failed" ? "red" : scan.dependencyStatus === "preparing" ? "purple" : "gray"}`}>{scan.dependencyStatus}</span></dd></div><div className="detail"><dt>Duration</dt><dd>{dependencies.durationMs === undefined ? "—" : `${(dependencies.durationMs / 1000).toFixed(2)}s`}</dd></div></dl>{dependencies.warnings?.map((warning) => <div className="muted" style={{ marginTop: 14 }} key={warning}>{warning}</div>)}{scan.dependencyError && <div className="error" style={{ marginTop: 18, marginBottom: 0 }}>{scan.dependencyError}</div>}</div></section>
     <section className="section"><div className="section-head"><h2>Solidity Compiler</h2></div><div className="card"><dl className="details"><div className="detail"><dt>Detected</dt><dd className="mono">{compilerConstraints.length ? compilerConstraints.join(", ") : "—"}</dd></div><div className="detail"><dt>Resolved</dt><dd className="mono">{compilerVersions.length ? compilerVersions.join(", ") : "—"}</dd></div><div className="detail"><dt>Source</dt><dd>{scan.compilerDetectionSource === "foundry-config" ? "Foundry config" : scan.compilerDetectionSource === "pragma" ? "Solidity pragma" : "—"}</dd></div><div className="detail"><dt>Status</dt><dd><span className={`badge ${scan.compilerStatus === "ready" || scan.compilerStatus === "cached" ? "green" : scan.compilerStatus === "failed" ? "red" : scan.compilerStatus === "downloading" ? "purple" : "gray"}`}>{scan.compilerStatus}</span></dd></div></dl>{scan.compilerError && <div className="error" style={{ marginTop: 18, marginBottom: 0 }}>{scan.compilerError}</div>}</div></section>

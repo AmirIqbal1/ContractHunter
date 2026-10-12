@@ -2,7 +2,7 @@
 
 ContractHunter is evolving from a locally hosted smart-contract scanner into a **Web3 security research environment**. Its direction is to help beginners and experienced researchers understand large protocols, find important contracts and relationships, inspect attack surface, investigate findings, verify hypotheses, and safely reproduce impact on a local fork. The research path is **understand → investigate → verify → reproduce → explain impact**.
 
-**Next active product priorities:** **#1 Protocol Map** and **#2 Contract Explorer**. These are core capabilities for understanding a protocol before and during vulnerability research. The design principle is: *Do not hide Web3 security complexity from beginners — make it understandable visually while keeping the real technical information available.* Their ProtocolGraph model and Repository Mapper foundation are implemented; the next milestone is Static Protocol Graph. The visual capabilities remain planned.
+**Core product priorities:** **#1 Protocol Map** (initial UI implemented) and **#2 Contract Explorer** (next active milestone). These are core capabilities for understanding a protocol before and during vulnerability research. The design principle is: *Do not hide Web3 security complexity from beginners — make it understandable visually while keeping the real technical information available.* Their ProtocolGraph, Repository Mapper and static graph foundations are implemented. Protocol Map UI is implemented; Contract Explorer remains planned.
 
 ## Impact Lab Phase D1 (unreleased v0.3)
 
@@ -12,6 +12,7 @@ Use it only with repositories and contracts you are authorised to analyse. Repos
 
 ## Features
 
+- Source-linked Protocol Map with contract relationships, filters and finding references
 - Slither + Aderyn static analysis
 - Deterministic cross-scanner investigations
 - Optional AI protocol analysis and specialist security review
@@ -55,7 +56,7 @@ Deterministic verification options and strategy-aware planning, conservative tar
 
 Phase A1 established managed fork lifecycle and safety; A2 added the read-only upstream boundary and exact deployment identity; A3 proved real Anvil compatibility and isolated the PoC runtime. B1 runs reviewed manual Forge PoCs; C1 captures selected state changes; D1 records bounded local call traces. Deeper impact interpretation and visual investigation remain planned after the ProtocolGraph foundation.
 
-**Next active major track — Protocol Intelligence:** Phase 1 ProtocolGraph architecture/data model and Phase 2 Repository Mapper are complete. Next is Static Protocol Graph, then **#1 Protocol Map** and **#2 Contract Explorer**. The Map will show security-relevant protocol relationships; the Explorer will connect them to contracts, functions, findings and Solidity source. Neither visual capability is implemented yet. See [Protocol Map architecture](docs/protocol-map.md).
+**Next active major track — Protocol Intelligence:** Phase 1 ProtocolGraph architecture/data model and Phase 2 Repository Mapper are complete. The static ProtocolGraph and **#1 Protocol Map** UI are implemented. Open the Map from a completed hunt to inspect source-linked relationships, findings and unresolved calls. **#2 Contract Explorer** remains the next milestone. See [Protocol Map architecture](docs/protocol-map.md).
 
 See the [full roadmap](docs/roadmap.md) and [Impact Lab design](docs/impact-lab.md) for details.
 

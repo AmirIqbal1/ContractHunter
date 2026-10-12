@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import "./globals.css";
+import "@xyflow/react/dist/style.css";
 
 export const metadata: Metadata = { title: "ContractHunter", description: "Local smart-contract security analysis workstation" };
 

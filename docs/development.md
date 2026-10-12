@@ -1,5 +1,10 @@
 # Development
 
+
+## Protocol Map local check
+
+Start with `npm run dev` after configuring the normal local `.env`, then open an existing completed hunt at `/hunts/<scan-id>`. Use **Open Protocol Map**. If no graph exists, create a new authorised scan; historical scans are intentionally not backfilled. The deterministic graph adapter fixture can be checked without an external repository using `npx vitest run apps/web/lib/protocol-map.test.ts`. On the map, verify zoom/pan, search, filters, presets, a node and edge detail, exact source link, finding link and an unresolved-target notice. The source page uses only immutable scan snapshots; a scan without one shows an unavailable state. No live RPC, AI call or blockchain transaction is needed.
+
 ## Protocol Intelligence Phase 2
 
 New scans attempt a deterministic Repository Map after scanner source alignment. Inspect the finalized result with `GET /api/scans/:id/repository-map`; historical or unsupported scans return 404 without a fabricated map. The map is navigation metadata. It does not execute repository scripts, call AI, change verification authority or compute audit-priority scores. The mapper's source-root, symlink, malformed-file and large-tree tests run in the normal `npm test` suite.
