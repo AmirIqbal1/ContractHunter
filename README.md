@@ -1,10 +1,12 @@
 # ContractHunter
 
+ContractHunter is evolving from a locally hosted smart-contract scanner into a **Web3 security research environment**. Its direction is to help beginners and experienced researchers understand large protocols, find important contracts and relationships, inspect attack surface, investigate findings, verify hypotheses, and safely reproduce impact on a local fork. The research path is **understand → investigate → verify → reproduce → explain impact**.
+
+**Next active product priorities:** **#1 Protocol Map** and **#2 Contract Explorer**. These are core capabilities for understanding a protocol before and during vulnerability research. The design principle is: *Do not hide Web3 security complexity from beginners — make it understandable visually while keeping the real technical information available.* Both capabilities are planned; the next milestone defines their shared ProtocolGraph foundation.
+
 ## Impact Lab Phase D1 (unreleased v0.3)
 
-ContractHunter supports manually reviewed Solidity PoCs against verified local Anvil forks. C1 captures bounded PRE/POST state and an exact diff; D1 adds local transaction receipts, logs and bounded call trees before the fork resets. The networkless Forge worker and read-only upstream boundary remain separate. There is no autonomous PoC generation, live-chain submission, asset-flow inference, or automatic vulnerability verification. See [Impact Lab](docs/impact-lab.md).
-
-ContractHunter is a locally hosted smart-contract security analysis workstation combining deterministic static analysis, optional AI-assisted protocol/security reasoning, and explicit local verification.
+Impact Lab foundations are implemented through A1 fork lifecycle and safety, A2 read-only upstream forking, A3 isolated PoC runtime, B1 reviewed manual Forge execution, C1 PRE/POST state capture and diff, and D1 local transaction traces. Reviewed PoCs run only against verified local Anvil forks. There is no autonomous PoC generation, live-chain submission, asset-flow inference, or automatic vulnerability verification. See [Impact Lab](docs/impact-lab.md).
 
 Use it only with repositories and contracts you are authorised to analyse. Repository content is treated as hostile input.
 
@@ -51,7 +53,9 @@ Deterministic verification options and strategy-aware planning, conservative tar
 
 **v0.3 — Fork & Impact Engine / Impact Lab** · In development; Phase D1 local trace capture implemented, not released
 
-Phase A2 adds exact-block fork creation, target bytecode identity checks and configured RPC references on the Phase A1 lifecycle boundary. Phase A3 proves real local Anvil compatibility and isolation. B1 runs reviewed manual PoCs; C1 captures selected state changes; D1 records bounded local call traces. Asset-flow analysis, evidence export and the full GUI remain future work.
+Phase A1 established managed fork lifecycle and safety; A2 added the read-only upstream boundary and exact deployment identity; A3 proved real Anvil compatibility and isolated the PoC runtime. B1 runs reviewed manual Forge PoCs; C1 captures selected state changes; D1 records bounded local call traces. Deeper impact interpretation and visual investigation remain planned after the ProtocolGraph foundation.
+
+**Next active major track — Protocol Intelligence:** ProtocolGraph architecture first, then Repository Mapper, **#1 Protocol Map**, and **#2 Contract Explorer**. The Map will show security-relevant protocol relationships; the Explorer will connect them to contracts, functions, findings and Solidity source. Neither is implemented yet.
 
 See the [full roadmap](docs/roadmap.md) and [Impact Lab design](docs/impact-lab.md) for details.
 

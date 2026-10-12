@@ -4,6 +4,54 @@
 
 Reviewed manual Forge PoCs run only against a verified local fork through the fixed networkless worker and per-job RPC bridge. C1 captures bounded PRE/POST state and an exact diff. D1 now captures bounded local receipts, logs and ordered call trees for only the job's recorded local transaction hashes before reset. These facts do not decide vulnerability validity or severity. Autonomous generation, asset-flow/impact evidence and GUI remain later phases. The production Compose worker rebuild and live smoke remain a release gate; v0.3 is not released.
 
+## Current direction — Protocol Intelligence
+
+**RELEASED:** v0.2.2 scanner, investigation and verification workflows. **COMPLETE IN UNRELEASED v0.3:** Impact Lab A1 managed fork lifecycle/safety, A2 read-only upstream fork boundary and exact deployment identity, A3 real Anvil compatibility and isolated PoC runtime, B1 reviewed manual Forge execution, C1 deterministic PRE/POST state capture and diff, and D1 local transaction traces. **CURRENT/NEXT:** Protocol Intelligence Phase 1, ProtocolGraph architecture and data model. **PLANNED core product priorities:** **#1 Protocol Map** and **#2 Contract Explorer**. They are the next major product track, not optional visual additions; no release number has been assigned to that track.
+
+ContractHunter is growing into a Web3 security research environment for beginners and experienced researchers. The principle is: **Do not hide Web3 security complexity from beginners — make it understandable visually while keeping the real technical information available.** The intended research path is understand → investigate → verify → reproduce → explain impact. This pipeline marks direction, not completed functionality:
+
+```text
+GitHub / Immunefi Project
+  → Repository Mapper [planned]
+  → Protocol Map [planned]
+  → Contract Explorer [planned]
+  → Analysis / Findings / Verification [current]
+  → Impact Lab [foundations A1–D1 implemented, v0.3 unreleased]
+  → Local Fork / Reviewed PoC [implemented]
+  → State Changes + Transaction Trace [implemented]
+  → Impact / Evidence [planned]
+  → Visual Exploit Investigation [planned]
+```
+
+### #1 Protocol Map and its ProtocolGraph foundation
+
+The Protocol Map will be an **interactive security-focused graph of a Solidity protocol**, not a generic dependency diagram. It should connect contract and function calls, inheritance, interface implementation, libraries, proxies and implementations, privileges/control, oracles, tokens, external integrations, asset movement and ContractHunter findings. Large protocols need search, filters, grouping and decluttering. Planned security views are **Money Flow, Permissions, Oracle Flow, External Calls, Upgradeability, Inheritance, Attack Surface and Findings**.
+
+A frontend-independent **ProtocolGraph** will supply the Map. Candidate node kinds are contracts, functions, roles, tokens, external protocols, oracles, proxies and libraries. Candidate relationships are calls, inherits, implements, reads, writes, transfers, controls, upgrades, delegates and prices. Edges must explain **why** a relationship exists and retain source provenance where reliable. Nodes, functions and edges should resolve to source file, line/range, contract and function where the analysis supports it. The graph should serve API, CLI, JSON export, UI, findings, Impact Lab, AI analysis and eventual runtime-trace overlays from one model. Its storage/cache and confidence/provenance rules belong in Phase 1; a graph rendering library has not been selected.
+
+### Repository Mapper and #2 Contract Explorer
+
+The planned Repository Mapper will discover source roots and classify core protocol contracts, interfaces, libraries, mocks, tests, deployment scripts, periphery, dependencies and non-contract/frontend code. Researchers must be able to override classifications. Its purpose is to find the Solidity files that matter in repositories with hundreds or thousands of files before graph generation.
+
+The **Contract Explorer** will be the Map's source-linked drill-down experience. A contract should eventually show its purpose, security interest, assets handled, external entry points, privileged functions, callers, callees, storage, permissions, oracle dependencies, findings, direct source locations and an Impact Lab entry point. Function exploration follows contract → function → calls → reads/writes → modifiers → authorization → transfers → relevant source lines. These are planned capabilities, not current screens.
+
+**Beginner Mode** will explain real terms such as `delegatecall`, oracle dependency, privileged/admin role, external call, token transfer, proxy/implementation and state mutation while keeping Solidity and security terminology visible. **Researcher Mode** will expose deeper raw analysis. **Project Overview** and **Show Me Where To Start** are named planned features: after repository analysis, transparent deterministic security-interest/audit-priority heuristics should highlight high-value inspection targets and explain why. Factors may include asset custody, external entry points and calls, token transfers, privileged functions, oracles, upgradeability, `delegatecall`, accounting/state complexity, caller/callee count and existing findings. The score must never be presented as vulnerability probability, severity or proof of a bug.
+
+### Next active implementation order
+
+1. **Protocol Intelligence Phase 1 — Architecture / ProtocolGraph (CURRENT/NEXT):** inspect existing analysis data; assess reusable Slither, Aderyn and ContractHunter facts; define versioned graph schema, relationship reasons, provenance and source locations; design storage/cache; evaluate graph UI libraries.
+2. **Phase 2 — Repository Mapper (PLANNED):** discover source roots, classify files, identify core protocol contracts and support researcher overrides.
+3. **Phase 3 — Static Protocol Graph (PLANNED):** contracts and functions as needed, calls, inheritance, interfaces, libraries, external dependencies and proxy relationships.
+4. **Phase 4 — Protocol Map UI (PLANNED):** graph navigation, zoom/pan, selection, search, filters, grouping and large-graph handling.
+5. **Phase 5 — Contract Explorer (PLANNED):** source-linked contract security drill-down.
+6. **Phase 6 — Function Explorer (PLANNED):** source-linked function calls, state access, authorization and transfers.
+7. **Phase 7 — Security Views (PLANNED):** focused, filterable Map views for money, permissions, oracles, external calls, upgrades, inheritance, attack surface and findings.
+8. **Phase 8 — Beginner Mode / Show Me Where To Start (PLANNED):** accurate concept explanations, Researcher Mode, Project Overview and explainable audit-priority guidance.
+9. **Phase 9 — Finding Integration (PLANNED):** connect current findings and verification paths to graph identities and source.
+10. **Phase 10 — Dynamic Impact Lab Overlays (PLANNED):** state-diff, execution-trace and finding/attack-path overlays.
+
+After the ProtocolGraph foundation is mature, resume deeper Impact Lab interpretation: deterministic asset-flow accounting, attacker-profit and protocol-loss interpretation, scenario execution, evidence/report generation and a polished visual investigation workflow. The intended convergence is **static ProtocolGraph + ContractHunter findings + Impact Lab execution traces + Impact Lab state changes + future asset flows → visual exploit investigation**. C1 and D1 provide the state/trace facts; the overlay, asset flows and conclusions do not exist yet.
+
 ## v0.1.9 — completed
 
 Delivered: typed function arguments, actors/caller identity, address reads/assertions, native ETH funding, native balance observations, and stronger structured access-control verification through the networkless worker.
@@ -67,6 +115,8 @@ Milestone 2 Part 2B-1B is implemented. Each advisory eligible planning candidate
 Phase A1 implements a strict exact-block fork configuration, a bounded internal Anvil lifecycle service, a localhost-only read-method proxy for upstream fork state, runtime-owned local endpoint identity checks, disposable Anvil development accounts, baseline/additional snapshot and revert/reset operations, and guarded local-only impersonation. Migration `0009_v0_3_impact_fork_sessions` records bounded audit state without RPC secrets or private keys; stale active rows become failed on service restart. No public Impact API, CLI, PoC execution, state/asset analysis, or GUI is part of A1. The existing networkless verification worker is unchanged.
 
 Impact Lab will sit downstream of static findings, investigations, hypotheses, and the existing explicit verification workflows. An authorised researcher will select a candidate and a deployed target, pin an EVM chain and fork block, reproduce a reviewed PoC against a ContractHunter-controlled **local Anvil fork**, and retain traces, selected state changes, asset flows, impact estimates, and exportable evidence. Ethereum, Arbitrum, Base, Optimism, and Polygon are initial targets where the configured upstream RPC and Anvil support the required fork behavior. The engine remains local-first, open-source-first, and Anvil-first; Tenderly is only a possible later optional integration. No hypothesis automatically starts a fork.
+
+The following Impact Lab scope records the original milestones. Items 1–4 have foundations implemented through D1; items 5–7 are planned **after** the ProtocolGraph foundation and Protocol Map/Contract Explorer track above. They are retained as future work, not the next active implementation steps.
 
 1. **Fork safety and Anvil lifecycle:** bounded chain/RPC reference, deployed address, exact block and finding linkage; local-only Anvil startup/shutdown, identity and health checks, disposable accounts, snapshot/revert/reset, controlled impersonation and time/block operations, and a transaction-blocking upstream RPC boundary.
 2. **Controlled PoC execution:** manually supplied and reviewed Forge PoCs run with fixed bounds against the verified local fork endpoint. Autonomous exploit generation is not a prerequisite.
