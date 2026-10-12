@@ -1,5 +1,9 @@
 # API reference
 
+## Protocol Intelligence Phase 5 Contract Explorer
+
+`/hunts/:scanId/contracts/:contractId` is a server-rendered, read-only contract page. It accepts only a canonical ProtocolGraph contract/interface/library node ID from the validated graph for that scan. Wrong, malformed or cross-scan identities return 404. The server derives a bounded contract neighborhood and joins only exact finding references from the same scan. There is no contract mutation, arbitrary source path, Impact Lab execution, or browser-supplied graph relationship API.
+
 ## Impact Lab Phase D1 local traces
 
 `GET /api/impact/poc-executions/:id` adds nullable `traceCaptureStatus`, `traceCount`, `traceNodeCount`, `traceErrorCode`, `traceAvailable` and ordered `traceIds`. `GET /api/impact/poc-executions/:id/traces` reads finalized bounded local receipt/log/call-tree artifacts and returns a failed or empty capture status where applicable. It accepts no transaction hash, RPC method, endpoint or command input. Historical executions return null trace status and an empty list. Trace facts confer no vulnerability authority.

@@ -1,8 +1,8 @@
 # Roadmap
 
-## Protocol Intelligence Phases 1–4 — implemented
+## Protocol Intelligence Phases 1–5 — implemented
 
-The frontend-independent `contracthunter-protocol-graph-v1` model defines bounded source-linked nodes, static edges, evidence, classification vocabulary, deterministic identities, validation and finding/C1-state/D1-trace overlay contracts. Phase 2 adds `contracthunter-repository-map-v1`: bounded source-root/file discovery, conservative lexical Solidity declarations and imports, evidence-backed classifications, immutable per-scan map artifacts and a read-only API. Classification is research orientation, not a vulnerability or audit-priority score. Phase 3 adds a source-linked immutable static graph from Repository Maps and supported trusted AST output; unresolved calls remain explicit. It does not consume runtime overlays or assign vulnerability authority. Manual override semantics are modeled; no override UI or mutation route exists. **CURRENT/NEXT: Protocol Intelligence Phase 5 — Contract Explorer.** Protocol Map and Contract Explorer remain defining planned product priorities; v0.3 Impact Lab remains unreleased. See [Protocol Map architecture](protocol-map.md).
+The frontend-independent `contracthunter-protocol-graph-v1` model defines bounded source-linked nodes, static edges, evidence, classification vocabulary, deterministic identities, validation and finding/C1-state/D1-trace overlay contracts. Phase 2 adds `contracthunter-repository-map-v1`: bounded source-root/file discovery, conservative lexical Solidity declarations and imports, evidence-backed classifications, immutable per-scan map artifacts and a read-only API. Classification is research orientation, not a vulnerability or audit-priority score. Phase 3 adds a source-linked immutable static graph from Repository Maps and supported trusted AST output; unresolved calls remain explicit. It does not consume runtime overlays or assign vulnerability authority. Manual override semantics are modeled; no override UI or mutation route exists. **CURRENT/NEXT: Protocol Intelligence Phase 6 — Function Explorer.** Protocol Map and Contract Explorer remain defining product priorities; v0.3 Impact Lab remains unreleased. See [Protocol Map architecture](protocol-map.md).
 
 ## v0.3 Impact Lab Phase D1 — implemented, unreleased
 
@@ -10,7 +10,7 @@ Reviewed manual Forge PoCs run only against a verified local fork through the fi
 
 ## Current direction — Protocol Intelligence
 
-**RELEASED:** v0.2.2 scanner, investigation and verification workflows. **COMPLETE IN UNRELEASED v0.3:** Impact Lab A1 managed fork lifecycle/safety, A2 read-only upstream fork boundary and exact deployment identity, A3 real Anvil compatibility and isolated PoC runtime, B1 reviewed manual Forge execution, C1 deterministic PRE/POST state capture and diff, and D1 local transaction traces. **COMPLETE in Protocol Intelligence:** Phases 1–4 model, Repository Mapper, static graph extraction and Protocol Map UI. **CURRENT/NEXT:** Phase 5 Contract Explorer. **PLANNED core product priorities:** **#1 Protocol Map** and **#2 Contract Explorer**. They are the next major product track, not optional visual additions; no release number has been assigned to that track.
+**RELEASED:** v0.2.2 scanner, investigation and verification workflows. **COMPLETE IN UNRELEASED v0.3:** Impact Lab A1 managed fork lifecycle/safety, A2 read-only upstream fork boundary and exact deployment identity, A3 real Anvil compatibility and isolated PoC runtime, B1 reviewed manual Forge execution, C1 deterministic PRE/POST state capture and diff, and D1 local transaction traces. **COMPLETE in Protocol Intelligence:** Phases 1–5 model, Repository Mapper, static graph extraction, Protocol Map UI and Contract Explorer. **CURRENT/NEXT:** Phase 6 Function Explorer. **Core product priorities:** **#1 Protocol Map** and **#2 Contract Explorer**. They are core product capabilities, not optional visual additions; no release number has been assigned to that track.
 
 ContractHunter is growing into a Web3 security research environment for beginners and experienced researchers. The principle is: **Do not hide Web3 security complexity from beginners — make it understandable visually while keeping the real technical information available.** The intended research path is understand → investigate → verify → reproduce → explain impact. This pipeline marks direction, not completed functionality:
 
@@ -18,7 +18,7 @@ ContractHunter is growing into a Web3 security research environment for beginner
 GitHub / Immunefi Project
   → Repository Mapper [implemented foundation]
   → Protocol Map [implemented initial UI]
-  → Contract Explorer [planned]
+  → Contract Explorer [implemented initial drill-down]
   → Analysis / Findings / Verification [current]
   → Impact Lab [foundations A1–D1 implemented, v0.3 unreleased]
   → Local Fork / Reviewed PoC [implemented]
@@ -37,7 +37,7 @@ A frontend-independent **ProtocolGraph** will supply the Map. Candidate node kin
 
 The Repository Mapper discovers source roots and classifies likely core protocol contracts, interfaces, libraries, mocks, tests, deployment scripts, periphery, dependencies and non-contract/frontend code using bounded deterministic reasons. Uncertain files remain unknown. An override model preserves the automatic result, while researcher override controls and final audit-priority guidance are planned. Its purpose is to orient researchers before graph generation.
 
-The **Contract Explorer** will be the Map's source-linked drill-down experience. A contract should eventually show its purpose, security interest, assets handled, external entry points, privileged functions, callers, callees, storage, permissions, oracle dependencies, findings, direct source locations and an Impact Lab entry point. Function exploration follows contract → function → calls → reads/writes → modifiers → authorization → transfers → relevant source lines. These are planned capabilities, not current screens.
+The **Contract Explorer** is the Map's source-linked contract drill-down. It shows deterministic classification, entry points, functions, callers/callees, inherited and library relationships, proven proxy/control facts, state-access facts where available, exact findings, source, and review cues. Semantic purpose, concrete asset identity, event analysis, detailed function flow and an Impact Lab launch action remain unavailable unless evidence and authority support them. Function exploration later follows contract → function → calls → reads/writes → modifiers → authorization → transfers → relevant source lines.
 
 **Beginner Mode** will explain real terms such as `delegatecall`, oracle dependency, privileged/admin role, external call, token transfer, proxy/implementation and state mutation while keeping Solidity and security terminology visible. **Researcher Mode** will expose deeper raw analysis. **Project Overview** and **Show Me Where To Start** are named planned features: after repository analysis, transparent deterministic security-interest/audit-priority heuristics should highlight high-value inspection targets and explain why. Factors may include asset custody, external entry points and calls, token transfers, privileged functions, oracles, upgradeability, `delegatecall`, accounting/state complexity, caller/callee count and existing findings. The score must never be presented as vulnerability probability, severity or proof of a bug.
 
@@ -47,8 +47,8 @@ The **Contract Explorer** will be the Map's source-linked drill-down experience.
 2. **Phase 2 — Repository Mapper (COMPLETE):** bounded roots/files, conservative classifications with reasons, lexical declarations/imports, immutable scan-bound artifacts and read-only API. Manual override model exists; override workflow remains planned.
 3. **Phase 3 — Static Protocol Graph (COMPLETE):** contracts and functions as needed, calls, inheritance, interfaces, libraries, external dependencies and proxy relationships. Consume the finalized Repository Map rather than rediscovering classes.
 4. **Phase 4 — Protocol Map UI (COMPLETE):** graph navigation, zoom/pan, selection, search, classification-based filters and bounded large-graph handling. Compound grouping remains planned.
-5. **Phase 5 — Contract Explorer (CURRENT/NEXT):** source-linked contract security drill-down.
-6. **Phase 6 — Function Explorer (PLANNED):** source-linked function calls, state access, authorization and transfers.
+5. **Phase 5 — Contract Explorer (COMPLETE):** source-linked contract security drill-down, exact findings and bounded deterministic review cues.
+6. **Phase 6 — Function Explorer (CURRENT/NEXT):** source-linked function calls, state access, authorization and transfers.
 7. **Phase 7 — Security Views (PLANNED):** focused, filterable Map views for money, permissions, oracles, external calls, upgrades, inheritance, attack surface and findings.
 8. **Phase 8 — Beginner Mode / Show Me Where To Start (PLANNED):** accurate concept explanations, Researcher Mode, Project Overview and explainable audit-priority guidance.
 9. **Phase 9 — Finding Integration (PLANNED):** connect current findings and verification paths to graph identities and source.

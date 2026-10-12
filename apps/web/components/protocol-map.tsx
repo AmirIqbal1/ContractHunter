@@ -97,6 +97,9 @@ function NodePanel({ artifact, scanId, nodeId, onSelect }: { artifact: StaticPro
   return <div className="pm-detail-content">
     <div className="pm-detail-eyebrow">{node.kind} · {"repositoryClassification" in node ? node.repositoryClassification.effective : "structural concept"}</div>
     <h2>{node.name}</h2><SourceLink scanId={scanId} source={node.source} />
+    {(node.kind === "contract" || node.kind === "interface" || node.kind === "library") &&
+      <p><Link className="muted-link" href={`/hunts/${encodeURIComponent(scanId)}/contracts/${encodeURIComponent(node.id)}`}>
+        Open Contract Explorer →</Link></p>}
     {"abstract" in node && node.abstract && <p className="pm-note">Abstract contract</p>}
     <dl className="pm-metrics"><div><dt>Callers</dt><dd>{callers.length}</dd></div><div><dt>Callees</dt><dd>{callees.length}</dd></div>
       <div><dt>Entry points</dt><dd>{entryPoints.length}</dd></div><div><dt>Findings</dt><dd>{findings.length}</dd></div>
@@ -135,12 +138,15 @@ function EdgePanel({ artifact, scanId, edgeId }: { artifact: StaticProtocolGraph
   </div>;
 }
 
-export function ProtocolMap({ artifact, scanId }: { artifact: StaticProtocolGraphArtifact; scanId: string }) {
-  const [options, setOptions] = useState<MapOptions>(() => defaultOptions(artifact));
+export function ProtocolMap({ artifact, scanId, initialSelectedId = null }: { artifact: StaticProtocolGraphArtifact;
+  scanId: string; initialSelectedId?: string | null }) {
+  const [options, setOptions] = useState<MapOptions>(() => initialSelectedId ?
+    { ...defaultOptions(artifact), preset: "all", hideInterfaces: false, hideLibraries: false, hideDependencies: false } :
+    defaultOptions(artifact));
   const [query, setQuery] = useState("");
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(initialSelectedId);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
-  const [focusId, setFocusId] = useState<string | null>(null);
+  const [focusId, setFocusId] = useState<string | null>(initialSelectedId);
   const [direction, setDirection] = useState<MapDirection>("both");
   const matches = useMemo(() => searchMap(artifact, query), [artifact, query]);
   const choose = (id: string) => { setOptions({ ...defaultOptions(artifact), preset: "all", hideInterfaces: false,

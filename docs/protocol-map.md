@@ -2,7 +2,15 @@
 
 ## Status and purpose
 
-**Phases 1–4 implemented:** the frontend-independent ProtocolGraph domain model, deterministic Repository Mapper, and a first immutable static graph artifact. Phase 3 uses finalized Repository Maps and, only for the existing supported exact-pragma compilation profile, a checksum-verified trusted `solc --standard-json` AST query over immutable source snapshots. Unsupported profiles receive map-backed contract nodes and explicit warnings rather than guessed calls. Protocol Map UI (Phase 4) is implemented; Contract Explorer and Function Explorer (Phases 5–6), and dynamic overlays (Phase 10) remain planned. Phase 4 adds only React Flow and Dagre to the web app. No AI call or vulnerability authority was added.
+**Phases 1–5 implemented:** the frontend-independent ProtocolGraph, deterministic Repository Mapper, immutable static graph, Protocol Map UI, and Contract Explorer. Phase 3 uses finalized Repository Maps and, only for the existing supported exact-pragma compilation profile, a checksum-verified trusted `solc --standard-json` AST query over immutable source snapshots. Unsupported profiles receive map-backed contract nodes and explicit warnings rather than guessed calls. Function Explorer (Phase 6) and dynamic overlays (Phase 10) remain planned. No AI call or vulnerability authority was added.
+
+## Contract Explorer UI (Phase 5)
+
+Select a contract, interface or library on `/hunts/<scan-id>/protocol-map`, then choose **Open Contract Explorer**. The dedicated `/hunts/<scan-id>/contracts/<canonical-graph-node-id>` page uses the validated artifact from that scan and exact graph IDs; a wrong ID or another scan's ID returns 404. **Back to Protocol Map** and **Show in Protocol Map** preserve the scan and selected graph node. The browser receives a bounded one-contract view, not the whole graph.
+
+The header shows declaration/classification, canonical source, proven proxy traits and exact finding count. A factual overview reports entry points, callers/callees and extracted relationships. **Review cues** expose structural security interest without a risk score or vulnerability conclusion. Functions are searchable and filterable by signature, entry point, finding, external call, known state write and payable status; the list initially renders 60 and reveals 60 more on request. Entry points mean functions proven public/external, including receive/fallback when represented. Function rows retain modifiers, state access/transfer/low-level facts, exact finding badges and source links. Relationship sections distinguish incoming/outgoing/internal calls, inheritance, interfaces, library use, proven proxy/upgrade and control facts, with bounded source/provenance detail. Unresolved targets remain explicitly unresolved. State variable read/write facts are shown where available; storage slots and event emissions are not inferred.
+
+The page uses only exact finding links to existing finding detail routes and the Phase 4 immutable source excerpt route. When snapshot bytes are available it also shows a bounded 12-line declaration preview. The read model caps functions at 2,000, each relationship category at 1,000 and state/finding details at 500; full graph counts remain visible with a limit notice. A token-transfer-like operation does not establish an asset identity; a delegatecall does not prove proxy status; a modifier name does not prove authorization. Semantic purpose remains unclassified unless deterministic classification exists. An Impact Lab launch action is unavailable because this page has no safe contract-to-reviewed-session authority; existing finding/hypothesis/session rules remain intact. C1/D1 runtime overlays belong to Phase 10. Phase 6 adds deeper function flow; this page does not claim Function Explorer is complete.
 
 
 ## Protocol Map UI (Phase 4)
@@ -15,7 +23,7 @@ Node styles distinguish core, periphery, interface, library, role, proxy traits 
 
 Source actions open `/hunts/<scan-id>/source?unit=<canonical-unit>&line=<line>`. The server admits only source units already in the validated graph and displays a bounded excerpt from the immutable scan snapshot. If no snapshot is available, it reports that limitation and does not read a mutable checkout. Graph-derived text is rendered through ordinary escaped React text, never raw HTML. The UI is navigation data only: no finding verification, evidence, severity, confidence or lifecycle updates.
 
-The initial UI does not include full Contract Explorer, function flow diagrams, Beginner Mode, final Security Views, asset-flow inference, Impact Lab runtime overlays or AI explanations. Phase 5 should build the deeper contract drill-down from the same graph identities and source links.
+The Map remains the overview and the Explorer is its contract drill-down. Function flow diagrams, Beginner Mode, final Security Views, asset-flow inference, Impact Lab runtime overlays and AI explanations remain future work.
 
 ## Repository Mapper v1
 

@@ -1,6 +1,10 @@
 # Development
 
 
+## Contract Explorer local check
+
+Configure the normal local `.env`, run `npm run dev`, and open an existing completed hunt at `/hunts/<scan-id>`. Choose **Open Protocol Map**, select a contract node, then **Open Contract Explorer**. Check the classification and immutable source link, entry points and function filters, callers/callees, unresolved relationships, exact finding links and **Show in Protocol Map**. Historical scans have no fabricated graph; create a new authorised scan if needed. The deterministic unit fixture is `npx vitest run apps/web/lib/contract-explorer.test.tsx`. No AI call, live RPC or blockchain transaction is needed.
+
 ## Protocol Map local check
 
 Start with `npm run dev` after configuring the normal local `.env`, then open an existing completed hunt at `/hunts/<scan-id>`. Use **Open Protocol Map**. If no graph exists, create a new authorised scan; historical scans are intentionally not backfilled. The deterministic graph adapter fixture can be checked without an external repository using `npx vitest run apps/web/lib/protocol-map.test.ts`. On the map, verify zoom/pan, search, filters, presets, a node and edge detail, exact source link, finding link and an unresolved-target notice. The source page uses only immutable scan snapshots; a scan without one shows an unavailable state. No live RPC, AI call or blockchain transaction is needed.

@@ -6,8 +6,10 @@ import { loadProtocolMapForPage } from "@/lib/protocol-map-server";
 
 export const dynamic = "force-dynamic";
 
-export default async function ProtocolMapPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function ProtocolMapPage({ params, searchParams }: { params: Promise<{ id: string }>;
+  searchParams?: Promise<{ node?: string }> }) {
   const { id } = await params;
+  const { node } = await (searchParams ?? Promise.resolve({ node: undefined }));
   const database = getDatabase();
   const scan = getScan(database, id);
   if (!scan) notFound();
@@ -20,6 +22,7 @@ export default async function ProtocolMapPage({ params }: { params: Promise<{ id
       <p className="muted">{invalid ? "The saved graph failed validation. The underlying scan remains available." :
         "This scan has no finalized static graph. Older scans are not backfilled; run a new scan to generate one."}</p>
       <Link className="muted-link" href={`/hunts/${id}`}>Return to hunt →</Link></div> :
-      <ProtocolMap artifact={artifact} scanId={id} />}
+      <ProtocolMap artifact={artifact} scanId={id} initialSelectedId={artifact.graph.nodes.some((item) =>
+        item.id === node && ["contract", "interface", "library"].includes(item.kind)) ? node : null} />}
   </>;
 }
