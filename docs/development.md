@@ -1,5 +1,9 @@
 # Development
 
+## Deterministic Security Views Phase 7A
+
+Run `npx vitest run packages/core/src/security-view.test.ts apps/web/app/api/scans/'[id]'/protocol-graph/security-views/'[view]'/route.test.ts` for focused derivation and API tests, then the normal typecheck/test/lint/build gates. A completed scan with a finalized static graph can be queried through `GET /api/scans/:id/protocol-graph/security-views/:view`; no Security View UI exists yet. The seven projections use only persisted static facts. Oracle and AccessControl results may be empty because the current extractor does not prove those semantics. No AI, live RPC, compiler download or blockchain transaction is needed.
+
 ## Visual Function Explorer Phase 6B
 
 Start the web app with `npm run dev` (or the documented Compose workflow). Open a completed hunt that has a finalized static graph, follow Protocol Map → Contract Explorer → a function signature, and verify the source-order warning, operation selection, immutable source links, filters, Beginner/Researcher display switch and return navigation. A supported exact-pragma scan with trusted AST facts gives the richest flow; older scans may show partial analysis or no graph. Run `npx vitest run apps/web/components/function-explorer.test.tsx apps/web/app/hunts/'[id]'/contracts/'[contractId]'/functions/'[functionId]'/page.test.tsx` for focused UI/route tests. No new migration or dependency is needed.

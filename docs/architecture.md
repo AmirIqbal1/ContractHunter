@@ -1,5 +1,9 @@
 # Architecture
 
+## Protocol Intelligence Phase 7A
+
+`packages/core/src/security-view.ts` derives `contracthunter-security-view-v1` from a validated immutable `StaticProtocolGraphArtifact`. Its seven closed view types select existing graph IDs and attach bounded reason/provenance records and static annotations. Derivation uses indexed direct facts and no general graph path search; the input graph is unchanged. Oracle, role and proxy projections require explicit graph evidence. Token/native transfer direction remains unresolved with current extraction. The read-only `/api/scans/[id]/protocol-graph/security-views/[view]` endpoint validates a closed view name and returns a bounded result with exact same-scan finding metadata where applicable. Views are regenerated on read using a versioned deterministic identity/content hash; there is no new persistence table, migration, frontend graph type, AI call or Impact Lab dependency. Phase 7B will adapt this model in Protocol Map.
+
 ## Protocol Intelligence Phase 6B
 
 The server page at `/hunts/[id]/contracts/[contractId]/functions/[functionId]` uses the read-only Phase 6A service to load one exact function model and bounded related node labels. A client component renders a vertical source-order timeline, presentation filters, selected-operation details and a synchronized immutable source preview; it does not change the static graph. Contract Explorer links function rows by canonical IDs. React Flow remains dedicated to the contract-level Protocol Map. Phase 7 Security Views are next; no CFG, runtime overlay, evidence mutation or AI analysis was added.

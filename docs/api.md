@@ -1,5 +1,9 @@
 # API reference
 
+## Static Security Views (Phase 7A)
+
+`GET /api/scans/:id/protocol-graph/security-views/:view` accepts exactly `money-flow`, `permissions`, `oracle-flow`, `external-calls`, `upgradeability`, `attack-surface` or `findings`. It returns a bounded `contracthunter-security-view-v1` projection with existing graph IDs, inclusion reasons/provenance, static annotations, counts, warnings and a deterministic content hash. Finding metadata is loaded only by exact same-scan finding ID and capped at 500 entries. Invalid scan/view selectors return 400, missing scan/graph returns 404 and integrity/derivation failures return a sanitized 500. The endpoint is read-only and does not provide a query language, runtime trace or mutation route.
+
 ## Visual Function Explorer (Phase 6B)
 
 The page route is `/hunts/:scanId/contracts/:contractId/functions/:functionId`, linked from Contract Explorer. It reuses the read-only Phase 6A API/service and adds no browser-controlled analysis or mutation endpoint. The function response includes bounded exact related node labels, proven control-role labels and a proven-proxy flag to support navigation; it still returns only one function model, not the full graph. Wrong scan/contract/function ownership is rejected. Presentation query keys `operation`, `mode` and `filter` are bounded selectors and carry no source content.

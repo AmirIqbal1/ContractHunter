@@ -2,7 +2,7 @@
 
 ContractHunter is evolving from a locally hosted smart-contract scanner into a **Web3 security research environment**. Its direction is to help beginners and experienced researchers understand large protocols, find important contracts and relationships, inspect attack surface, investigate findings, verify hypotheses, and safely reproduce impact on a local fork. The research path is **understand → investigate → verify → reproduce → explain impact**.
 
-**Core product priorities:** **#1 Protocol Map** and **#2 Contract Explorer**, both with initial research interfaces implemented. These are core capabilities for understanding a protocol before and during vulnerability research. The design principle is: *Do not hide Web3 security complexity from beginners — make it understandable visually while keeping the real technical information available.* The source-order Function Explorer is implemented; deeper security views remain planned.
+**Core product priorities:** **#1 Protocol Map** and **#2 Contract Explorer**, both with initial research interfaces implemented. These are core capabilities for understanding a protocol before and during vulnerability research. The design principle is: *Do not hide Web3 security complexity from beginners — make it understandable visually while keeping the real technical information available.* The source-order Function Explorer and deterministic Security View models are implemented; interactive Security Views remain planned.
 
 ## Impact Lab Phase D1 (unreleased v0.3)
 
@@ -58,7 +58,7 @@ Deterministic verification options and strategy-aware planning, conservative tar
 
 Phase A1 established managed fork lifecycle and safety; A2 added the read-only upstream boundary and exact deployment identity; A3 proved real Anvil compatibility and isolated the PoC runtime. B1 runs reviewed manual Forge PoCs; C1 captures selected state changes; D1 records bounded local call traces. Deeper impact interpretation and visual investigation remain planned after the ProtocolGraph foundation.
 
-**Next active major track — Protocol Intelligence:** Phases 1–5 now include the ProtocolGraph, Repository Mapper, static graph, **#1 Protocol Map**, and **#2 Contract Explorer**. Open the Map from a completed hunt, select a contract, then open its Explorer for source-linked structure and findings. **Phase 6 Function Explorer** is implemented. **Phase 7 Security Views** are next. See [Protocol Map architecture](docs/protocol-map.md).
+**Next active major track — Protocol Intelligence:** Phases 1–5 include the ProtocolGraph, Repository Mapper, static graph, **#1 Protocol Map**, and **#2 Contract Explorer**. Open the Map from a completed hunt, select a contract, then open its Explorer for source-linked structure and findings. **Phase 6 Function Explorer** and **Phase 7A deterministic Security View models** are implemented. **Phase 7B interactive Security Views** are next. See [Protocol Map architecture](docs/protocol-map.md).
 
 See the [full roadmap](docs/roadmap.md) and [Impact Lab design](docs/impact-lab.md) for details.
 

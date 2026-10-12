@@ -1,5 +1,9 @@
 # Security model
 
+## Security View Phase 7A boundary
+
+Security Views are read-only static projections, not evidence or vulnerability decisions. They reference only existing graph node/edge IDs, preserve source/evidence reasons and reject unknown view types. They do not alter graph facts, finding status, hypothesis confidence/severity/lifecycle, or Impact Lab authority. Unresolved targets remain unresolved; a call edge is not relabeled as an asset transfer. Names alone never establish money movement, oracle identity, role semantics, proxy status or exploitability. The API returns bounded metadata from exact same-scan finding IDs and sanitizes graph/derivation failures. Future observed C1/D1 facts remain separate from these static projections.
+
 ## Function Explorer Phase 6B UI boundary
 
 The server rejects malformed or cross-contract function selectors and loads only the validated scan-bound Phase 6A artifact. Source previews use exact graph source-unit identity and checksum-matched immutable snapshot bytes. Repository-derived signatures, expressions, source and finding text render through React text escaping; no raw HTML or checkout path is exposed. Browser filters, mode and selection alter only presentation. The UI presents source order explicitly, marks partial analysis, and never treats a call, write, modifier, finding or review cue as proof of a vulnerability. Impact Lab execution, finding status, confidence, severity and lifecycle remain unchanged.

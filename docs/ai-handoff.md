@@ -1,12 +1,16 @@
 # ContractHunter AI Handoff
 
-## Current product milestone: Protocol Intelligence Phase 6B complete
+## Current product milestone: Protocol Intelligence Phase 7A complete
 
-Function rows in Contract Explorer now open a canonical function route. The page consumes the Phase 6A model through a server boundary and shows a bounded source-order timeline, explicit CFG limitation, operation selection, snapshot source preview, exact call/finding links, presentation filters and Beginner/Researcher copy. Static call/write cues are not runtime paths or vulnerability conclusions. The production data model, findings, Impact Lab and C1/D1 overlays are unchanged. **Next: Phase 7 Security Views.**
+Phase 7A adds `contracthunter-security-view-v1` and seven deterministic read-only projections of validated static graph facts in `packages/core/src/security-view.ts`, plus a narrow closed-type scan API. Results contain only existing graph IDs, source-backed inclusion reasons, bounded annotations, factual summaries, warnings and versioned content identity. Money direction, concrete token identity, oracle semantics and AccessControl are not guessed. Graph truth, Phase 6 Function Explorer, findings, Impact Lab C1/D1 and lifecycle authority are unchanged. **Next: Phase 7B Interactive Security Views in Protocol Map.** The full Phase 7 UI, Beginner ranking and dynamic overlays remain planned.
+
+## Prior product milestone: Protocol Intelligence Phase 6B complete
+
+Function rows in Contract Explorer now open a canonical function route. The page consumes the Phase 6A model through a server boundary and shows a bounded source-order timeline, explicit CFG limitation, operation selection, snapshot source preview, exact call/finding links, presentation filters and Beginner/Researcher copy. Static call/write cues are not runtime paths or vulnerability conclusions. The production data model, findings, Impact Lab and C1/D1 overlays are unchanged. Phase 7A now derives static Security View models; Phase 7B UI is next.
 
 ## Prior product milestone: Protocol Intelligence Phase 6A complete
 
-Phase 6A adds `contracthunter-function-explorer-v1`, bounded compiler-AST syntax facts in new static graph artifacts, and a read-only exact-ID function API. Operations and write/call cues are source-order facts; no machine CFG or runtime path guarantee exists. Old graph artifacts return partial analysis. No AI call, Function Explorer UI, vulnerability verdict or Impact Lab authority change was added. **Phase 6B visual Function Explorer is now implemented; next is Phase 7 Security Views.**
+Phase 6A adds `contracthunter-function-explorer-v1`, bounded compiler-AST syntax facts in new static graph artifacts, and a read-only exact-ID function API. Operations and write/call cues are source-order facts; no machine CFG or runtime path guarantee exists. Old graph artifacts return partial analysis. No AI call, vulnerability verdict or Impact Lab authority change was added. Phase 6B adds the visual Function Explorer; Phase 7A now adds Security View models.
 
 ## Prior product milestone: Protocol Intelligence Phase 5 complete
 
