@@ -1,6 +1,6 @@
 import { cloneRepository, detectFramework, loadConfig, sanitiseError, type Scanner } from "@contracthunter/core";
-import { finalizeScanCompilation, finalizeScanSourceSnapshot, getDatabase, getScan, getScanSource, insertFindings, insertScannerAlignment, listScanSources, markActiveScansInterrupted, markDetachedJobsInterrupted, reconcileInvestigations, transitionScan, updateCompilerState, updateDependencyState, updateScannerState, upsertScanScanner, type DatabaseClient } from "@contracthunter/db";
-import { AderynScanner, alignScannerSource, captureScanSourceSnapshot, DependencyManager, deriveAuthoritativeCompilation, executeScanners, SlitherScanner, type ScannerExecution } from "@contracthunter/scanners";
+import { finalizeRepositoryMap, finalizeScanCompilation, finalizeScanSourceSnapshot, getDatabase, getScan, getScanSource, insertFindings, insertScannerAlignment, listScanSources, listScannerAlignments, markActiveScansInterrupted, markDetachedJobsInterrupted, reconcileInvestigations, transitionScan, updateCompilerState, updateDependencyState, updateScannerState, upsertScanScanner, type DatabaseClient } from "@contracthunter/db";
+import { AderynScanner, alignScannerSource, captureScanSourceSnapshot, DependencyManager, deriveAuthoritativeCompilation, executeScanners, mapRepository, SlitherScanner, type ScannerExecution } from "@contracthunter/scanners";
 import { activeProtocolAnalysisScanIds } from "@/lib/ai/job-runner";
 import { activeSecurityReviewScanIds } from "@/lib/ai/security-review-job-runner";
 
@@ -114,6 +114,18 @@ class InProcessJobRunner implements JobRunner {
           for (const finding of findingProvenance) insertScannerAlignment(database, scanId,
             alignScannerSource(provenance.manifest, cloned.path, finding.reportedSourceIdentity, finding.contract, finding));
         }
+      }
+      // Repository orientation never changes scanner outcomes. Snapshot bytes remain the
+      // authority for supported Solidity sources; checkout paths supply directory metadata.
+      try {
+        const aligned = listScannerAlignments(database, scanId).filter((item) => item.status === "aligned" && item.sourceUnitName);
+        const map = await mapRepository({ scanId, resolvedCommit: cloned.commit, repositoryPath: cloned.path,
+          snapshotFiles: sourceSnapshot ?? undefined,
+          findingRefs: aligned.map((item) => ({ id: item.findingId, sourceUnitName: item.sourceUnitName! })) });
+        finalizeRepositoryMap(database, map);
+      } catch {
+        // A malformed/oversized repository can still finish its existing scan.
+        console.warn("[repository-map] mapping unavailable for scan", scanId);
       }
       completeStaticScan(database, scanId, executions);
     } catch (error) {

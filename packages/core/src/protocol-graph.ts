@@ -58,7 +58,7 @@ export type GraphEvidence = z.infer<typeof graphEvidenceSchema>;
 
 export const repositoryClassificationSchema = z.object({
   effective: z.enum(repositoryClasses), automatic: z.enum(repositoryClasses),
-  automaticOrigin: z.enum(["path-pattern", "compiler-type", "inheritance", "unknown"]),
+  automaticOrigin: z.enum(["path-pattern", "compiler-type", "solidity-lexical", "inheritance", "unknown"]),
   reasons: z.array(reason).max(PROTOCOL_GRAPH_LIMITS.reasonsPerFact),
   override: z.object({ value: z.enum(repositoryClasses), reason: reason }).strict().nullable(),
 }).strict().refine((value) => value.effective === (value.override?.value ?? value.automatic),

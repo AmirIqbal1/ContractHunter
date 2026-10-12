@@ -25,6 +25,7 @@ Impact Lab Phase A2 has configured-reference session routes described below. Pha
 - `POST /api/scans` — validate and enqueue a scan
 - `GET /api/scans` — list scans
 - `GET /api/scans/:id` — retrieve scan details and related records
+- `GET /api/scans/:id/repository-map` — read the finalized bounded Repository Map for this scan; 404 when no map was generated. This is navigation metadata, not a vulnerability score or source-authority upgrade.
 - `POST /api/scans/:id/ai-analysis` — manually run/rerun protocol analysis
 - `GET /api/scans/:id/ai-context` — preview bounded AI context/cost metadata
 

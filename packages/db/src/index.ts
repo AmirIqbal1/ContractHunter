@@ -13,6 +13,7 @@ export { recordImpactForkSession, recoverStaleImpactForkSessions, readImpactFork
 export * from "./impact-poc";
 export * from "./impact-state";
 export * from "./impact-trace";
+export * from "./repository-map";
 
 export type DatabaseClient = ReturnType<typeof createDatabase>;
 
@@ -585,10 +586,32 @@ export function createDatabase(databasePath: string) {
     })(); }
     catch (error) { throw new Error(`Database migration 0013_v0_3_impact_local_traces failed without committing changes: ${error instanceof Error ? error.message : String(error)}`); }
   }
+  if (!sqlite.prepare("SELECT 1 FROM schema_migrations WHERE id = ?").get("0014_protocol_repository_maps")) {
+    try { sqlite.transaction(() => {
+      sqlite.exec(`CREATE TABLE repository_maps (
+        id TEXT PRIMARY KEY, scan_id TEXT NOT NULL REFERENCES scans(id) ON DELETE CASCADE,
+        schema TEXT NOT NULL, ruleset TEXT NOT NULL, resolved_commit TEXT NOT NULL,
+        source_universe_hash TEXT NOT NULL, content_sha256 TEXT NOT NULL,
+        map_json TEXT NOT NULL, finalized_at INTEGER NOT NULL,
+        UNIQUE(scan_id, ruleset, source_universe_hash)
+      );
+      CREATE INDEX repository_maps_scan_idx ON repository_maps(scan_id, finalized_at);
+      CREATE TRIGGER repository_maps_immutable BEFORE UPDATE ON repository_maps
+        BEGIN SELECT RAISE(ABORT,'repository map immutable'); END;
+      CREATE TRIGGER repository_maps_no_delete BEFORE DELETE ON repository_maps
+        WHEN EXISTS(SELECT 1 FROM scans WHERE id=OLD.scan_id)
+        BEGIN SELECT RAISE(ABORT,'repository map immutable'); END;`);
+      sqlite.prepare("INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)").run("0014_protocol_repository_maps", Date.now());
+    })(); }
+    catch (error) { throw new Error(`Database migration 0014_protocol_repository_maps failed without committing changes: ${error instanceof Error ? error.message : String(error)}`); }
+  }
   const integrity = sqlite.pragma("quick_check") as Array<{ quick_check: string }>;
   const foreignKeyViolations = sqlite.pragma("foreign_key_check") as unknown[];
-  const requiredTables = ["scans", "scan_source_snapshots", "scan_source_snapshot_files", "scan_compilation_provenance", "scan_compilation_source_units", "scan_scanner_alignment", "findings", "scan_scanners", "investigations", "investigation_findings", "protocol_analyses", "invariants", "security_review_plans", "security_reviewer_runs", "vulnerability_hypotheses", "hypothesis_verification_runs", "verification_plan_attempts", "executable_invariant_runs", "executable_invariant_proposals", "invariant_replay_artifacts", "invariant_replay_runs", "authoritative_invariant_evidence", "invariant_evidence_reviews", "hypothesis_lifecycle_transitions", "hypothesis_groups", "hypothesis_group_members", "impact_fork_sessions", "impact_poc_artifacts", "impact_poc_executions", "impact_state_snapshots", "impact_state_observations", "impact_state_diffs", "impact_state_changes", "impact_transaction_traces", "impact_trace_nodes", "impact_trace_logs"];
+  const requiredTables = ["scans", "scan_source_snapshots", "scan_source_snapshot_files", "scan_compilation_provenance", "scan_compilation_source_units", "scan_scanner_alignment", "findings", "scan_scanners", "investigations", "investigation_findings", "protocol_analyses", "invariants", "security_review_plans", "security_reviewer_runs", "vulnerability_hypotheses", "hypothesis_verification_runs", "verification_plan_attempts", "executable_invariant_runs", "executable_invariant_proposals", "invariant_replay_artifacts", "invariant_replay_runs", "authoritative_invariant_evidence", "invariant_evidence_reviews", "hypothesis_lifecycle_transitions", "hypothesis_groups", "hypothesis_group_members", "impact_fork_sessions", "impact_poc_artifacts", "impact_poc_executions", "impact_state_snapshots", "impact_state_observations", "impact_state_diffs", "impact_state_changes", "impact_transaction_traces", "impact_trace_nodes", "impact_trace_logs", "repository_maps"];
   const presentTables = new Set((sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as Array<{ name: string }>).map((row) => row.name));
+  const repositoryMapTriggers = new Set((sqlite.prepare("SELECT name FROM sqlite_master WHERE type='trigger' AND name LIKE 'repository_maps_%'").all() as Array<{ name: string }>).map((row) => row.name));
+  if (!["repository_maps_immutable", "repository_maps_no_delete"].every((name) => repositoryMapTriggers.has(name)))
+    throw new Error("Repository Map migration validation failed.");
   const runColumns = new Set((sqlite.prepare("PRAGMA table_info(executable_invariant_runs)").all() as Array<{name:string}>).map((row) => row.name));
   const replayColumns = new Set((sqlite.prepare("PRAGMA table_info(invariant_replay_artifacts)").all() as Array<{name:string}>).map((row) => row.name));
   const proposalColumns = new Set((sqlite.prepare("PRAGMA table_info(executable_invariant_proposals)").all() as Array<{name:string}>).map((row) => row.name));
