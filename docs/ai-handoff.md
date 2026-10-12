@@ -1,6 +1,10 @@
 # ContractHunter AI Handoff
 
-## Current Impact Lab milestone: Phase C1
+## Current Impact Lab milestone: Phase D1
+
+Phase D1 captures only bridge-recorded LOCAL transactions using guarded Anvil 1.7.1 `debug_traceTransaction` with `callTracer`, plus a local receipt and exact local block identity. The browser and networkless PoC worker have no debug method; the upstream proxy still rejects debug, trace and transaction methods. Strict bounded parsing stores versioned preorder call nodes, receipt facts and raw bounded logs with canonical SHA-256 in immutable normalized migration `0013_v0_3_impact_local_traces`. Controller order is PRE → Forge → trace → POST → state diff → separately finalized state and trace persistence → baseline reset. Trace failure is recorded separately while C1 state and reset continue; compiled zero-transaction execution has an empty trace set; historical B1/C1 rows stay null. The opt-in A→proxy→B test covers root, nested CALL, DELEGATECALL and a fixture-only reverted local transaction, with zero upstream debug/transaction methods. No asset-flow, severity, verification authority or lifecycle action was added. Production Compose worker rebuild/smoke remains a v0.3 release gate.
+
+### Phase C1 history
 
 Phase C1 adds versioned bounded observation plans, controller-owned PRE/POST reads from the guarded local fork, exact typed differences, and immutable normalized artifacts in migration `0012_v0_3_impact_state_capture`. The execution flow resets baseline, captures PRE, runs reviewed manual Forge, captures POST before reset where execution may have occurred, atomically stores finalized state, and resets baseline again. Compilation failure retains PRE only. Failed observations remain explicitly unavailable; failed POST capture cannot create a complete diff. Hashes and read-time checks bind observations and diffs to execution, runtime token, reviewed source, fork block/hash and target code. No trace, asset-flow inference, vulnerability authority or lifecycle promotion was added. The opt-in local A→proxy→B→worker test proves +1 wei and storage-slot changes on B, upstream unchanged and zero upstream submissions. Historical B1 rows keep null state links. v0.3 remains unreleased.
 
@@ -16,7 +20,7 @@ ContractHunter is a locally hosted smart-contract security analysis workstation 
 
 ## Current version state
 
-Current released application/workspace version: `v0.2.2`. v0.3 Impact Lab is in development through Phase C1: A1 managed fork lifecycle, A2 configured exact-block upstream identity, A3 real local-Anvil fork compatibility and isolation, B1 manually reviewed local-only Forge execution, and C1 bounded state capture/diff. Migration `0012_v0_3_impact_state_capture` is latest. No v0.3 release has been made.
+Current released application/workspace version: `v0.2.2`. v0.3 Impact Lab is in development through Phase D1: A1 managed fork lifecycle, A2 exact-block upstream identity, A3 real fork compatibility and isolation, B1 reviewed local Forge execution, C1 bounded state diff, and D1 local transaction traces. Migration `0013_v0_3_impact_local_traces` is latest. No v0.3 release has been made.
 
 v0.2.0 includes executable invariant plan v1, bounded fuzz/stateful worker execution, manual AI semantic proposals, deterministic counterexample replay, explicit relevance review, authoritative invariant evidence, centralized lifecycle transitions, transactional v0.1.9 migration, retry workspaces and release regression probes.
 

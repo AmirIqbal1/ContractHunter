@@ -2,14 +2,16 @@ import { createHash, randomUUID } from "node:crypto";
 import { chmod, unlink } from "node:fs/promises";
 import { createServer, request as httpRequest, type Server } from "node:http";
 import path from "node:path";
-import { impactPoCExecutionSchema, impactPoCReviewSchema, makeImpactObservationPlan, planHash,
-  type ImpactForkSession, type ImpactStateProvenance, type ImpactStateSnapshot } from "@contracthunter/core";
+import { IMPACT_TRACE_LIMITS, impactPoCExecutionSchema, impactPoCReviewSchema, makeImpactObservationPlan, planHash,
+  type ImpactForkSession, type ImpactStateProvenance, type ImpactStateSnapshot,
+  type ImpactTransactionTrace } from "@contracthunter/core";
 import { createImpactPoCArtifact, createImpactPoCExecution, getDatabase, readImpactPoCArtifact,
   readImpactPoCExecution, reviewImpactPoCArtifact, updateImpactPoCExecution, persistImpactStateArtifacts,
-  readImpactExecutionState, type DatabaseClient } from "@contracthunter/db";
+  readImpactExecutionState, readImpactExecutionTraces, persistImpactTraceCapture, type DatabaseClient } from "@contracthunter/db";
 import { type ImpactForkHandle, type ImpactForkService } from "@contracthunter/scanners";
 import { createImpactForkService, resolveImpactHandle } from "./impact-lab";
 import { captureImpactState, makeImpactStateDiff } from "./impact-state";
+import { parseImpactTransactionTrace } from "./impact-trace";
 
 const IPC_DIR = process.env.IMPACT_POC_IPC_DIR ?? "/run/impact-poc";
 if (IPC_DIR !== "/run/impact-poc" && !(process.env.NODE_ENV === "test" && IPC_DIR.startsWith("/tmp/")))
@@ -137,6 +139,7 @@ export function reviewManualPoC(id: string, input: unknown) {
 }
 export function getManualPoCExecution(id: string) { return readImpactPoCExecution(getDatabase(), id); }
 export function getManualPoCExecutionState(id: string) { return readImpactExecutionState(getDatabase(), id); }
+export function getManualPoCExecutionTraces(id: string) { return readImpactExecutionTraces(getDatabase(), id); }
 export async function executeManualPoC(sessionId: string, input: unknown, deps: {
   database?: DatabaseClient; service?: ImpactForkService; resolveHandle?: (id: string) => ImpactForkHandle | undefined;
 } = {}) {
@@ -170,8 +173,9 @@ export async function executeManualPoC(sessionId: string, input: unknown, deps: 
   let failureCode: string | null = null;
   let pre: ImpactStateSnapshot | null = null;
   let post: ImpactStateSnapshot | null = null;
+  let traces: ImpactTransactionTrace[] | null | undefined;
   let workerInvoked = false;
-  let stage: "reset" | "pre" | "worker" | "post" | "persist" = "reset";
+  let stage: "reset" | "pre" | "worker" | "trace" | "post" | "persist" = "reset";
   const read = (method: string, params: unknown[]) => service.readLocalImpactState(handle, method, params);
   try {
     await service.resetForkSession(handle);
@@ -191,6 +195,21 @@ export async function executeManualPoC(sessionId: string, input: unknown, deps: 
       try { await bridge?.close(); }
       catch { failureCode = "impact_bridge_cleanup_failed"; }
       if (pre) {
+        if (txHashes.length || workerInvoked && result?.compiled === true) {
+          stage = "trace";
+          try {
+            const deadline = Date.now() + IMPACT_TRACE_LIMITS.totalCaptureMs;
+            traces = [];
+            for (let index = 0; index < txHashes.length; index++) {
+              const remaining = deadline - Date.now();
+              if (remaining <= 0) throw Error("impact_trace_timeout");
+              const raw = await service.traceLocalImpactTransaction(handle, txHashes[index]!,
+                Math.min(remaining, IMPACT_TRACE_LIMITS.perTransactionMs));
+              traces.push(parseImpactTransactionTrace(raw.trace, raw.receipt, raw.block,
+                provenance, txHashes[index]!, index, session.disposableAccounts[0]!));
+            }
+          } catch { traces = null; }
+        }
         if (workerInvoked && (result?.compiled === true || result?.executed === true || result === null)) {
           stage = "post";
           try { post = await captureImpactState(plan, provenance, "post", read); }
@@ -200,6 +219,10 @@ export async function executeManualPoC(sessionId: string, input: unknown, deps: 
         try { persistImpactStateArtifacts(database, plan, pre, post,
           post ? makeImpactStateDiff(pre, post) : null); }
         catch { failureCode = "impact_state_persist_failed"; }
+        if (traces !== undefined) {
+          try { persistImpactTraceCapture(database, executionId, txHashes, traces); }
+          catch { failureCode = "impact_trace_persist_failed"; }
+        }
       }
     }
     finally {

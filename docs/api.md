@@ -1,5 +1,9 @@
 # API reference
 
+## Impact Lab Phase D1 local traces
+
+`GET /api/impact/poc-executions/:id` adds nullable `traceCaptureStatus`, `traceCount`, `traceNodeCount`, `traceErrorCode`, `traceAvailable` and ordered `traceIds`. `GET /api/impact/poc-executions/:id/traces` reads finalized bounded local receipt/log/call-tree artifacts and returns a failed or empty capture status where applicable. It accepts no transaction hash, RPC method, endpoint or command input. Historical executions return null trace status and an empty list. Trace facts confer no vulnerability authority.
+
 ## Impact Lab Phase C1 state capture
 
 `POST /api/impact/sessions/:sessionId/poc-executions` accepts `pocArtifactId` and optional `observations` with typed `nativeBalances`, `erc20Balances` (`token`, `holder`), `erc721Owners` (`token`, decimal `tokenId`), `erc1155Balances` (`token`, `holder`, decimal `tokenId`), `storageSlots` (`contract`, exact 32-byte `slot`), and `viewCalls` (fixed `erc20_totalSupply`, `target`). Unknown keys, arbitrary methods/calldata and oversized plans are rejected. Defaults include sender and target native balances. `GET /api/impact/poc-executions/:id` includes nullable `preSnapshotId`, `postSnapshotId`, `diffId`, `stateCaptureAvailable` and `stateChangeCount`. `GET /api/impact/poc-executions/:id/state` returns the finalized PRE/POST and diff artifacts or null links for historical B1 runs. State endpoints are read-only and do not admit vulnerability evidence.

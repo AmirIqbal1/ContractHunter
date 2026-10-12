@@ -1,5 +1,9 @@
 # Security model
 
+## Impact Lab Phase D1 boundary
+
+Only the controller can invoke the fixed managed-local-Anvil trace capability, after a reviewed job has supplied at most four transaction hashes through its guarded local bridge. The PoC worker, browser and upstream proxy cannot request `debug_traceTransaction`. Each local trace read reruns the central process/listener/session guard. Receipt transaction and block identities, sender, call root and execution/fork/token/source provenance are checked before persistence. Response, tree, depth, data, log, storage and time bounds fail closed. All traces for one execution are inserted atomically as finalized rows, or a separate failed capture status is recorded; partial trees are never public artifacts. Trace capture cannot promote evidence or lifecycle status. Existing worker isolation and the read-only upstream allowlist are unchanged.
+
 ## Impact Lab Phase C1 boundary
 
 Observation plans are strict, bounded and controller-owned; the public selector accepts typed addresses, token IDs, exact slots and one fixed view descriptor only. The hostile PoC worker cannot alter observations or submit state values. Capture rechecks the central managed-Anvil guard on every local read and never uses provider URLs directly. The upstream proxy remains read-only. PRE failure prevents Forge, POST failure still triggers baseline reset, and partially captured data is not finalized as a complete diff. Snapshot/diff inserts and execution links are atomic; immutable triggers and read-time hash, row-count, provenance and derived-change checks reject tampering. Exact balances use decimal integer strings and BigInt deltas, so precision is retained. Zero observed changes confer no safety or vulnerability conclusion; no evidence, severity or lifecycle authority was added.

@@ -1,5 +1,9 @@
 # Architecture
 
+## Impact Lab Phase D1
+
+`packages/core/src/impact-trace.ts` defines a bounded UI-independent local trace model and canonical hash. `ImpactForkService.traceLocalImpactTransaction` is a controller-only fixed capability: it rechecks the managed local endpoint and reads a local receipt, local block identity and Anvil `callTracer` result. It accepts no arbitrary RPC method or endpoint. `apps/web/lib/impact-trace.ts` strictly normalizes the call tree and logs; the web PoC controller captures all bridge-recorded hashes after worker shutdown and before C1 POST capture. `packages/db/src/impact-trace.ts` atomically finalizes normalized immutable artifacts and verifies provenance, node order, hash, receipt and execution binding on reads. Migration `0013_v0_3_impact_local_traces` leaves historical trace links null. The Forge bridge and upstream proxy receive no debug capability.
+
 ## Impact Lab Phase C1
 
 `packages/core/src/impact-state.ts` owns the versioned typed observation plan, canonical identities, exact-value snapshot/diff model and framed SHA-256 hashes. The web controller constructs the bounded plan, resets the verified fork, captures PRE through five guarded local read methods, runs the existing isolated Forge worker, captures POST before reset, derives typed changes and persists artifacts atomically. The worker cannot choose observations or write state artifacts. Migration `0012_v0_3_impact_state_capture` adds normalized immutable snapshot, observation, diff and change tables plus nullable execution links. Database readers recheck hash, cardinality, provenance, binding and semantic changes. Historical executions keep null links. The verification worker and hypothesis authority are unchanged.

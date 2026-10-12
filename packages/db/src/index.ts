@@ -12,6 +12,7 @@ export * from "./schema";
 export { recordImpactForkSession, recoverStaleImpactForkSessions, readImpactForkSession } from "./impact-fork-sessions";
 export * from "./impact-poc";
 export * from "./impact-state";
+export * from "./impact-trace";
 
 export type DatabaseClient = ReturnType<typeof createDatabase>;
 
@@ -527,9 +528,66 @@ export function createDatabase(databasePath: string) {
     })(); }
     catch (error) { throw new Error(`Database migration 0012_v0_3_impact_state_capture failed without committing changes: ${error instanceof Error ? error.message : String(error)}`); }
   }
+  if (!sqlite.prepare("SELECT 1 FROM schema_migrations WHERE id = ?").get("0013_v0_3_impact_local_traces")) {
+    try { sqlite.transaction(() => {
+      sqlite.exec(`ALTER TABLE impact_poc_executions ADD COLUMN trace_capture_status TEXT
+          CHECK(trace_capture_status IN ('finalized','failed'));
+        ALTER TABLE impact_poc_executions ADD COLUMN trace_count INTEGER
+          CHECK(trace_count BETWEEN 0 AND 4);
+        ALTER TABLE impact_poc_executions ADD COLUMN trace_node_count INTEGER
+          CHECK(trace_node_count BETWEEN 0 AND 1024);
+        ALTER TABLE impact_poc_executions ADD COLUMN trace_error_code TEXT;
+        CREATE TABLE impact_transaction_traces (
+          id TEXT PRIMARY KEY, schema TEXT NOT NULL CHECK(schema='impact-transaction-trace-v1'),
+          execution_id TEXT NOT NULL REFERENCES impact_poc_executions(id),
+          transaction_ordinal INTEGER NOT NULL CHECK(transaction_ordinal BETWEEN 0 AND 3),
+          transaction_hash TEXT NOT NULL, session_id TEXT NOT NULL,
+          runtime_token_sha256 TEXT NOT NULL, chain_id INTEGER NOT NULL,
+          fork_block INTEGER NOT NULL, fork_block_hash TEXT NOT NULL,
+          target_code_hashes TEXT NOT NULL, artifact_id TEXT NOT NULL,
+          source_sha256 TEXT NOT NULL, plan_sha256 TEXT NOT NULL,
+          receipt_json TEXT NOT NULL CHECK(length(receipt_json)<=2048),
+          stats_json TEXT NOT NULL CHECK(length(stats_json)<=512),
+          node_count INTEGER NOT NULL CHECK(node_count BETWEEN 1 AND 256),
+          log_count INTEGER NOT NULL CHECK(log_count BETWEEN 0 AND 64),
+          content_sha256 TEXT NOT NULL, status TEXT NOT NULL CHECK(status='finalized'),
+          UNIQUE(execution_id,transaction_ordinal), UNIQUE(execution_id,transaction_hash));
+        CREATE TABLE impact_trace_nodes (
+          trace_id TEXT NOT NULL REFERENCES impact_transaction_traces(id),
+          ordinal INTEGER NOT NULL, parent_ordinal INTEGER, depth INTEGER NOT NULL,
+          payload TEXT NOT NULL CHECK(length(payload)<=4096),
+          PRIMARY KEY(trace_id,ordinal));
+        CREATE TABLE impact_trace_logs (
+          trace_id TEXT NOT NULL REFERENCES impact_transaction_traces(id),
+          ordinal INTEGER NOT NULL, payload TEXT NOT NULL CHECK(length(payload)<=2048),
+          PRIMARY KEY(trace_id,ordinal));
+        CREATE TRIGGER impact_transaction_traces_immutable BEFORE UPDATE ON impact_transaction_traces
+          BEGIN SELECT RAISE(ABORT,'trace immutable'); END;
+        CREATE TRIGGER impact_transaction_traces_no_delete BEFORE DELETE ON impact_transaction_traces
+          BEGIN SELECT RAISE(ABORT,'trace immutable'); END;
+        CREATE TRIGGER impact_trace_nodes_immutable BEFORE UPDATE ON impact_trace_nodes
+          BEGIN SELECT RAISE(ABORT,'trace node immutable'); END;
+        CREATE TRIGGER impact_trace_nodes_no_delete BEFORE DELETE ON impact_trace_nodes
+          BEGIN SELECT RAISE(ABORT,'trace node immutable'); END;
+        CREATE TRIGGER impact_trace_logs_immutable BEFORE UPDATE ON impact_trace_logs
+          BEGIN SELECT RAISE(ABORT,'trace log immutable'); END;
+        CREATE TRIGGER impact_trace_logs_no_delete BEFORE DELETE ON impact_trace_logs
+          BEGIN SELECT RAISE(ABORT,'trace log immutable'); END;
+        CREATE TRIGGER impact_execution_trace_status_immutable BEFORE UPDATE ON impact_poc_executions
+          WHEN OLD.trace_capture_status IS NOT NULL AND (
+            OLD.trace_capture_status IS NOT NEW.trace_capture_status OR
+            OLD.trace_count IS NOT NEW.trace_count OR
+            OLD.trace_node_count IS NOT NEW.trace_node_count OR
+            OLD.trace_error_code IS NOT NEW.trace_error_code OR
+            OLD.transaction_hashes IS NOT NEW.transaction_hashes)
+          BEGIN SELECT RAISE(ABORT,'execution trace status immutable'); END;`);
+      sqlite.prepare("INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)").run("0013_v0_3_impact_local_traces", Date.now());
+    })(); }
+    catch (error) { throw new Error(`Database migration 0013_v0_3_impact_local_traces failed without committing changes: ${error instanceof Error ? error.message : String(error)}`); }
+  }
   const integrity = sqlite.pragma("quick_check") as Array<{ quick_check: string }>;
   const foreignKeyViolations = sqlite.pragma("foreign_key_check") as unknown[];
-  const requiredTables = ["scans", "scan_source_snapshots", "scan_source_snapshot_files", "scan_compilation_provenance", "scan_compilation_source_units", "scan_scanner_alignment", "findings", "scan_scanners", "investigations", "investigation_findings", "protocol_analyses", "invariants", "security_review_plans", "security_reviewer_runs", "vulnerability_hypotheses", "hypothesis_verification_runs", "verification_plan_attempts", "executable_invariant_runs", "executable_invariant_proposals", "invariant_replay_artifacts", "invariant_replay_runs", "authoritative_invariant_evidence", "invariant_evidence_reviews", "hypothesis_lifecycle_transitions", "hypothesis_groups", "hypothesis_group_members", "impact_fork_sessions", "impact_poc_artifacts", "impact_poc_executions", "impact_state_snapshots", "impact_state_observations", "impact_state_diffs", "impact_state_changes"];
+  const requiredTables = ["scans", "scan_source_snapshots", "scan_source_snapshot_files", "scan_compilation_provenance", "scan_compilation_source_units", "scan_scanner_alignment", "findings", "scan_scanners", "investigations", "investigation_findings", "protocol_analyses", "invariants", "security_review_plans", "security_reviewer_runs", "vulnerability_hypotheses", "hypothesis_verification_runs", "verification_plan_attempts", "executable_invariant_runs", "executable_invariant_proposals", "invariant_replay_artifacts", "invariant_replay_runs", "authoritative_invariant_evidence", "invariant_evidence_reviews", "hypothesis_lifecycle_transitions", "hypothesis_groups", "hypothesis_group_members", "impact_fork_sessions", "impact_poc_artifacts", "impact_poc_executions", "impact_state_snapshots", "impact_state_observations", "impact_state_diffs", "impact_state_changes", "impact_transaction_traces", "impact_trace_nodes", "impact_trace_logs"];
   const presentTables = new Set((sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as Array<{ name: string }>).map((row) => row.name));
   const runColumns = new Set((sqlite.prepare("PRAGMA table_info(executable_invariant_runs)").all() as Array<{name:string}>).map((row) => row.name));
   const replayColumns = new Set((sqlite.prepare("PRAGMA table_info(invariant_replay_artifacts)").all() as Array<{name:string}>).map((row) => row.name));

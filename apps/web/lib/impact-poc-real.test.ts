@@ -7,8 +7,10 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
 import { createDatabase, closeDatabase, createScan, insertFindings, createImpactPoCArtifact,
-  reviewImpactPoCArtifact, recordImpactForkSession, readImpactExecutionState } from "@contracthunter/db";
+  reviewImpactPoCArtifact, recordImpactForkSession, readImpactExecutionState,
+  readImpactExecutionTraces } from "@contracthunter/db";
 import { ImpactForkService, startReadOnlyUpstreamProxy } from "@contracthunter/scanners";
+import { parseImpactTransactionTrace } from "./impact-trace";
 
 const binary = process.env.IMPACT_TEST_ANVIL;
 const imageId = process.env.IMPACT_B1_WORKER_IMAGE;
@@ -17,6 +19,21 @@ const enabled = process.env.CONTRACTHUNTER_LOOPBACK_TEST === "1" && Boolean(bina
   /^sha256:[0-9a-f]{64}$/.test(imageId ?? "") && /^[a-zA-Z0-9_-]+$/.test(compilerVolume ?? ""));
 const exec = promisify(execFile);
 const host = "127.0.0.1", target = `0x${"1".repeat(40)}`;
+const nestedA = `0x${"6".repeat(40)}`, nestedB = `0x${"7".repeat(40)}`;
+const delegateA = `0x${"8".repeat(40)}`, revertTarget = `0x${"9".repeat(40)}`;
+function localCallSource(address: string, requireSuccess = true): string {
+  return `pragma solidity 0.8.36;
+interface Vm { function startBroadcast() external; function stopBroadcast() external; }
+contract ImpactPoC {
+  Vm constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
+  function run() external {
+    vm.startBroadcast();
+    (bool ok,) = address(${address}).call("");
+    ${requireSuccess ? 'require(ok, "fixture call failed");' : "if (ok) revert(\"unexpected success\");"}
+    vm.stopBroadcast();
+  }
+}`;
+}
 const sourceCode = `pragma solidity 0.8.36;
 interface Vm { function startBroadcast() external; function stopBroadcast() external; }
 contract ImpactPoC {
@@ -87,12 +104,20 @@ describe.skipIf(!enabled)("Phase B1 real local Forge worker", () => {
       await ready(upstreamEndpoint, upstream);
       await rpc(upstreamEndpoint, "anvil_setCode", [target, "0x3615600c57600435600055005b60005460005260206000f3"]);
       await rpc(upstreamEndpoint, "anvil_setStorageAt", [target, `0x${"0".repeat(64)}`, `0x${"0".repeat(62)}2a`]);
+      await rpc(upstreamEndpoint, "anvil_setCode", [nestedB, "0x600160005560006000f3"]);
+      await rpc(upstreamEndpoint, "anvil_setCode", [nestedA,
+        "0x" + "6000".repeat(5) + "73" + nestedB.slice(2) + "5af15000"]);
+      await rpc(upstreamEndpoint, "anvil_setCode", [delegateA,
+        "0x" + "6000".repeat(4) + "73" + nestedB.slice(2) + "5af45000"]);
+      await rpc(upstreamEndpoint, "anvil_setCode", [revertTarget, "0x60006000fd"]);
       await rpc(upstreamEndpoint, "anvil_mine", ["0x1"]);
       const blockNumber = Number(BigInt(await rpc(upstreamEndpoint, "eth_blockNumber") as string));
       const block = await rpc(upstreamEndpoint, "eth_getBlockByNumber", [`0x${blockNumber.toString(16)}`, false]) as { hash: string };
       const before = await rpc(upstreamEndpoint, "eth_getBalance", [target, "latest"]);
       const storageSlot = `0x${"0".repeat(64)}`;
       const storageBefore = await rpc(upstreamEndpoint, "eth_getStorageAt", [target, storageSlot, "latest"]);
+      const nestedStorageBefore = await rpc(upstreamEndpoint, "eth_getStorageAt", [nestedB, storageSlot, "latest"]);
+      const delegateStorageBefore = await rpc(upstreamEndpoint, "eth_getStorageAt", [delegateA, storageSlot, "latest"]);
       const forwarded: string[] = [];
       const provider: typeof fetch = async (_url, init) => {
         const call = JSON.parse(Buffer.from(init?.body as Uint8Array).toString("utf8")) as { method: string };
@@ -116,11 +141,13 @@ describe.skipIf(!enabled)("Phase B1 real local Forge worker", () => {
         functionName: "run", filePath: "contracts/Fixture.sol", startLine: 1, endLine: 1,
         rootCause: "Test only.", attackScenario: "Test only.", impact: "None.", evidence: "Local fixture.", status: "candidate" }])[0]!;
       const handle = service.createForkSession({ findingId: finding.id, chainId: 31337, network: "anvil-test",
-        upstreamRpcRef: "IMPACT_RPC_LOCAL_TEST", targetContracts: [target], forkBlock: blockNumber });
+        upstreamRpcRef: "IMPACT_RPC_LOCAL_TEST",
+        targetContracts: [target, nestedA, nestedB, delegateA, revertTarget], forkBlock: blockNumber });
       const session = await service.startForkSession(handle);
       expect(session.forkBlockHash).toBe(block.hash.toLowerCase());
       const unrelatedHandle = service.createForkSession({ findingId: finding.id, chainId: 31337, network: "anvil-test",
-        upstreamRpcRef: "IMPACT_RPC_LOCAL_TEST", targetContracts: [target], forkBlock: blockNumber });
+        upstreamRpcRef: "IMPACT_RPC_LOCAL_TEST",
+        targetContracts: [target, nestedA, nestedB, delegateA, revertTarget], forkBlock: blockNumber });
       const unrelatedSession = await service.startForkSession(unrelatedHandle);
       const { stdout: containerId } = await exec("/usr/bin/docker", ["run", "-d", "--name", workerName,
         "--network", "none", "--user", "10003:10001", "--read-only", "--pids-limit", "48", "--cpus", "1", "--memory", "1g",
@@ -195,6 +222,14 @@ describe.skipIf(!enabled)("Phase B1 real local Forge worker", () => {
       expect(outcome.transactionHashes.length).toBeGreaterThan(0);
       expect(BigInt(balanceBeforeFinalReset as string)).toBe(BigInt(before as string) + 1n);
       expect(outcome.stateCaptureAvailable).toBe(true);
+      expect(outcome.traceCaptureStatus).toBe("finalized");
+      expect(outcome.traceCount).toBe(outcome.transactionHashes.length);
+      const capturedTraces = readImpactExecutionTraces(database, outcome.id)!;
+      expect(capturedTraces.traces).toHaveLength(outcome.transactionHashes.length);
+      expect(capturedTraces.traces[0]?.nodes[0]).toMatchObject({ callType: "CALL", to: target,
+        targetAddress: target });
+      expect(capturedTraces.traces[0]?.receipt).toMatchObject({
+        transactionHash: outcome.transactionHashes[0], status: 1 });
       const state = readImpactExecutionState(database, outcome.id)!;
       expect(state.pre?.observations.find((item) => item.id === `storage:${target}:${storageSlot}`)?.value).toBe(storageBefore);
       expect(state.post?.observations.find((item) => item.id === `storage:${target}:${storageSlot}`)?.value)
@@ -218,6 +253,71 @@ describe.skipIf(!enabled)("Phase B1 real local Forge worker", () => {
         .toBe(0);
       expect(forwarded).not.toContain("eth_sendTransaction");
       expect(forwarded).not.toContain("eth_sendRawTransaction");
+      expect(forwarded.some((method) => /^(?:debug_|trace_)/.test(method))).toBe(false);
+      const nestedPoC = createImpactPoCArtifact(database, { findingId: finding.id,
+        filename: "ImpactPoC.s.sol", source: localCallSource(nestedA), entryContract: "ImpactPoC" });
+      reviewImpactPoCArtifact(database, nestedPoC.id, "reviewed");
+      const nestedResult = await executeManualPoC(session.id, { pocArtifactId: nestedPoC.id,
+        observations: { storageSlots: [{ contract: nestedB, slot: storageSlot }] } },
+      { database, service, resolveHandle: (id) => id === handle.id ? handle : undefined });
+      expect(nestedResult.status, `${nestedResult.errorCode}: ${nestedResult.stderr}`).toBe("completed");
+      const nestedTrace = readImpactExecutionTraces(database, nestedResult.id)?.traces[0];
+      expect(nestedTrace?.nodes.map((node) => [node.depth, node.to, node.callType]))
+        .toEqual([[0, nestedA, "CALL"], [1, nestedB, "CALL"]]);
+      expect(readImpactExecutionState(database, nestedResult.id)?.diff?.changes
+        .find((change) => change.id === `storage:${nestedB}:${storageSlot}`)?.after)
+        .toBe(`0x${"0".repeat(63)}1`);
+      expect(await rpc(upstreamEndpoint, "eth_getStorageAt", [nestedB, storageSlot, "latest"]))
+        .toBe(nestedStorageBefore);
+      expect(await rpc(session.localRpcEndpoint!, "eth_getStorageAt", [nestedB, storageSlot, "latest"]))
+        .toBe(nestedStorageBefore);
+      const delegatePoC = createImpactPoCArtifact(database, { findingId: finding.id,
+        filename: "ImpactPoC.s.sol", source: localCallSource(delegateA), entryContract: "ImpactPoC" });
+      reviewImpactPoCArtifact(database, delegatePoC.id, "reviewed");
+      const delegateResult = await executeManualPoC(session.id, { pocArtifactId: delegatePoC.id,
+        observations: { storageSlots: [{ contract: delegateA, slot: storageSlot }] } },
+      { database, service, resolveHandle: (id) => id === handle.id ? handle : undefined });
+      expect(delegateResult.status, `${delegateResult.errorCode}: ${delegateResult.stderr}`).toBe("completed");
+      expect(readImpactExecutionTraces(database, delegateResult.id)?.traces[0]?.nodes[1])
+        .toMatchObject({ callType: "DELEGATECALL", from: delegateA, to: nestedB });
+      expect(readImpactExecutionState(database, delegateResult.id)?.diff?.changes
+        .find((change) => change.id === `storage:${delegateA}:${storageSlot}`)?.after)
+        .toBe(`0x${"0".repeat(63)}1`);
+      expect(await rpc(upstreamEndpoint, "eth_getStorageAt", [delegateA, storageSlot, "latest"]))
+        .toBe(delegateStorageBefore);
+      expect(await rpc(session.localRpcEndpoint!, "eth_getStorageAt", [delegateA, storageSlot, "latest"]))
+        .toBe(delegateStorageBefore);
+      const revertPoC = createImpactPoCArtifact(database, { findingId: finding.id,
+        filename: "ImpactPoC.s.sol", source: localCallSource(revertTarget, false), entryContract: "ImpactPoC" });
+      reviewImpactPoCArtifact(database, revertPoC.id, "reviewed");
+      const revertResult = await executeManualPoC(session.id, { pocArtifactId: revertPoC.id },
+        { database, service, resolveHandle: (id) => id === handle.id ? handle : undefined });
+      // Forge's fixed script mode simulates the revert and submits no transaction.
+      expect(revertResult.transactionHashes).toEqual([]);
+      expect(readImpactExecutionTraces(database, revertResult.id)?.traces).toEqual([]);
+      expect(readImpactExecutionState(database, revertResult.id)?.diff?.changeCount).toBe(0);
+      expect(await rpc(session.localRpcEndpoint!, "eth_getStorageAt", [target, storageSlot, "latest"])).toBe(storageBefore);
+      // A fixture-only local transaction proves the pinned tracer's reverted receipt shape.
+      // It is not attributed to a reviewed PoC execution or persisted as its trace.
+      const revertedLocalHash = await rpc(session.localRpcEndpoint!, "eth_sendTransaction",
+        [{ from: session.disposableAccounts[0], to: revertTarget, gas: "0x100000" }]) as string;
+      const revertedRaw = await service.traceLocalImpactTransaction(handle, revertedLocalHash);
+      const revertedTrace = parseImpactTransactionTrace(revertedRaw.trace, revertedRaw.receipt, revertedRaw.block,
+        { ...state.pre!.provenance, executionId: randomUUID() }, revertedLocalHash, 0, session.disposableAccounts[0]!);
+      expect(revertedTrace.receipt.status).toBe(0);
+      expect(revertedTrace.nodes[0]?.outcome).toBe("reverted");
+      await service.resetForkSession(handle);
+      const originalTrace = service.traceLocalImpactTransaction.bind(service);
+      service.traceLocalImpactTransaction = async () => { throw Error("test local trace unavailable"); };
+      const traceFailed = await executeManualPoC(session.id, { pocArtifactId: poc.id },
+        { database, service, resolveHandle: (id) => id === handle.id ? handle : undefined });
+      service.traceLocalImpactTransaction = originalTrace;
+      expect(traceFailed.status).toBe("completed");
+      expect(traceFailed.traceCaptureStatus).toBe("failed");
+      expect(traceFailed.stateCaptureAvailable).toBe(true);
+      expect(readImpactExecutionTraces(database, traceFailed.id)?.traces).toEqual([]);
+      expect(await rpc(session.localRpcEndpoint!, "eth_getStorageAt", [target, storageSlot, "latest"])).toBe(storageBefore);
+      expect(forwarded.some((method) => /^(?:debug_|trace_|eth_send)/.test(method))).toBe(false);
       const ffi = createImpactPoCArtifact(database, { findingId: finding.id, filename: "ImpactPoC.s.sol", source: ffiCode, entryContract: "ImpactPoC" });
       reviewImpactPoCArtifact(database, ffi.id, "reviewed");
       const ffiResult = await executeManualPoC(session.id, { pocArtifactId: ffi.id }, { database, service,
@@ -239,6 +339,7 @@ describe.skipIf(!enabled)("Phase B1 real local Forge worker", () => {
       expect(compileFailure.preSnapshotId).not.toBeNull();
       expect(compileFailure.postSnapshotId).toBeNull();
       expect(compileFailure.transactionHashes).toEqual([]);
+      expect(compileFailure.traceCaptureStatus).toBeNull();
       const originalStateRead = service.readLocalImpactState.bind(service);
       let blockReads = 0;
       service.readLocalImpactState = async (currentHandle, method, params) => {

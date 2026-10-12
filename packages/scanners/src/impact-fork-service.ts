@@ -4,7 +4,8 @@ import { existsSync, lstatSync, readFileSync, readlinkSync, readdirSync, realpat
 import { createServer } from "node:net";
 import os from "node:os";
 import path from "node:path";
-import { impactAddressSchema, impactForkConfigSchema, impactHashSchema, assertLocalImpactMethod, type ImpactForkConfig, type ImpactForkSession } from "@contracthunter/core";
+import { impactAddressSchema, impactForkConfigSchema, impactHashSchema, assertLocalImpactMethod,
+  IMPACT_TRACE_LIMITS, type ImpactForkConfig, type ImpactForkSession } from "@contracthunter/core";
 import { runObservedProcess } from "./process-runner";
 import { startReadOnlyUpstreamProxy, type ReadOnlyUpstreamProxy } from "./impact-upstream-proxy";
 
@@ -125,10 +126,11 @@ async function terminateGroup(pid: number): Promise<void> {
   try { process.kill(-pid, "SIGKILL"); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error; }
 }
 
-async function rpcCall(endpoint: string, method: string, params: unknown[]): Promise<unknown> {
+async function rpcCall(endpoint: string, method: string, params: unknown[],
+  maxResponseBytes = 64 * 1024, timeoutMs = 3_000): Promise<unknown> {
   const response = await fetch(endpoint, { method: "POST", headers: { "content-type": "application/json" },
-    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }), redirect: "manual", signal: AbortSignal.timeout(3_000) });
-  if (response.status !== 200 || Number(response.headers.get("content-length") ?? 0) > 64 * 1024) throw new ImpactForkError("impact_rpc_unavailable");
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }), redirect: "manual", signal: AbortSignal.timeout(timeoutMs) });
+  if (response.status !== 200 || Number(response.headers.get("content-length") ?? 0) > maxResponseBytes) throw new ImpactForkError("impact_rpc_unavailable");
   const reader = response.body?.getReader();
   if (!reader) throw new ImpactForkError("impact_rpc_invalid");
   const chunks: Uint8Array[] = [];
@@ -138,7 +140,7 @@ async function rpcCall(endpoint: string, method: string, params: unknown[]): Pro
       const part = await reader.read();
       if (part.done) break;
       bytes += part.value.length;
-      if (bytes > 64 * 1024) throw new ImpactForkError("impact_rpc_invalid");
+      if (bytes > maxResponseBytes) throw new ImpactForkError("impact_rpc_invalid");
       chunks.push(part.value);
     }
   } finally { await reader.cancel().catch(() => undefined); }
@@ -362,6 +364,36 @@ export class ImpactForkService {
       throw new ImpactForkError("impact_state_method_rejected");
     const session = await this.assertSafeImpactExecutionEndpoint(handle);
     return (this.deps.rpc ?? rpcCall)(session.localRpcEndpoint!, method, params);
+  }
+
+  // Controller-only capability. No caller-selected method, endpoint, tracer or transaction source.
+  async traceLocalImpactTransaction(handle: ImpactForkHandle, transactionHash: string,
+    maxDurationMs: number = IMPACT_TRACE_LIMITS.perTransactionMs): Promise<{
+    trace: unknown; receipt: unknown; block: unknown;
+  }> {
+    if (!/^0x[0-9a-fA-F]{64}$/.test(transactionHash)) throw new ImpactForkError("impact_trace_hash_invalid");
+    if (!Number.isInteger(maxDurationMs) || maxDurationMs < 1 || maxDurationMs > IMPACT_TRACE_LIMITS.perTransactionMs)
+      throw new ImpactForkError("impact_trace_timeout");
+    const deadline = Date.now() + maxDurationMs;
+    const call = async (method: string, params: unknown[], maxBytes: number) => {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) throw new ImpactForkError("impact_trace_timeout");
+      const session = await this.assertSafeImpactExecutionEndpoint(handle);
+      const safeRemaining = deadline - Date.now();
+      if (safeRemaining <= 0) throw new ImpactForkError("impact_trace_timeout");
+      return this.deps.rpc
+        ? this.deps.rpc(session.localRpcEndpoint!, method, params)
+        : rpcCall(session.localRpcEndpoint!, method, params, maxBytes, safeRemaining);
+    };
+    const receipt = await call("eth_getTransactionReceipt", [transactionHash], 64 * 1024);
+    if (!receipt || typeof receipt !== "object" || Array.isArray(receipt) ||
+      typeof (receipt as { blockNumber?: unknown }).blockNumber !== "string")
+      throw new ImpactForkError("impact_trace_receipt_invalid");
+    const block = await call("eth_getBlockByNumber",
+      [(receipt as { blockNumber: string }).blockNumber, false], 64 * 1024);
+    const trace = await call("debug_traceTransaction",
+      [transactionHash, { tracer: "callTracer", timeout: "8s" }], IMPACT_TRACE_LIMITS.rpcResponseBytes);
+    return { receipt, block, trace };
   }
 
   private async local(handle: ImpactForkHandle, method: string, params: unknown[]): Promise<unknown> {

@@ -29,3 +29,4 @@ export * from "./source-closure-fingerprint";
 export * from "./impact-fork";
 export * from "./impact-poc";
 export * from "./impact-state";
+export * from "./impact-trace";

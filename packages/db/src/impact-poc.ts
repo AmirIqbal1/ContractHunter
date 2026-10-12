@@ -15,14 +15,17 @@ export type ImpactPoCExecution = Readonly<{ id: string; artifactId: string; sour
   stdout: string | null; stderr: string | null; transactionHashes: string[];
   errorCode: string | null; observationPlan: ImpactObservationPlan | null;
   observationPlanSha256: string | null; preSnapshotId: string | null; postSnapshotId: string | null;
-  stateDiffId: string | null; stateChangeCount: number | null; stateCaptureAvailable: boolean }>;
+  stateDiffId: string | null; stateChangeCount: number | null; stateCaptureAvailable: boolean;
+  traceCaptureStatus: "finalized" | "failed" | null; traceCount: number | null;
+  traceNodeCount: number | null; traceErrorCode: string | null;
+  traceAvailable: boolean; traceIds: string[] }>;
 function artifact(row: Record<string, unknown>): ImpactPoCArtifact {
   return { id: String(row.id), findingId: row.finding_id as string | null, hypothesisId: row.hypothesis_id as string | null,
     revisionOf: row.revision_of as string | null, filename: "ImpactPoC.s.sol", source: String(row.source),
     sourceSha256: String(row.source_sha256), entryContract: String(row.entry_contract), origin: "manual",
     reviewState: row.review_state as ImpactPoCReviewState, createdAt: Number(row.created_at), reviewedAt: row.reviewed_at as number | null };
 }
-function execution(row: Record<string, unknown>): ImpactPoCExecution {
+function execution(row: Record<string, unknown>, traceIds: string[]): ImpactPoCExecution {
   return { id: String(row.id), artifactId: String(row.artifact_id), sourceSha256: String(row.source_sha256),
     sessionId: String(row.session_id), runtimeTokenSha256: String(row.runtime_token_sha256),
     chainId: Number(row.chain_id), forkBlock: Number(row.fork_block), forkBlockHash: String(row.fork_block_hash),
@@ -37,7 +40,11 @@ function execution(row: Record<string, unknown>): ImpactPoCExecution {
     observationPlanSha256: row.observation_plan_sha256 as string | null,
     preSnapshotId: row.pre_snapshot_id as string | null, postSnapshotId: row.post_snapshot_id as string | null,
     stateDiffId: row.state_diff_id as string | null, stateChangeCount: row.state_change_count as number | null,
-    stateCaptureAvailable: row.state_diff_id !== null };
+    stateCaptureAvailable: row.state_diff_id !== null,
+    traceCaptureStatus: row.trace_capture_status as "finalized" | "failed" | null,
+    traceCount: row.trace_count as number | null, traceNodeCount: row.trace_node_count as number | null,
+    traceErrorCode: row.trace_error_code as string | null,
+    traceAvailable: row.trace_capture_status === "finalized" && traceIds.length > 0, traceIds };
 }
 export function createImpactPoCArtifact(database: DatabaseClient, raw: unknown): ImpactPoCArtifact {
   const input = impactPoCCreateSchema.parse(raw);
@@ -64,7 +71,7 @@ export function reviewImpactPoCArtifact(database: DatabaseClient, id: string, de
     .run(decision, Date.now(), id).changes) throw Error("impact_poc_not_draft");
   return readImpactPoCArtifact(database, id)!;
 }
-export function createImpactPoCExecution(database: DatabaseClient, input: Omit<ImpactPoCExecution, "status" | "createdAt" | "startedAt" | "completedAt" | "exitCode" | "compiled" | "executed" | "transactionScope" | "stdout" | "stderr" | "transactionHashes" | "errorCode" | "observationPlan" | "observationPlanSha256" | "preSnapshotId" | "postSnapshotId" | "stateDiffId" | "stateChangeCount" | "stateCaptureAvailable">): ImpactPoCExecution {
+export function createImpactPoCExecution(database: DatabaseClient, input: Omit<ImpactPoCExecution, "status" | "createdAt" | "startedAt" | "completedAt" | "exitCode" | "compiled" | "executed" | "transactionScope" | "stdout" | "stderr" | "transactionHashes" | "errorCode" | "observationPlan" | "observationPlanSha256" | "preSnapshotId" | "postSnapshotId" | "stateDiffId" | "stateChangeCount" | "stateCaptureAvailable" | "traceCaptureStatus" | "traceCount" | "traceNodeCount" | "traceErrorCode" | "traceAvailable" | "traceIds">): ImpactPoCExecution {
   const createdAt = Date.now();
   database.sqlite.prepare(`INSERT INTO impact_poc_executions
     (id,artifact_id,source_sha256,session_id,runtime_token_sha256,chain_id,fork_block,fork_block_hash,target_code_hashes,forge_version,forge_sha256,status,created_at)
@@ -75,11 +82,23 @@ export function createImpactPoCExecution(database: DatabaseClient, input: Omit<I
 }
 export function readImpactPoCExecution(database: DatabaseClient, id: string): ImpactPoCExecution | null {
   const row = database.sqlite.prepare("SELECT * FROM impact_poc_executions WHERE id=?").get(id) as Record<string, unknown> | undefined;
-  return row ? execution(row) : null;
+  if (!row) return null;
+  const traceIds = (database.sqlite.prepare("SELECT id FROM impact_transaction_traces WHERE execution_id=? ORDER BY transaction_ordinal")
+    .all(id) as Array<{ id: string }>).map((item) => item.id);
+  const value = execution(row, traceIds);
+  if (value.traceCaptureStatus === "finalized" &&
+      (traceIds.length !== value.traceCount || traceIds.length !== value.transactionHashes.length) ||
+    value.traceCaptureStatus !== "finalized" && traceIds.length !== 0)
+    throw Error("impact_trace_integrity_failed");
+  return value;
 }
 export function updateImpactPoCExecution(database: DatabaseClient, id: string, status: ImpactPoCExecutionStatus,
   result?: { exitCode: number | null; compiled: boolean; executed: boolean; stdout: string; stderr: string; transactionHashes: string[]; errorCode: string | null;
     forgeVersion: string; forgeSha256: string }): ImpactPoCExecution {
+  const current = readImpactPoCExecution(database, id);
+  if (current?.traceCaptureStatus !== null && current?.traceCaptureStatus !== undefined &&
+    JSON.stringify(current.transactionHashes) !== JSON.stringify(result?.transactionHashes.slice(0, 4) ?? []))
+    throw Error("impact_trace_transaction_binding_invalid");
   if (!database.sqlite.prepare(`UPDATE impact_poc_executions SET status=?,started_at=COALESCE(started_at,?),
     completed_at=?,exit_code=?,compiled=?,executed=?,stdout=?,stderr=?,transaction_hashes=?,error_code=?,forge_version=COALESCE(?,forge_version),forge_sha256=COALESCE(?,forge_sha256)
     WHERE id=? AND status IN ('created','queued','running')`).run(status, Date.now(),

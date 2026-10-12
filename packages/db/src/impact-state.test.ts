@@ -112,7 +112,14 @@ describe("Impact C1 immutable persistence", () => {
     const { database, file, execution } = fixture();
     closeDatabase(database);
     const old = new Database(file);
-    old.exec(`DROP TRIGGER impact_execution_state_links_immutable;
+    old.exec(`DROP TRIGGER impact_execution_trace_status_immutable;
+      DROP TABLE impact_trace_logs; DROP TABLE impact_trace_nodes; DROP TABLE impact_transaction_traces;
+      ALTER TABLE impact_poc_executions DROP COLUMN trace_capture_status;
+      ALTER TABLE impact_poc_executions DROP COLUMN trace_count;
+      ALTER TABLE impact_poc_executions DROP COLUMN trace_node_count;
+      ALTER TABLE impact_poc_executions DROP COLUMN trace_error_code;
+      DELETE FROM schema_migrations WHERE id='0013_v0_3_impact_local_traces';
+      DROP TRIGGER impact_execution_state_links_immutable;
       DROP TABLE impact_state_changes; DROP TABLE impact_state_diffs;
       DROP TABLE impact_state_observations; DROP TABLE impact_state_snapshots;
       ALTER TABLE impact_poc_executions DROP COLUMN observation_plan;

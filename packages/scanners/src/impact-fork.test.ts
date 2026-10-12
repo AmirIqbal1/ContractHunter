@@ -239,6 +239,8 @@ describe("Impact Lab Phase A1 safety boundary", () => {
     for (const payload of [[], [call("eth_chainId"), call("eth_sendRawTransaction")], call("eth_chainId", null),
       call("x".repeat(65)), { ...call("eth_chainId"), params: {} }, Array.from({ length: 21 }, (_, i) => call("eth_chainId", i))])
       expect(() => validateUpstreamPayload(Buffer.from(JSON.stringify(payload)))).toThrow();
+    for (const method of ["debug_traceTransaction", "trace_transaction", "anvil_setCode", "hardhat_setStorageAt"])
+      expect(() => validateUpstreamPayload(Buffer.from(JSON.stringify(call(method))))).toThrow("impact_upstream_method_forbidden");
     const secret = "sensitive-token-123";
     const url = new URL(`https://provider.example/${secret}?apiKey=${secret}`);
     const fetcher = vi.fn(async () => { throw new Error(`failed ${url}`); });
