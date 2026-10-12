@@ -1,11 +1,12 @@
 import { createHash } from "node:crypto";
+import { TextDecoder } from "node:util";
 import { contractGraphKey, functionGraphKey, protocolEdgeId, protocolGraphId, protocolNodeId,
   PROTOCOL_GRAPH_LIMITS, PROTOCOL_GRAPH_SCHEMA, REPOSITORY_MAPPER_RULESET,
   STATIC_GRAPH_EXTRACTOR_VERSION, STATIC_PROTOCOL_GRAPH_SCHEMA, staticProtocolGraphContentHash,
   validateProtocolGraph, validateRepositoryMap, validateStaticProtocolGraphArtifact,
   type GraphEvidence, type ProtocolGraph, type ProtocolGraphEdge, type ProtocolGraphNode,
   type ProtocolSourceLocation, type RepositoryMap, type RepositoryMapFile,
-  type StaticFunctionFacts, type StaticProtocolGraphArtifact, type StaticUnresolvedRelationship,
+  type StaticFunctionFacts, type StaticFunctionSyntax, type StaticProtocolGraphArtifact, type StaticUnresolvedRelationship,
 } from "@contracthunter/core";
 
 export interface StaticProtocolGraphInput {
@@ -293,9 +294,47 @@ export function generateStaticProtocolGraph(input: StaticProtocolGraphInput): St
       else addWarning("library-target-unresolved", derived.source!.sourceUnitName);
     }
   }
-  const facts: StaticFunctionFacts[] = [];
+  const facts: StaticFunctionFacts[] = [], syntax: StaticFunctionSyntax[] = [];
   for (const [functionId, item] of functionAst) {
     const caller = nodes.get(functionId)!, body = object(item.ast.body);
+    const syntaxOperations: StaticFunctionSyntax["operations"] = [];
+    let syntaxTruncated = false;
+    const recordSyntax = (kind: StaticFunctionSyntax["operations"][number]["kind"], node: Ast,
+      sourceNode: Ast | null = null, label: string | null = null) => {
+      const target = sourceNode ?? node, at = item.index.location(target.src), astNodeId = number(node.id);
+      if (!at || astNodeId === null || at.startByte === null || at.endByte === null) { syntaxTruncated = true; return; }
+      if (syntaxOperations.length >= 256) { syntaxTruncated = true; return; }
+      const raw = item.index.bytes.subarray(at.startByte, at.endByte);
+      let excerpt: string | null = null;
+      try { excerpt = new TextDecoder("utf-8", { fatal: true }).decode(raw); }
+      catch { syntaxTruncated = true; }
+      syntaxOperations.push({ kind, source: at, astNodeId, label: label?.slice(0, 160) ?? null,
+        expressionSha256: sha(raw), excerpt: excerpt?.slice(0, 160) ?? null,
+        excerptTruncated: excerpt !== null && excerpt.length > 160 });
+    };
+    if (body) walkAst(body, (node, parent) => {
+      const kind = string(node.nodeType);
+      if (kind === "IfStatement") recordSyntax("branch", node, object(node.condition), "if");
+      else if (["ForStatement", "WhileStatement", "DoWhileStatement"].includes(kind ?? ""))
+        recordSyntax("loop", node, object(node.condition) ?? node, kind);
+      else if (kind === "TryStatement") recordSyntax("try-catch", node, object(node.externalCall) ?? node, "try");
+      else if (kind === "EmitStatement") {
+        const call = object(node.eventCall), target = object(call?.expression);
+        recordSyntax("event-emission", node, call, string(target?.name) ?? string(target?.memberName) ?? "event");
+      } else if (kind === "Return") recordSyntax("return", node);
+      else if (kind === "InlineAssembly") recordSyntax("assembly", node, node, "inline assembly");
+      else if (kind === "RevertStatement") {
+        const call = object(node.errorCall), target = object(call?.expression);
+        recordSyntax("revert", node, call, string(target?.name) ?? string(target?.memberName) ?? "custom error");
+      } else if (kind === "FunctionCall" && parent?.nodeType !== "RevertStatement") {
+        const name = string(object(node.expression)?.name);
+        if (name === "require" || name === "assert") recordSyntax("condition", node, objects(node.arguments)[0] ?? node, name);
+        else if (name === "revert") recordSyntax("revert", node, node, "revert");
+      }
+    });
+    syntaxOperations.sort((a, b) => (a.source.startByte ?? 0) - (b.source.startByte ?? 0) ||
+      sort(a.kind, b.kind) || a.astNodeId - b.astNodeId);
+    syntax.push({ functionId, truncated: syntaxTruncated, operations: syntaxOperations });
     const reads = new Map<string, StaticFunctionFacts["stateReads"][number]>(), writes = new Map<string, StaticFunctionFacts["stateWrites"][number]>();
     const lowLevel: StaticFunctionFacts["lowLevelCalls"] = [];
     const modifierInvocations = objects(item.ast.modifiers).flatMap((invocation) => {
@@ -436,6 +475,7 @@ export function generateStaticProtocolGraph(input: StaticProtocolGraphInput): St
   graph.warnings.sort((a, b) => sort(`${a.code}:${a.sourceUnitName ?? ""}`, `${b.code}:${b.sourceUnitName ?? ""}`));
   validateProtocolGraph(graph);
   facts.sort((a, b) => sort(a.functionId, b.functionId));
+  syntax.sort((a, b) => sort(a.functionId, b.functionId));
   findingLinks.sort((a, b) => sort(`${a.nodeId}:${a.findingId}`, `${b.nodeId}:${b.findingId}`));
   unresolved.sort((a, b) => sort(`${a.callerFunctionId}:${a.source.startByte ?? 0}:${a.kind}`,
     `${b.callerFunctionId}:${b.source.startByte ?? 0}:${b.kind}`));
@@ -449,6 +489,6 @@ export function generateStaticProtocolGraph(input: StaticProtocolGraphInput): St
     findingsLinkedNodes: new Set(findingLinks.map((link) => link.nodeId)).size,
     unresolvedRelationships: unresolved.length };
   const content = { schema: STATIC_PROTOCOL_GRAPH_SCHEMA, repositoryMapId: map.id, graph,
-    functionFacts: facts, findingLinks, unresolved, summary };
+    functionFacts: facts, functionSyntax: syntax, findingLinks, unresolved, summary };
   return validateStaticProtocolGraphArtifact({ ...content, contentSha256: staticProtocolGraphContentHash(content) });
 }

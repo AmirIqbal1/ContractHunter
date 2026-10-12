@@ -3,7 +3,7 @@ import { z } from "zod";
 import { PROTOCOL_GRAPH_LIMITS, protocolGraphSchema, validateProtocolGraph } from "./protocol-graph";
 
 export const STATIC_PROTOCOL_GRAPH_SCHEMA = "contracthunter-static-protocol-graph-v1" as const;
-export const STATIC_GRAPH_EXTRACTOR_VERSION = "contracthunter-static-graph-v1" as const;
+export const STATIC_GRAPH_EXTRACTOR_VERSION = "contracthunter-static-graph-v2" as const;
 const sha = z.string().regex(/^[a-f0-9]{64}$/);
 const nodeId = z.string().regex(/^pn:[a-f0-9]{64}$/);
 const path = z.string().min(1).max(500);
@@ -24,6 +24,13 @@ const unresolved = z.object({ callerFunctionId: nodeId, source: location,
   kind: z.enum(["external-call", "internal-call", "inheritance", "library", "type"]),
   reason: z.enum(["dynamic-target", "outside-source-universe", "ambiguous-name", "unsupported-ast", "unresolved-reference"]),
   expression: name.nullable() }).strict();
+export const functionSyntaxKinds = ["condition", "revert", "event-emission", "return", "assembly",
+  "branch", "loop", "try-catch"] as const;
+const functionSyntax = z.object({ functionId: nodeId, truncated: z.boolean(),
+  operations: z.array(z.object({ kind: z.enum(functionSyntaxKinds), source: location,
+    astNodeId: z.number().int().nonnegative(), label: z.string().max(160).nullable(),
+    expressionSha256: sha.nullable(), excerpt: z.string().max(160).nullable(),
+    excerptTruncated: z.boolean() }).strict()).max(256) }).strict();
 const summary = z.object({ contracts: z.number().int().nonnegative(), interfaces: z.number().int().nonnegative(),
   libraries: z.number().int().nonnegative(), functions: z.number().int().nonnegative(), edges: z.number().int().nonnegative(),
   externalCalls: z.number().int().nonnegative(), entryPoints: z.number().int().nonnegative(),
@@ -32,12 +39,14 @@ const summary = z.object({ contracts: z.number().int().nonnegative(), interfaces
 export const staticProtocolGraphArtifactSchema = z.object({ schema: z.literal(STATIC_PROTOCOL_GRAPH_SCHEMA),
   repositoryMapId: z.string().regex(/^rm:[a-f0-9]{64}$/), graph: protocolGraphSchema,
   functionFacts: z.array(functionFacts).max(PROTOCOL_GRAPH_LIMITS.nodes),
+  functionSyntax: z.array(functionSyntax).max(PROTOCOL_GRAPH_LIMITS.nodes).optional(),
   findingLinks: z.array(z.object({ findingId: z.string().uuid(), nodeId }).strict()).max(PROTOCOL_GRAPH_LIMITS.overlayEntries),
   unresolved: z.array(unresolved).max(PROTOCOL_GRAPH_LIMITS.edges), summary,
   contentSha256: sha,
 }).strict();
 export type StaticProtocolGraphArtifact = z.infer<typeof staticProtocolGraphArtifactSchema>;
 export type StaticFunctionFacts = StaticProtocolGraphArtifact["functionFacts"][number];
+export type StaticFunctionSyntax = NonNullable<StaticProtocolGraphArtifact["functionSyntax"]>[number];
 export type StaticUnresolvedRelationship = StaticProtocolGraphArtifact["unresolved"][number];
 
 function canonical(value: unknown): string {
@@ -57,6 +66,10 @@ export function validateStaticProtocolGraphArtifact(input: unknown): StaticProto
   const functions = new Set(functionNodes.keys());
   const contracts = new Set(artifact.graph.nodes.filter((node) => ["contract", "interface", "library"].includes(node.kind)).map((node) => node.id));
   if (new Set(artifact.functionFacts.map((fact) => fact.functionId)).size !== artifact.functionFacts.length ||
+    artifact.functionSyntax && (new Set(artifact.functionSyntax.map((fact) => fact.functionId)).size !== artifact.functionSyntax.length ||
+      artifact.functionSyntax.some((fact) => !functions.has(fact.functionId) || fact.operations.some((operation) =>
+        operation.source.sourceUnitName !== functionNodes.get(fact.functionId)?.source?.sourceUnitName ||
+        operation.source.startByte === null || operation.source.endByte === null))) ||
     artifact.functionFacts.some((fact) => !functions.has(fact.functionId) ||
       [...fact.stateReads, ...fact.stateWrites].some((access) => !contracts.has(access.contractId) ||
         access.source.sourceUnitName !== functionNodes.get(fact.functionId)?.source?.sourceUnitName) ||

@@ -34,6 +34,35 @@ const call = (text: string, needle: string, id: number, expression: object, nth 
   nodeType: "FunctionCall", id, src: src(text, needle, nth), expression, arguments: [] });
 
 describe("static ProtocolGraph extraction", () => {
+  it("captures bounded source-backed function syntax without claiming CFG", async () => {
+    const source = `contract Vault { function withdraw(uint256 amount) external {
+      require(amount > 0); if (amount > 1) { emit Used(amount); }
+      revert BadAmount();
+    } event Used(uint256); error BadAmount(); }`;
+    const f = await fixture({ "src/Vault.sol": source });
+    const body = [
+      { nodeType: "FunctionCall", id: 101, src: src(source, "require(amount > 0)"),
+        expression: { nodeType: "Identifier", name: "require" },
+        arguments: [{ nodeType: "BinaryOperation", id: 102, src: src(source, "amount > 0") }] },
+      { nodeType: "IfStatement", id: 103, src: src(source, "if (amount > 1)"),
+        condition: { nodeType: "BinaryOperation", id: 104, src: src(source, "amount > 1") },
+        trueBody: { nodeType: "Block", statements: [{ nodeType: "EmitStatement", id: 105,
+          src: src(source, "emit Used(amount)"), eventCall: { nodeType: "FunctionCall", id: 106,
+            src: src(source, "Used(amount)"), expression: { nodeType: "Identifier", name: "Used" } } }] } },
+      { nodeType: "RevertStatement", id: 107, src: src(source, "revert BadAmount()"),
+        errorCall: { nodeType: "FunctionCall", id: 108, src: src(source, "BadAmount()"),
+          expression: { nodeType: "Identifier", name: "BadAmount" } } },
+    ];
+    const ast = { "src/Vault.sol": { nodeType: "SourceUnit", nodes: [{ nodeType: "ContractDefinition",
+      id: 1, name: "Vault", contractKind: "contract", src: src(source, "contract Vault"),
+      nodes: [fn(source, "function withdraw(uint256 amount)", 2, "withdraw", "external", "nonpayable", ["uint256"], body)] }] } };
+    const graph = generateStaticProtocolGraph({ ...f, astBySourceUnit: ast, compilerVersion: "0.8.24" });
+    const syntax = graph.functionSyntax?.[0];
+    expect(syntax?.truncated).toBe(false);
+    expect(syntax?.operations.map((item) => item.kind)).toEqual(["condition", "branch", "event-emission", "revert"]);
+    expect(syntax?.operations.every((item) => item.source.sourceUnitName === "src/Vault.sol" &&
+      item.expressionSha256?.length === 64)).toBe(true);
+  });
   it("builds source-backed basic/internal calls, inheritance, interface and library edges", async () => {
     const oracle = "interface Oracle { function getPrice() external view returns(uint256); }";
     const math = "library Mathish { function add(uint256 a) internal pure returns(uint256) { return a; } }";

@@ -1,5 +1,9 @@
 # API reference
 
+## Function Explorer Phase 6A
+
+`GET /api/scans/:scanId/protocol-graph/contracts/:contractId/functions/:functionId` returns `{ model, sourcePreview, sourcePreviewTruncated }` for an exact function owned by the selected contract in the selected scan. IDs are validated; malformed selectors return 400, missing scan or function returns 404, and graph integrity failure returns a sanitized 500. The versioned model contains source-order operations, callers/callees, state references, finding IDs, review cues, summary, provenance, analysis status and warnings. The optional strict UTF-8 preview comes only from a checksum-matched immutable scan snapshot and is limited to 4 KiB. This endpoint is read-only; it does not expose a CFG, raw scanner JSON or a full Function Explorer UI.
+
 ## Protocol Intelligence Phase 5 Contract Explorer
 
 `/hunts/:scanId/contracts/:contractId` is a server-rendered, read-only contract page. It accepts only a canonical ProtocolGraph contract/interface/library node ID from the validated graph for that scan. Wrong, malformed or cross-scan identities return 404. The server derives a bounded contract neighborhood and joins only exact finding references from the same scan. There is no contract mutation, arbitrary source path, Impact Lab execution, or browser-supplied graph relationship API.

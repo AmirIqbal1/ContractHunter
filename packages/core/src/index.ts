@@ -33,3 +33,4 @@ export * from "./impact-trace";
 export * from "./protocol-graph";
 export * from "./repository-map";
 export * from "./static-protocol-graph";
+export * from "./function-explorer";

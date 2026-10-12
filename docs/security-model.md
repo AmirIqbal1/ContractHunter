@@ -1,6 +1,10 @@
 # Security model
 
-## Protocol Intelligence Phases 1–5 boundary
+## Function Explorer Phase 6A boundary
+
+The API accepts only canonical scan/contract/function IDs and rejects wrong ownership. The model reads validated immutable static graph artifacts and exact source-unit snapshots; a source preview is capped at 4 KiB and decoded as strict UTF-8. Repository-controlled expressions remain plain data, with bounded excerpts and SHA-256 identities. It executes no repository code, accepts no arbitrary source path, and has no Impact Lab, finding-status or lifecycle mutation authority. Source-order write/call cues are research prompts, not runtime path proofs or vulnerability verdicts. Missing syntax facts and collapsed state-access sites are reported as partial analysis.
+
+## Protocol Intelligence Phases 1–5 foundation
 
 The Repository Mapper treats cloned repository paths and Solidity bytes as hostile input. It never runs repository code, Hardhat configuration or package scripts. Traversal is bounded, symlinks are skipped, paths are canonical repository-relative names, and Solidity reads have a byte cap. Finalized scan snapshot bytes take precedence over mutable checkout content; unsnapshotted Solidity is marked `reported`, not authoritative. A conservative lexical pass can identify declaration candidates and imports for orientation, but it is not a Solidity compiler/AST and does not grant compiler authority. Detected unbalanced/malformed input is `incomplete` with no declarations; balanced but compiler-invalid syntax may still yield lexical candidates and must not be treated as validated contracts. Unsupported imports remain unresolved, and uncertain production contracts remain `unknown`. Exact aligned finding IDs are references only. The immutable map is bound to scan, commit, ruleset and source universe; reading verifies its content hash. Classification and future overrides affect navigation only: they cannot alter scanner evidence, hypothesis lifecycle, severity, source authority or Impact Lab execution.
 

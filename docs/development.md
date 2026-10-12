@@ -1,5 +1,9 @@
 # Development
 
+## Function Explorer Phase 6A
+
+The backend model is derived from the persisted static graph, so no migration or new dependency is required. New trusted compiler-AST graph generations include bounded syntax facts; existing graphs still load with `partial` analysis. Run `npx vitest run packages/core/src/function-explorer.test.ts packages/scanners/src/static-protocol-graph.test.ts` for focused coverage, then the standard typecheck/test/lint/build gates. The API requires a scan with a finalized static graph and an exact contract/function node ID. Phase 6B will add the visual route; this phase has no Function Explorer page.
+
 
 ## Contract Explorer local check
 
