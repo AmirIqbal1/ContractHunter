@@ -1,8 +1,8 @@
 # ContractHunter AI Handoff
 
-## Current product milestone: Protocol Intelligence Phase 2 complete
+## Current product milestone: Protocol Intelligence Phase 3 complete
 
-ProtocolGraph v1 remains the frontend-independent static graph/overlay model. Phase 2 adds `contracthunter-repository-map-v1` and mapper ruleset v1: bounded path/source-root inventory, conservative classes with reason codes, lexical Solidity declarations/imports, immutable scan/commit/source-universe-bound SQLite artifact, and `GET /api/scans/:id/repository-map`. Snapshot bytes are authoritative where available; legacy/unsnapshotted checkout reads are reported only. The existing Slither/Aderyn pipeline still persists findings rather than structural calls/inheritance; the narrow compiler manifest has names, not AST. No graph UI, AI call, risk ranking or vulnerability authority was added. [Protocol Map architecture](protocol-map.md) records limits and the React Flow/ELK recommendation. **Next: Phase 3 Static Protocol Graph**; Protocol Map and Contract Explorer remain planned core priorities. Impact Lab A1–D1 remains implemented in unreleased v0.3, including its production Compose worker release gate.
+ProtocolGraph v1 remains the frontend-independent static graph/overlay model. Phase 2 adds `contracthunter-repository-map-v1` and mapper ruleset v1: bounded path/source-root inventory, conservative classes with reason codes, lexical Solidity declarations/imports, immutable scan/commit/source-universe-bound SQLite artifact, and `GET /api/scans/:id/repository-map`. Snapshot bytes are authoritative where available; legacy/unsnapshotted checkout reads are reported only. The existing Slither/Aderyn pipeline still persists findings rather than structural calls/inheritance. Phase 3 adds a separate fixed trusted `solc --standard-json` AST query for the existing supported snapshot/compiler profile, exact static calls/inheritance/interfaces/libraries, conservative proxy and owner facts, explicit unresolved calls, immutable graph migration `0015_protocol_static_graphs`, and `GET /api/scans/:id/protocol-graph`. Unsupported profiles retain map-only graph facts. No graph UI, AI call, risk ranking or vulnerability authority was added. [Protocol Map architecture](protocol-map.md) records limits and the React Flow/ELK recommendation. **Next: Phase 4 Protocol Map UI**; Protocol Map and Contract Explorer remain planned core priorities. Impact Lab A1–D1 remains implemented in unreleased v0.3, including its production Compose worker release gate.
 
 ## Current Impact Lab milestone: Phase D1
 
@@ -24,7 +24,7 @@ ContractHunter is a locally hosted smart-contract security analysis workstation 
 
 ## Current version state
 
-Current released application/workspace version: `v0.2.2`. v0.3 Impact Lab is in development through Phase D1: A1 managed fork lifecycle, A2 exact-block upstream identity, A3 real fork compatibility and isolation, B1 reviewed local Forge execution, C1 bounded state diff, and D1 local transaction traces. The latest migration is `0014_protocol_repository_maps`; `0013_v0_3_impact_local_traces` remains the latest Impact Lab migration. No v0.3 release has been made.
+Current released application/workspace version: `v0.2.2`. v0.3 Impact Lab is in development through Phase D1: A1 managed fork lifecycle, A2 exact-block upstream identity, A3 real fork compatibility and isolation, B1 reviewed local Forge execution, C1 bounded state diff, and D1 local transaction traces. The latest migration is `0015_protocol_static_graphs`; `0013_v0_3_impact_local_traces` remains the latest Impact Lab migration. No v0.3 release has been made.
 
 v0.2.0 includes executable invariant plan v1, bounded fuzz/stateful worker execution, manual AI semantic proposals, deterministic counterexample replay, explicit relevance review, authoritative invariant evidence, centralized lifecycle transitions, transactional v0.1.9 migration, retry workspaces and release regression probes.
 

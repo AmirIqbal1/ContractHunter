@@ -1,6 +1,6 @@
 import { cloneRepository, detectFramework, loadConfig, sanitiseError, type Scanner } from "@contracthunter/core";
-import { finalizeRepositoryMap, finalizeScanCompilation, finalizeScanSourceSnapshot, getDatabase, getScan, getScanSource, insertFindings, insertScannerAlignment, listScanSources, listScannerAlignments, markActiveScansInterrupted, markDetachedJobsInterrupted, reconcileInvestigations, transitionScan, updateCompilerState, updateDependencyState, updateScannerState, upsertScanScanner, type DatabaseClient } from "@contracthunter/db";
-import { AderynScanner, alignScannerSource, captureScanSourceSnapshot, DependencyManager, deriveAuthoritativeCompilation, executeScanners, mapRepository, SlitherScanner, type ScannerExecution } from "@contracthunter/scanners";
+import { finalizeRepositoryMap, finalizeScanCompilation, finalizeScanSourceSnapshot, finalizeStaticProtocolGraph, getDatabase, getScan, getScanCompilation, getScanSource, insertFindings, insertScannerAlignment, listFindings, listScanSources, listScannerAlignments, markActiveScansInterrupted, markDetachedJobsInterrupted, reconcileInvestigations, transitionScan, updateCompilerState, updateDependencyState, updateScannerState, upsertScanScanner, type DatabaseClient } from "@contracthunter/db";
+import { AderynScanner, alignScannerSource, captureScanSourceSnapshot, DependencyManager, deriveAuthoritativeCompilation, deriveTrustedSolidityAst, executeScanners, generateStaticProtocolGraph, mapRepository, SlitherScanner, type ScannerExecution } from "@contracthunter/scanners";
 import { activeProtocolAnalysisScanIds } from "@/lib/ai/job-runner";
 import { activeSecurityReviewScanIds } from "@/lib/ai/security-review-job-runner";
 
@@ -123,6 +123,27 @@ class InProcessJobRunner implements JobRunner {
           snapshotFiles: sourceSnapshot ?? undefined,
           findingRefs: aligned.map((item) => ({ id: item.findingId, sourceUnitName: item.sourceUnitName! })) });
         finalizeRepositoryMap(database, map);
+        try {
+          const compilation = getScanCompilation(database, scanId);
+          const snapshotFiles = sourceSnapshot ?? undefined;
+          let astBySourceUnit: Record<string, unknown> | undefined;
+          if (compilation.status === "supported" && snapshotFiles) {
+            try {
+              astBySourceUnit = await deriveTrustedSolidityAst({ manifest: compilation.manifest,
+                snapshotFiles, toolHomeDir: config.TOOL_HOME_DIR });
+            } catch { console.warn("[protocol-graph] trusted structural AST unavailable for scan", scanId); }
+          }
+          const findings = new Map(listFindings(database, { scanId }).map((finding) => [finding.id, finding]));
+          const alignedFindings = aligned.flatMap((item) => {
+            const finding = findings.get(item.findingId);
+            return finding ? [{ id: finding.id, sourceUnitName: item.sourceUnitName!,
+              contract: finding.contract, functionName: finding.functionName, startLine: finding.startLine }] : [];
+          });
+          const graph = generateStaticProtocolGraph({ repositoryMap: map, astBySourceUnit,
+            compilerVersion: astBySourceUnit && compilation.status === "supported" ? compilation.manifest.compiler.version : undefined,
+            snapshotFiles, alignedFindings });
+          finalizeStaticProtocolGraph(database, graph);
+        } catch { console.warn("[protocol-graph] static extraction unavailable for scan", scanId); }
       } catch {
         // A malformed/oversized repository can still finish its existing scan.
         console.warn("[repository-map] mapping unavailable for scan", scanId);

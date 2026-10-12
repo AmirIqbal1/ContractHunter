@@ -18,7 +18,7 @@ export const protocolEdgeKinds = ["calls", "inherits", "implements", "uses-libra
 export const repositoryClasses = ["core", "interface", "library", "mock", "test", "deployment",
   "periphery", "dependency", "frontend", "supporting", "unknown"] as const;
 export const securityCharacteristics = ["handles-assets", "external-entry-point", "external-call",
-  "privileged-operation", "oracle-dependent", "upgradeable", "delegatecall", "payable",
+  "privileged-operation", "oracle-dependent", "upgradeable", "delegatecall", "low-level-call", "native-transfer", "payable",
   "token-transfer", "accounting-state", "callback-hook", "finding-present", "proxy",
   "implementation", "token-like", "oracle-like"] as const;
 export const graphEvidenceOrigins = ["contracthunter-parser", "slither", "aderyn", "compiler",
@@ -77,6 +77,7 @@ const nodeBase = z.object({
 const contractNode = nodeBase.extend({
   kind: z.enum(["contract", "interface", "library"]),
   qualifiedName: identifier, contractKind: z.enum(["contract", "interface", "library"]),
+  abstract: z.boolean().optional(),
   repositoryClassification: repositoryClassificationSchema,
 }).strict();
 const functionNode = nodeBase.extend({
@@ -114,7 +115,7 @@ export type ProtocolGraphEdge = z.infer<typeof protocolGraphEdgeSchema>;
 const producerSchema = z.object({ origin: z.enum(graphEvidenceOrigins), version: z.string().min(1).max(80) }).strict();
 export const protocolGraphSchema = z.object({
   schema: z.literal(PROTOCOL_GRAPH_SCHEMA), id: graphIdSchema, scanId: uuid,
-  resolvedCommit: z.string().regex(/^[a-f0-9]{40}$/), extractorVersion: z.string().min(1).max(80),
+  resolvedCommit: z.string().regex(/^[a-f0-9]{40}$/), extractorVersion: z.string().min(1).max(160),
   producers: z.array(producerSchema).min(1).max(16),
   sourceUnits: z.array(z.object({
     sourceUnitName: repositorySolidityPathSchema, snapshotSourceKey: repositorySolidityPathSchema.nullable(),
