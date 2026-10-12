@@ -1,12 +1,16 @@
 # Roadmap
 
+## Protocol Intelligence Phase 1 — implemented
+
+The frontend-independent `contracthunter-protocol-graph-v1` model now defines bounded source-linked nodes, static edges, evidence, repository classifications, security-interest characteristics, deterministic identities, validation and separate finding/C1-state/D1-trace overlay contracts. The repository-analysis inventory and UI-library evaluation are in [Protocol Map architecture](protocol-map.md). Phase 1 adds no graph persistence, structural repository extraction, rendering library, UI or vulnerability authority. **CURRENT/NEXT: Protocol Intelligence Phase 2 — Repository Mapper.** It should discover Solidity roots, classify core contracts/interfaces/libraries/mocks/tests and other files, identify likely core protocol contracts with transparent reasons, and support explicit researcher overrides. Protocol Map and Contract Explorer remain the next defining product priorities; v0.3 Impact Lab remains unreleased.
+
 ## v0.3 Impact Lab Phase D1 — implemented, unreleased
 
 Reviewed manual Forge PoCs run only against a verified local fork through the fixed networkless worker and per-job RPC bridge. C1 captures bounded PRE/POST state and an exact diff. D1 now captures bounded local receipts, logs and ordered call trees for only the job's recorded local transaction hashes before reset. These facts do not decide vulnerability validity or severity. Autonomous generation, asset-flow/impact evidence and GUI remain later phases. The production Compose worker rebuild and live smoke remain a release gate; v0.3 is not released.
 
 ## Current direction — Protocol Intelligence
 
-**RELEASED:** v0.2.2 scanner, investigation and verification workflows. **COMPLETE IN UNRELEASED v0.3:** Impact Lab A1 managed fork lifecycle/safety, A2 read-only upstream fork boundary and exact deployment identity, A3 real Anvil compatibility and isolated PoC runtime, B1 reviewed manual Forge execution, C1 deterministic PRE/POST state capture and diff, and D1 local transaction traces. **CURRENT/NEXT:** Protocol Intelligence Phase 1, ProtocolGraph architecture and data model. **PLANNED core product priorities:** **#1 Protocol Map** and **#2 Contract Explorer**. They are the next major product track, not optional visual additions; no release number has been assigned to that track.
+**RELEASED:** v0.2.2 scanner, investigation and verification workflows. **COMPLETE IN UNRELEASED v0.3:** Impact Lab A1 managed fork lifecycle/safety, A2 read-only upstream fork boundary and exact deployment identity, A3 real Anvil compatibility and isolated PoC runtime, B1 reviewed manual Forge execution, C1 deterministic PRE/POST state capture and diff, and D1 local transaction traces. **COMPLETE in Protocol Intelligence:** Phase 1 data-model foundation. **CURRENT/NEXT:** Phase 2 Repository Mapper. **PLANNED core product priorities:** **#1 Protocol Map** and **#2 Contract Explorer**. They are the next major product track, not optional visual additions; no release number has been assigned to that track.
 
 ContractHunter is growing into a Web3 security research environment for beginners and experienced researchers. The principle is: **Do not hide Web3 security complexity from beginners — make it understandable visually while keeping the real technical information available.** The intended research path is understand → investigate → verify → reproduce → explain impact. This pipeline marks direction, not completed functionality:
 
@@ -39,8 +43,8 @@ The **Contract Explorer** will be the Map's source-linked drill-down experience.
 
 ### Next active implementation order
 
-1. **Protocol Intelligence Phase 1 — Architecture / ProtocolGraph (CURRENT/NEXT):** inspect existing analysis data; assess reusable Slither, Aderyn and ContractHunter facts; define versioned graph schema, relationship reasons, provenance and source locations; design storage/cache; evaluate graph UI libraries.
-2. **Phase 2 — Repository Mapper (PLANNED):** discover source roots, classify files, identify core protocol contracts and support researcher overrides.
+1. **Protocol Intelligence Phase 1 — Architecture / ProtocolGraph (COMPLETE):** inventoried existing analysis data, defined the versioned graph schema, relationship reasons, provenance, source locations, validation and cache identity; evaluated graph UI libraries. Persistence and extraction wait for later phases.
+2. **Phase 2 — Repository Mapper (CURRENT/NEXT):** discover source roots, classify files, identify core protocol contracts and support researcher overrides.
 3. **Phase 3 — Static Protocol Graph (PLANNED):** contracts and functions as needed, calls, inheritance, interfaces, libraries, external dependencies and proxy relationships.
 4. **Phase 4 — Protocol Map UI (PLANNED):** graph navigation, zoom/pan, selection, search, filters, grouping and large-graph handling.
 5. **Phase 5 — Contract Explorer (PLANNED):** source-linked contract security drill-down.

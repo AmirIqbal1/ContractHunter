@@ -1,5 +1,9 @@
 # Security model
 
+## Protocol Intelligence Phase 1 boundary
+
+ProtocolGraph parses bounded, closed data and requires source-unit, producer and relationship provenance. Reported source identity is distinct from authoritative scan snapshot/compiler identity. Base edges are static; finding and Impact Lab state/trace overlays can only refer to existing graph identities and cannot overwrite source facts. Security characteristics indicate audit interest, not vulnerability probability, severity or proof. Phase 1 performs no repository execution, AI call, graph extraction, worker privilege change, evidence admission or lifecycle transition. Phase 3 must use trusted fixed structured extractors and reject ambiguous source alignment; it must not scrape DOT/terminal diagrams or run dynamic repository build configuration merely for the graph. See [Protocol Map architecture](protocol-map.md).
+
 ## Impact Lab Phase D1 boundary
 
 Only the controller can invoke the fixed managed-local-Anvil trace capability, after a reviewed job has supplied at most four transaction hashes through its guarded local bridge. The PoC worker, browser and upstream proxy cannot request `debug_traceTransaction`. Each local trace read reruns the central process/listener/session guard. Receipt transaction and block identities, sender, call root and execution/fork/token/source provenance are checked before persistence. Response, tree, depth, data, log, storage and time bounds fail closed. All traces for one execution are inserted atomically as finalized rows, or a separate failed capture status is recorded; partial trees are never public artifacts. Trace capture cannot promote evidence or lifecycle status. Existing worker isolation and the read-only upstream allowlist are unchanged.

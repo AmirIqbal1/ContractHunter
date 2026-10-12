@@ -30,3 +30,4 @@ export * from "./impact-fork";
 export * from "./impact-poc";
 export * from "./impact-state";
 export * from "./impact-trace";
+export * from "./protocol-graph";

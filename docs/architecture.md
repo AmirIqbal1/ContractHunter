@@ -1,5 +1,9 @@
 # Architecture
 
+## Protocol Intelligence Phase 1
+
+`packages/core/src/protocol-graph.ts` owns `contracthunter-protocol-graph-v1`, independent of Next.js and any graph renderer. It defines source-unit provenance, deterministic graph/node/edge IDs, closed taxonomies, evidence-backed characteristics, static graph validation, file classification with explicit override provenance, extractor contracts and separate finding/state/trace overlay validation. Base edges are static; overlays reference existing graph IDs without editing source facts. Current scans retain detector findings, snapshots and narrow authoritative compilation identities, but no complete function/call graph. Phase 1 adds no database table or extractor execution. [Protocol Map architecture](protocol-map.md) inventories exact existing inputs and the Phase 2/3 path. The next milestone is Repository Mapper; Protocol Map and Contract Explorer UIs remain planned.
+
 ## Impact Lab Phase D1
 
 `packages/core/src/impact-trace.ts` defines a bounded UI-independent local trace model and canonical hash. `ImpactForkService.traceLocalImpactTransaction` is a controller-only fixed capability: it rechecks the managed local endpoint and reads a local receipt, local block identity and Anvil `callTracer` result. It accepts no arbitrary RPC method or endpoint. `apps/web/lib/impact-trace.ts` strictly normalizes the call tree and logs; the web PoC controller captures all bridge-recorded hashes after worker shutdown and before C1 POST capture. `packages/db/src/impact-trace.ts` atomically finalizes normalized immutable artifacts and verifies provenance, node order, hash, receipt and execution binding on reads. Migration `0013_v0_3_impact_local_traces` leaves historical trace links null. The Forge bridge and upstream proxy receive no debug capability.
