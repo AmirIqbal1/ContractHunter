@@ -3,6 +3,6 @@
   "version": "0.2.2",
   "private": true,
   "type": "module",
-  "exports": { ".": "./src/index.ts" },
+  "exports": { ".": "./src/index.ts", "./audit-priority-catalog": "./src/audit-priority-catalog.ts" },
   "dependencies": { "zod": "^3.25.76" }
 }

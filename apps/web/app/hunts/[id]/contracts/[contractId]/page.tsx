@@ -32,8 +32,8 @@ function Relations({ title, rows, scanId, empty }: { title: string; rows: Explor
     {rows.length > 80 && <p className="ce-note">First 80 relationships shown. Use Protocol Map filters for the remaining relationships.</p>}
   </section>;
 }
-function Explorer({ view, repositoryName, preview }: { view: ContractExplorerView; repositoryName: string;
-  preview: Array<{ line: number; text: string }> | null }) {
+function Explorer({ view, repositoryName, preview, mode }: { view: ContractExplorerView; repositoryName: string;
+  preview: Array<{ line: number; text: string }> | null; mode: "beginner" | "researcher" }) {
   const { contract, scanId, counts } = view;
   const mapHref = `/hunts/${encodeURIComponent(scanId)}/protocol-map`;
   const traits = [...new Set([...(contract.characteristics.map((item) => item.kind)),
@@ -51,7 +51,13 @@ function Explorer({ view, repositoryName, preview }: { view: ContractExplorerVie
         {contract.characteristics.some((item) => item.kind === "proxy") && <span>proven proxy</span>}
         {contract.characteristics.some((item) => item.kind === "implementation") && <span>implementation</span>}
         <span>{counts.findings} findings</span></div></div>
-      <Link className="button secondary-button" href={mapHref}>← Back to Protocol Map</Link></header>
+      <Link className="button secondary-button" href={`${mapHref}?mode=${mode}`}>← Back to Protocol Map</Link></header>
+    <p className="ce-note">{mode === "beginner" ? "Start with external entry points, review cues, permissions and findings. Open a function for source-order details." :
+      `Researcher context · canonical contract ID: ${contract.id} · classification: ${contract.repositoryClassification.effective}`}</p>
+    <nav className="sh-mode" aria-label="Display mode"><Link aria-current={mode === "beginner" ? "page" : undefined}
+      href={`/hunts/${encodeURIComponent(scanId)}/contracts/${encodeURIComponent(contract.id)}?mode=beginner`}>Beginner</Link>
+      <Link aria-current={mode === "researcher" ? "page" : undefined}
+        href={`/hunts/${encodeURIComponent(scanId)}/contracts/${encodeURIComponent(contract.id)}?mode=researcher`}>Researcher</Link></nav>
     {view.limited && <p className="pm-warning">This contract exceeds the bounded Explorer detail view. Counts describe the full graph; narrow review using the Protocol Map and source links.</p>}
     <div className="ce-actions"><Source scanId={scanId} source={contract.source} />
       <Link className="muted-link" href={`${mapHref}?node=${encodeURIComponent(contract.id)}`}>Show in Protocol Map →</Link></div>
@@ -65,7 +71,7 @@ function Explorer({ view, repositoryName, preview }: { view: ContractExplorerVie
       <p className="ce-note">{knownAssets.length ? `Known token graph identities: ${knownAssets.map((item) => item.name).join(", ")}.` :
         hasTokenLike ? "Token-transfer operations detected; exact asset identity unresolved." : "No asset identity is established by this graph."}</p>
       <p className="ce-note">Oracle dependencies appear only when source-backed graph evidence identifies them. Names alone are not classified as oracle evidence.</p></div></section>
-    <ContractFunctions items={view.functions} scanId={scanId} />
+    <ContractFunctions items={view.functions} scanId={scanId} mode={mode} />
     <section className="section" id="relationships"><h2>Relationships</h2><p className="muted">Calls out to {counts.callees} identities · called by {counts.callers} · libraries {counts.libraries} · inherited relationships {counts.inheritance} · unresolved {counts.unresolved}.</p></section>
     <Relations title="Called by" rows={view.incoming} scanId={scanId} empty="No incoming static relationships were resolved." />
     <Relations title="Calls and dependencies" rows={view.outgoing} scanId={scanId} empty="No outgoing static relationships were resolved." />
@@ -99,7 +105,8 @@ function Explorer({ view, repositoryName, preview }: { view: ContractExplorerVie
   </>;
 }
 
-export default async function ContractExplorerPage({ params }: { params: Promise<{ id: string; contractId: string }> }) {
+export default async function ContractExplorerPage({ params, searchParams }: { params: Promise<{ id: string; contractId: string }>;
+  searchParams?: Promise<{ mode?: string }> }) {
   const { id, contractId } = await params;
   if (!contractIdPattern.test(contractId)) notFound();
   const database = getDatabase(), scan = getScan(database, id);
@@ -120,5 +127,6 @@ export default async function ContractExplorerPage({ params }: { params: Promise
       preview = lines.slice(start - 1, start + 11).map((text, index) => ({ line: start + index, text }));
     } catch { preview = null; }
   }
-  return <Explorer view={view} repositoryName={scan.repositoryName} preview={preview} />;
+  const mode = (await searchParams)?.mode === "researcher" ? "researcher" : "beginner";
+  return <Explorer view={view} repositoryName={scan.repositoryName} preview={preview} mode={mode} />;
 }

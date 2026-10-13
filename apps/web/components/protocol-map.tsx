@@ -201,12 +201,12 @@ function ProjectionDetails({ artifact, projection, scanId, selectedId, selectedE
   </section>;
 }
 
-export function ProtocolMap({ artifact, scanId, initialSelectedId = null, initialView = "overview" }: { artifact: StaticProtocolGraphArtifact;
-  scanId: string; initialSelectedId?: string | null; initialView?: SecurityMapView }) {
+export function ProtocolMap({ artifact, scanId, initialSelectedId = null, initialView = "overview", initialMode = "beginner" }: { artifact: StaticProtocolGraphArtifact;
+  scanId: string; initialSelectedId?: string | null; initialView?: SecurityMapView; initialMode?: "beginner" | "researcher" }) {
   const [securityView, setSecurityView] = useState<SecurityMapView>(initialView);
   const [projectionCache, setProjectionCache] = useState<Partial<Record<SecurityMapView, SecurityViewResult>>>({});
   const [viewError, setViewError] = useState(false);
-  const [researcher, setResearcher] = useState(false);
+  const [researcher, setResearcher] = useState(initialMode === "researcher");
   const [focusOnly, setFocusOnly] = useState(false);
   const [options, setOptions] = useState<MapOptions>(() => initialSelectedId ?
     { ...defaultOptions(artifact), preset: "all", hideInterfaces: false, hideLibraries: false, hideDependencies: false } :
@@ -289,6 +289,11 @@ export function ProtocolMap({ artifact, scanId, initialSelectedId = null, initia
       <nav className="pm-view-selector" aria-label="Security views"><button type="button" aria-pressed={securityView === "overview"}
         onClick={() => changeView("overview")}>Overview</button>{securityMapViews.map((item) => <button type="button" key={item.value}
           aria-pressed={securityView === item.value} onClick={() => changeView(item.value)}>{item.label}</button>)}</nav>
+      {!researcher && <p className="ce-note">{securityView === "overview" ? "Explore contracts and their exact static relationships." :
+        ({ "money-flow": "See where token or native value may move in static code.", permissions: "See proven roles and privileged control.",
+          "oracle-flow": "See dependencies backed by oracle-like evidence.", "external-calls": "See where code calls another component or an unresolved target.",
+          upgradeability: "See proven proxy and upgrade relationships.", "attack-surface": "See externally callable and security-sensitive operations.",
+          findings: "See exact ContractHunter finding attachments." } as Record<string, string>)[securityView]}</p>}
       {securityView !== "overview" && !projection && !viewError && <p className="pm-warning" role="status">Loading {securityView.replaceAll("-", " ")} view…</p>}
       {viewError && <p className="pm-warning" role="alert">This Security View could not be loaded. Overview remains available.
         <button type="button" onClick={() => changeView("overview")}>Open Overview</button></p>}
@@ -305,7 +310,9 @@ export function ProtocolMap({ artifact, scanId, initialSelectedId = null, initia
           {presets.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>}
         <label>Search contracts, functions, source <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Vault, withdraw(), src/Vault.sol" /></label>
         <button type="button" aria-pressed={focusOnly} disabled={!visibleSelectedId || !projection} onClick={() => setFocusOnly((old) => !old)}>Focus on selected</button>
-        <button type="button" aria-pressed={researcher} onClick={() => setResearcher((old) => !old)}>{researcher ? "Researcher" : "Beginner"} details</button>
+        <button type="button" aria-pressed={researcher} onClick={() => setResearcher((old) => { const next = !old;
+          const url = new URL(window.location.href); url.searchParams.set("mode", next ? "researcher" : "beginner");
+          window.history.replaceState(null, "", url.toString()); return next; })}>{researcher ? "Researcher" : "Beginner"} details</button>
         <button type="button" onClick={reset}>Reset filters</button>
       </div>
       {query.trim() && <div className="pm-search-results" role="listbox" aria-label="Protocol Map search results">

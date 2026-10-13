@@ -224,3 +224,52 @@ input:focus, select:focus { border-color: #4eae8b; box-shadow: 0 0 0 3px #57e6ad
 .fe-source .is-highlighted { background: #174037; }
 @media (max-width: 850px) { .fe-workspace { grid-template-columns: 1fr; }.fe-detail { position: static; max-height: none; } }
 @media (max-width: 560px) { .fe-tools label { flex: 1 1 100%; }.fe-operations { margin-left: 7px; padding-left: 19px; }.fe-step::before { left: -27px; } }
+
+/* Phase 8B: bounded, source-linked research guide. Priority has neutral visual meaning. */
+.sh-page { min-width: 0; }
+.sh-page h3 { margin: 0 0 7px; font-size: 21px; overflow-wrap: anywhere; }
+.sh-page h4 { margin: 22px 0 9px; font-size: 13px; }
+.sh-page a:not(.button) { color: var(--accent); }
+.sh-mode, .sh-actions, .sh-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.sh-mode { margin: 0 0 24px; }
+.sh-mode button { padding: 9px 15px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--text); cursor: pointer; }
+.sh-mode button[aria-pressed="true"] { border-color: var(--accent); font-weight: 700; }
+.sh-mode a { padding: 9px 15px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--text); }
+.sh-mode a[aria-current="page"] { border-color: var(--accent); font-weight: 700; }
+.sh-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 0 0 12px; }
+.sh-stats .card { padding: 15px; }
+.sh-stats dt { font: 700 11px/1.4 ui-monospace, monospace; color: var(--muted); }
+.sh-stats dd { margin: 8px 0 0; font: 700 24px ui-monospace, monospace; }
+.sh-classifications { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px 20px; }
+.sh-classifications div { display: flex; justify-content: space-between; gap: 10px; border-bottom: 1px solid var(--line); padding: 5px 0; }
+.sh-classifications dd { margin: 0; }
+.sh-warning { border: 1px solid #a88b5a; background: #241c12; border-radius: 7px; padding: 16px; }
+.sh-warning p { margin: 8px 0; }
+.sh-disclaimer { max-width: 74ch; font-weight: 700; line-height: 1.5; }
+.sh-first { margin: 24px 0; }
+.sh-method { margin: 18px 0; }
+.sh-tools { margin: 22px 0 12px; }
+.sh-tools label { display: grid; gap: 6px; color: var(--muted); font-size: 12px; }
+.sh-tools input, .sh-tools select { min-width: 205px; max-width: 100%; border: 1px solid var(--line); border-radius: 5px; background: var(--panel); color: var(--text); padding: 9px; }
+.sh-ranks { list-style: none; display: grid; gap: 16px; margin: 16px 0; padding: 0; }
+.sh-card { min-width: 0; }
+.sh-card-head { display: flex; justify-content: space-between; gap: 18px; align-items: start; }
+.sh-score { display: grid; gap: 4px; text-align: right; flex: none; border: 1px solid var(--line); padding: 10px 13px; border-radius: 6px; }
+.sh-score strong { font: 700 19px ui-monospace, monospace; }
+.sh-score span { font-size: 11px; color: var(--muted); }
+.sh-actions { margin: 12px 0; }
+.sh-actions a:not(.button) { border: 1px solid var(--line); border-radius: 5px; padding: 7px 9px; font-size: 12px; }
+.sh-factors, .sh-checklist { padding-left: 20px; }
+.sh-factors > li, .sh-checklist > li { margin: 12px 0; overflow-wrap: anywhere; }
+.sh-concept, .sh-evidence { margin: 5px 0; font-size: 12px; }
+.sh-concept p { margin: 5px 0; }
+.sh-evidence ul { padding-left: 18px; }
+.sh-evidence li { display: flex; flex-wrap: wrap; gap: 7px; margin: 7px 0; }
+.sh-evidence code, .sh-identity { overflow-wrap: anywhere; font-size: 11px; }
+.sh-functions { display: grid; gap: 10px; padding-left: 22px; }
+.sh-functions li { border-top: 1px solid var(--line); padding-top: 9px; }
+.sh-workflow { line-height: 1.9; }
+.sh-page summary { cursor: pointer; }
+.sh-page a:focus-visible, .sh-page button:focus-visible, .sh-page summary:focus-visible, .sh-page input:focus-visible, .sh-page select:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+@media (max-width: 900px) { .sh-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 560px) { .sh-stats, .sh-classifications { grid-template-columns: 1fr; }.sh-card-head { flex-direction: column; }.sh-score { text-align: left; }.sh-tools label, .sh-tools input, .sh-tools select { width: 100%; } }

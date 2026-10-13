@@ -1,8 +1,12 @@
 # Architecture
 
+## Protocol Intelligence Phase 8B
+
+`/hunts/:id/start` reads the finalized graph and Repository Map on the server, runs the existing Phase 8A derivation, and sends only its bounded audit-priority result to the `StartHere` client component. No full graph is sent for this screen. The component does not score or sort contracts; mode, search, filters and Show more change presentation only. It uses the fixed core concept catalog and canonical graph IDs for Explorer, source and Security View links. The hunt and Protocol Map provide entry links. No graph/finding mutation, migration, scanner extraction, AI call or execution route was added.
+
 ## Protocol Intelligence Phase 8A
 
-`packages/core/src/audit-priority.ts` validates the immutable static graph and all seven Security View results, then indexes exact contract/function, call, control, state-write and finding facts. It emits `contracthunter-audit-priority-v1` with versioned rules, integer factor contributions, canonical evidence IDs and source ranges, project overview, bounded contract/function recommendations and warnings. `audit-priority-catalog.ts` owns fixed beginner explanations and review prompts. The service derives results on read; `/api/scans/[id]/protocol-graph/audit-priority` reads the exact graph and Repository Map, with no new migration or execution authority. Versioned canonical content identity binds graph and Security View result IDs and the ruleset. Phase 8B will render the data; no UI or AI inference was added here.
+`packages/core/src/audit-priority.ts` validates the immutable static graph and all seven Security View results, then indexes exact contract/function, call, control, state-write and finding facts. It emits `contracthunter-audit-priority-v1` with versioned rules, integer factor contributions, canonical evidence IDs and source ranges, project overview, bounded contract/function recommendations and warnings. `audit-priority-catalog.ts` owns fixed beginner explanations and review prompts. The service derives results on read; `/api/scans/[id]/protocol-graph/audit-priority` reads the exact graph and Repository Map, with no new migration or execution authority. Versioned canonical content identity binds graph and Security View result IDs and the ruleset. Phase 8B renders this data; Phase 8A itself added no UI or AI inference.
 
 ## Protocol Intelligence Phase 7B
 

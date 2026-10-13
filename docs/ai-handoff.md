@@ -1,8 +1,12 @@
 # ContractHunter AI Handoff
 
+## Current milestone: Protocol Intelligence Phase 8B complete
+
+Start Here is a dedicated hunt route backed by the existing Phase 8A server derivation. It shows factual overview counts, unchanged server ranking, canonical Contract/Function Explorer and Security View/source links, fixed concept help, review prompts, and partial-analysis warnings. Beginner/Researcher mode is presentation only. The score is audit interest, never vulnerability likelihood or safety. No AI call, Impact Lab authority, graph mutation or migration was added. **Next: Phase 9 — inspect remaining Finding Integration / Security Paths gaps before changing existing exact finding links.**
+
 ## Current milestone: Protocol Intelligence Phase 8A complete
 
-Phase 8A adds a versioned, deterministic **Audit Priority Score** and Project Overview model in core, a fixed beginner concept/review-prompt catalog, and a read-only scan API. Factors come from existing source-linked static graph, Security Views, state-write facts and exact findings; each awarded point is exposed. Quantity buckets and a 100-point cap are versioned. The score orders manual inspection targets and is not bug likelihood, severity, exploitability or observed impact. Missing evidence remains a warning, not a safety claim. No UI, AI call, C1/D1 ranking input, finding authority or Impact Lab execution path was added. **Next: Phase 8B Beginner Mode / Show Me Where To Start UI.**
+Phase 8A adds a versioned, deterministic **Audit Priority Score** and Project Overview model in core, a fixed beginner concept/review-prompt catalog, and a read-only scan API. Factors come from existing source-linked static graph, Security Views, state-write facts and exact findings; each awarded point is exposed. Quantity buckets and a 100-point cap are versioned. The score orders manual inspection targets and is not bug likelihood, severity, exploitability or observed impact. Missing evidence remains a warning, not a safety claim. Phase 8A added no UI, AI call, C1/D1 ranking input, finding authority or Impact Lab execution path; Phase 8B now renders its result.
 
 ## Current milestone: Protocol Intelligence Phase 7 complete
 

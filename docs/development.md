@@ -1,5 +1,9 @@
 # Development
 
+## Beginner Mode and Start Here Phase 8B
+
+Run `npm run dev`, open an existing hunt with finalized Protocol Intelligence data, and choose **Show Me Where To Start**. Inspect Project Overview, ranked contracts, **Why start here?**, factor evidence, recommended functions, score explanation, Security View links and source links. Switch Beginner/Researcher and confirm order/scores remain stable. Open a function and return, open a Security View, then a contract; inspect partial warnings if the scan has them. Return to Protocol Map. No scan ID is assumed. Focused UI tests: `npx vitest run apps/web/components/start-here.test.tsx`. The page is read-only and needs no AI, live RPC, downloads or transactions.
+
 ## Explainable audit priority Phase 8A
 
 Run `npx vitest run packages/core/src/audit-priority.test.ts apps/web/app/api/scans/'[id]'/protocol-graph/audit-priority/route.test.ts`, then the normal audit/typecheck/test/lint/build gates. A completed scan with a finalized graph can request `GET /api/scans/:id/protocol-graph/audit-priority`. The response is a data model for Phase 8B, not a new page. Tests use deterministic local fixtures; no AI, RPC, downloads or blockchain transactions are required. Oracle and AccessControl coverage may remain partial under current extraction.

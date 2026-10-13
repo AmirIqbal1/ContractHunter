@@ -1,5 +1,9 @@
 # API reference
 
+## Start Here page (Phase 8B)
+
+`GET /hunts/:id/start` is a server-rendered page using the existing read-only Phase 8A derivation. Optional `?mode=beginner|researcher` changes display detail only. The existing `/api/scans/:id/protocol-graph/audit-priority` response and server-owned weights are unchanged. A missing graph or derivation failure shows a bounded page state; errors do not expose internal paths.
+
 ## Explainable audit priority (Phase 8A)
 
 `GET /api/scans/:id/protocol-graph/audit-priority` returns the bounded `contracthunter-audit-priority-v1` Project Overview and contract/function recommendations. It reads the exact validated graph and finalized Repository Map, derives all seven static Security Views, and applies the server-owned `contracthunter-audit-priority-ruleset-v1`. The browser cannot submit weights or arbitrary analysis. Invalid scan IDs return 400; missing scan or graph returns 404; integrity/derivation failures return a sanitized 500. The response includes score factors, awarded and potential points, source-backed evidence, canonical IDs, Security View membership, review prompts, warnings, ruleset/catalog versions and deterministic content identity. It is read-only and grants no Impact Lab authority.

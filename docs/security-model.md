@@ -1,5 +1,9 @@
 # Security model
 
+## Beginner Mode boundary (Phase 8B)
+
+Start Here presents the Phase 8A Audit Priority result without changing weights, scores, findings or graph truth. Both display modes show the same evidence. A higher score means more known characteristics worth manual review, not greater vulnerability likelihood. A low score is not a safety conclusion. Partial coverage and unresolved targets remain explicit. Fixed product text supplies concept help; repository strings render as React text. Canonical scan, contract, function and source identities drive navigation. Ranking grants no Impact Lab authority and creates no dynamic evidence.
+
 ## Audit-priority boundary (Phase 8A)
 
 Audit Priority Score is a transparent 0–100 ordering of proven static characteristics for manual review. Every awarded point is assigned to a closed, versioned factor with existing graph, Security View, function-fact, classification or exact finding evidence. Bucket caps prevent raw function/finding counts from dominating. The score is **not** vulnerability likelihood, severity, exploitability, safety, profit or observed impact. Name-only asset/oracle/privilege guesses are excluded. Source-order write-after-call is not runtime execution proof. Missing Repository Map, incomplete analysis and unresolved targets remain warnings. Derivation is read-only: it cannot verify findings, change hypothesis state, create evidence, or launch Impact Lab. Phase 8B must keep these limits visible.

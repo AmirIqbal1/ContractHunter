@@ -16,7 +16,8 @@ export function filterContractFunctions(items: readonly ExplorerFunction[], quer
       filter === "state" && (facts?.stateWrites.length ?? 0) > 0 ||
       filter === "payable" && node.mutability === "payable"));
 }
-export function ContractFunctions({ items, scanId }: { items: readonly ExplorerFunction[]; scanId: string }) {
+export function ContractFunctions({ items, scanId, mode = "beginner" }: { items: readonly ExplorerFunction[]; scanId: string;
+  mode?: "beginner" | "researcher" }) {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
   const [limit, setLimit] = useState(60);
@@ -29,7 +30,7 @@ export function ContractFunctions({ items, scanId }: { items: readonly ExplorerF
         <option value="state">Known state writes</option><option value="payable">Payable</option>
       </select></label></div>
     <ul className="ce-list">{shown.slice(0, limit).map(({ node, facts, findings }) => <li key={node.id} id={`function-${node.id}`}>
-      <div><strong className="mono"><Link className="muted-link" href={`/hunts/${encodeURIComponent(scanId)}/contracts/${encodeURIComponent(node.contractId)}/functions/${encodeURIComponent(node.id)}`}>{node.signature} →</Link></strong> {node.entryPoint === "yes" && <span className="badge green">Entry point</span>}
+      <div><strong className="mono"><Link className="muted-link" href={`/hunts/${encodeURIComponent(scanId)}/contracts/${encodeURIComponent(node.contractId)}/functions/${encodeURIComponent(node.id)}?mode=${mode}`}>{node.signature} →</Link></strong> {node.entryPoint === "yes" && <span className="badge green">Entry point</span>}
         {findings.length > 0 && <a className="badge amber" href="#findings">{findings.length} findings</a>}
         <div className="ce-meta">{node.visibility} · {node.mutability}{node.modifiers.length ? ` · modifiers: ${node.modifiers.join(", ")}` : ""}</div>
         <div className="ce-tags">{node.characteristics.map((item) => <span key={item.kind}>{item.kind}</span>)}
