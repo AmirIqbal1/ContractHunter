@@ -1,5 +1,9 @@
 # Security model
 
+## Impact Overlay boundary (Phase 10A)
+
+The overlay reads only persisted reviewed PoC evidence from ContractHunter's isolated local fork. The API requires exact scan/execution/subject ownership and exposes no trace upload, execution command, RPC URL, runtime token, private key or worker control. It binds C1/D1 artifacts to execution, session, reviewed source, fork base block/hash and target code hashes, and returns only bounded observed local facts. The local receipt block is distinct from the fork base block. A static edge not seen in one capture is “not observed in this execution,” never unreachable. Unknown addresses, selectors, storage variables and event declarations remain unresolved. Delegatecall records code and storage context separately; trace/state co-occurrence is not causal attribution. Runtime evidence cannot mutate ProtocolGraph, Investigation Paths, findings, hypothesis confidence/severity/lifecycle or Impact Lab authority. Repository-derived strings remain JSON data; Phase 10B must render them as text. No AI mapping or live-chain submission is involved.
+
 ## Investigation Path UI boundary (Phase 9B)
 
 The visual path is a read-only rendering of Phase 9A's bounded static result. Its arrows use only returned edge IDs and relationship kinds; unknown targets end without continuation. The exact target marker uses persisted finding-to-node membership. Entry-point wording means static connectivity, not runtime reachability or permissionless access. A path's presence cannot verify a finding, change status/confidence/severity, create dynamic evidence, assert financial impact, or authorize Impact Lab. Repository titles, signatures, reasons and labels render as React text; source links use canonical source units, never raw host paths. Beginner explanations come from the existing fixed concept catalog. C1 state and D1 traces remain separate future overlays.

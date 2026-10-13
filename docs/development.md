@@ -1,5 +1,9 @@
 # Development
 
+## Impact Overlay Phase 10A
+
+Run `npx vitest run packages/core/src/impact-overlay.test.ts` for bounded synthetic local trace/state evidence, then `npm run typecheck`, `npm test`, `npm run lint`, `npm run build`, and attempt `npm audit --omit=dev`. The read-only endpoint is `/api/scans/:scanId/impact/poc-executions/:executionId/overlay`; use an existing exact execution ID from a reviewed local PoC under the same scan. Its response is model data, with no Phase 10B visual screen. A current production response can retain runtime addresses while all graph contract/function mappings remain unresolved because deployed code hashes are not linked authoritatively to static source identities. Inspect `capabilities`, `warnings`, transaction-local blocks, observed call order and C1 unavailable states. No live RPC or transaction is needed for the synthetic tests.
+
 ## Visual Investigation Paths Phase 9B
 
 Run `npm run dev`, open a hunt with findings and a finalized ProtocolGraph, open a finding, then select **View Investigation Path**. Inspect the selected static path and **Why This Connection Exists**; open the affected Function Explorer, return to choose local/caller/callee context, open a relevant Security View, and switch Beginner/Researcher. If a fixture exposes unresolved or truncated results, confirm the terminal/warning copy; then return to the finding. Investigation and Hypothesis details offer the same route when a finalized graph exists. No specific hunt ID is assumed. Focused test: `npx vitest run apps/web/components/investigation-path-view.test.tsx`. Run the usual typecheck, test, lint, build and production audit gates. No AI, live RPC or transaction is used.

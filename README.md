@@ -4,6 +4,10 @@ ContractHunter is evolving from a locally hosted smart-contract scanner into a *
 
 **Core product priorities:** **#1 Protocol Map** and **#2 Contract Explorer**, both with initial research interfaces implemented. These are core capabilities for understanding a protocol before and during vulnerability research. The design principle is: *Do not hide Web3 security complexity from beginners — make it understandable visually while keeping the real technical information available.* The source-order Function Explorer and deterministic Security View models are implemented; interactive Security Views are implemented.
 
+## Protocol Intelligence Phase 10A (unreleased v0.3)
+
+The read-only, deterministic Impact Overlay model now combines exact reviewed local Impact Lab execution evidence with a separate static ProtocolGraph and Investigation Path comparison. It preserves local transactions, D1 observed calls/logs and C1 state observations without changing static facts or finding authority. Contract/function alignment remains unresolved in production where no authoritative deployed-bytecode-to-source witness exists. Phase 10B will add the visual overlay. See [Impact Lab](docs/impact-lab.md).
+
 ## Impact Lab Phase D1 (unreleased v0.3)
 
 Impact Lab foundations are implemented through A1 fork lifecycle and safety, A2 read-only upstream forking, A3 isolated PoC runtime, B1 reviewed manual Forge execution, C1 PRE/POST state capture and diff, and D1 local transaction traces. Reviewed PoCs run only against verified local Anvil forks. There is no autonomous PoC generation, live-chain submission, asset-flow inference, or automatic vulnerability verification. See [Impact Lab](docs/impact-lab.md).
@@ -59,7 +63,7 @@ Deterministic verification options and strategy-aware planning, conservative tar
 
 Phase A1 established managed fork lifecycle and safety; A2 added the read-only upstream boundary and exact deployment identity; A3 proved real Anvil compatibility and isolated the PoC runtime. B1 runs reviewed manual Forge PoCs; C1 captures selected state changes; D1 records bounded local call traces. Deeper impact interpretation and visual investigation remain planned after the ProtocolGraph foundation.
 
-**Protocol Intelligence:** Phases 1–9 are implemented. Phase 9A audits finding links and derives bounded static Investigation Paths; Phase 9B renders them from finding, investigation and hypothesis detail. Open a completed hunt with a finalized static graph, then choose **Show Me Where To Start** or **Open Protocol Map**, or open a finding and select **View Investigation Path**. The path is source-backed research context, not proof of execution or exploitability. Phase 10 Dynamic Impact Lab Overlays is next. See [Protocol Map architecture](docs/protocol-map.md).
+**Protocol Intelligence:** Phases 1–9 and Phase 10A are implemented. Phase 9A derives bounded static Investigation Paths; Phase 9B renders them from finding, investigation and hypothesis detail. Phase 10A derives a separate observed local execution/state read model. Open a completed hunt with a finalized static graph, then choose **Show Me Where To Start** or **Open Protocol Map**, or open a finding and select **View Investigation Path**. Static paths are source-backed research context, not proof of execution or exploitability. Phase 10B Visual Dynamic Impact Overlays is next. See [Protocol Map architecture](docs/protocol-map.md).
 
 See the [full roadmap](docs/roadmap.md) and [Impact Lab design](docs/impact-lab.md) for details.
 

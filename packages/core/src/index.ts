@@ -30,6 +30,8 @@ export * from "./impact-fork";
 export * from "./impact-poc";
 export * from "./impact-state";
 export * from "./impact-trace";
+export * from "./impact-overlay";
+export * from "./impact-selector";
 export * from "./protocol-graph";
 export * from "./repository-map";
 export * from "./static-protocol-graph";

@@ -1,5 +1,9 @@
 # API reference
 
+## Impact Overlay (Phase 10A)
+
+`GET /api/scans/:scanId/impact/poc-executions/:executionId/overlay` returns one derived `contracthunter-impact-overlay-v1` read model for an exact reviewed local PoC execution whose finding or hypothesis belongs to that scan. Both IDs are UUID validated. Wrong scan/execution membership returns 404; malformed IDs return 400; provenance/integrity failures return a sanitized 409. The result separates transactions, observed calls/logs, C1 state observations, optional exact static/path comparisons, factual coverage, capability flags, provenance references and warnings. Historical B1 runs may report trace/state unavailable. No arbitrary trace/state upload, RPC selector, mutation, or Impact Lab launch route is added. Production currently leaves runtime contract/function mapping unresolved without authoritative deployment-to-source evidence.
+
 ## Investigation Path page (Phase 9B)
 
 `GET /hunts/:scanId/investigation-paths/:subjectType/:subjectId` is a read-only server page for the same three closed subject types and exact UUIDs as the Phase 9A API. Optional `?mode=beginner|researcher`, `?path=ip:…` and `?edge=pe:…` select presentation only, after validating membership in the returned bounded result. Invalid or cross-scan subjects receive 404; missing or invalid graph data shows a bounded page state. The page reuses Phase 9A derivation and adds no arbitrary graph-query or write endpoint. The browser cannot derive paths or alter finding, hypothesis, graph, verification or Impact Lab records.
