@@ -1,5 +1,9 @@
 # ContractHunter AI Handoff
 
+## Current milestone: Protocol Intelligence Phase 8A complete
+
+Phase 8A adds a versioned, deterministic **Audit Priority Score** and Project Overview model in core, a fixed beginner concept/review-prompt catalog, and a read-only scan API. Factors come from existing source-linked static graph, Security Views, state-write facts and exact findings; each awarded point is exposed. Quantity buckets and a 100-point cap are versioned. The score orders manual inspection targets and is not bug likelihood, severity, exploitability or observed impact. Missing evidence remains a warning, not a safety claim. No UI, AI call, C1/D1 ranking input, finding authority or Impact Lab execution path was added. **Next: Phase 8B Beginner Mode / Show Me Where To Start UI.**
+
 ## Current milestone: Protocol Intelligence Phase 7 complete
 
 Phase 7B renders the seven Phase 7A deterministic Security Views inside the existing Protocol Map. It uses the closed `?view=` selector, one-view-at-a-time read-only API loading, page-session caching, canonical graph IDs, contract-level React Flow/Dagre filtering, static inclusion reasons and warnings, and exact Explorer/source/finding navigation. Function facts stay in textual details rather than expanding all function nodes. Money direction and target identity remain unresolved where static evidence cannot prove them. No graph truth, scanner extraction, finding authority, C1/D1 overlay, AI call or audit-priority ranking changed. **Next: Phase 8 Beginner Mode / Show Me Where To Start.**

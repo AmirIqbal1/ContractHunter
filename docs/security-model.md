@@ -1,5 +1,9 @@
 # Security model
 
+## Audit-priority boundary (Phase 8A)
+
+Audit Priority Score is a transparent 0–100 ordering of proven static characteristics for manual review. Every awarded point is assigned to a closed, versioned factor with existing graph, Security View, function-fact, classification or exact finding evidence. Bucket caps prevent raw function/finding counts from dominating. The score is **not** vulnerability likelihood, severity, exploitability, safety, profit or observed impact. Name-only asset/oracle/privilege guesses are excluded. Source-order write-after-call is not runtime execution proof. Missing Repository Map, incomplete analysis and unresolved targets remain warnings. Derivation is read-only: it cannot verify findings, change hypothesis state, create evidence, or launch Impact Lab. Phase 8B must keep these limits visible.
+
 ## Interactive Security View boundary (Phase 7B)
 
 The Protocol Map renders Phase 7A projections as read-only filters of a validated static graph. It checks projection scan and graph identity before rendering and uses canonical IDs for drill-down. Repository strings and finding titles render as React text; no HTML insertion or arbitrary filesystem source route is used. Money Flow distinguishes static transfer-like evidence from observed movement and leaves asset direction unresolved. Oracle, role and proxy labels require existing evidence. Unresolved calls remain unresolved annotations; warnings and empty states do not assert absence or safety. View switching, search and focus do not update graph facts, finding authority, Impact Lab evidence or lifecycle state.

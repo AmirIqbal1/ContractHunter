@@ -1,5 +1,9 @@
 # Development
 
+## Explainable audit priority Phase 8A
+
+Run `npx vitest run packages/core/src/audit-priority.test.ts apps/web/app/api/scans/'[id]'/protocol-graph/audit-priority/route.test.ts`, then the normal audit/typecheck/test/lint/build gates. A completed scan with a finalized graph can request `GET /api/scans/:id/protocol-graph/audit-priority`. The response is a data model for Phase 8B, not a new page. Tests use deterministic local fixtures; no AI, RPC, downloads or blockchain transactions are required. Oracle and AccessControl coverage may remain partial under current extraction.
+
 ## Interactive Security Views Phase 7B
 
 Start with `npm run dev`, open any completed hunt that has a finalized ProtocolGraph, then choose **Open Protocol Map**. Switch Overview and all seven Security Views, select a node or edge, inspect **Why this is shown**, use canonical Contract/Function Explorer and source/finding links, test an unresolved call warning, then return to Overview. No scan ID is assumed. Run `npx vitest run apps/web/lib/protocol-map.test.ts apps/web/components/protocol-map-security.test.tsx` for focused adapter/selector tests, followed by audit, typecheck, test, lint and build. Empty Oracle/Permissions views can be correct when extraction has no qualifying evidence. No AI, live RPC, download or transaction is needed.

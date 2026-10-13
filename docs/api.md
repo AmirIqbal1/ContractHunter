@@ -1,5 +1,9 @@
 # API reference
 
+## Explainable audit priority (Phase 8A)
+
+`GET /api/scans/:id/protocol-graph/audit-priority` returns the bounded `contracthunter-audit-priority-v1` Project Overview and contract/function recommendations. It reads the exact validated graph and finalized Repository Map, derives all seven static Security Views, and applies the server-owned `contracthunter-audit-priority-ruleset-v1`. The browser cannot submit weights or arbitrary analysis. Invalid scan IDs return 400; missing scan or graph returns 404; integrity/derivation failures return a sanitized 500. The response includes score factors, awarded and potential points, source-backed evidence, canonical IDs, Security View membership, review prompts, warnings, ruleset/catalog versions and deterministic content identity. It is read-only and grants no Impact Lab authority.
+
 ## Protocol Map Security View selector (Phase 7B)
 
 `/hunts/:scanId/protocol-map?view=:view` accepts the seven closed Security View names below. An unknown value opens Overview. The client requests one selected projection from the existing read-only endpoint and checks its scan, graph and artifact content identity before adapting canonical node/edge IDs to the map renderer. It caches each successfully loaded projection for the page session. There is no new write API or browser-provided analysis query.

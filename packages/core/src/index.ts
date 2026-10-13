@@ -35,3 +35,4 @@ export * from "./repository-map";
 export * from "./static-protocol-graph";
 export * from "./function-explorer";
 export * from "./security-view";
+export * from "./audit-priority";

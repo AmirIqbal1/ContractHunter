@@ -1,5 +1,9 @@
 # Architecture
 
+## Protocol Intelligence Phase 8A
+
+`packages/core/src/audit-priority.ts` validates the immutable static graph and all seven Security View results, then indexes exact contract/function, call, control, state-write and finding facts. It emits `contracthunter-audit-priority-v1` with versioned rules, integer factor contributions, canonical evidence IDs and source ranges, project overview, bounded contract/function recommendations and warnings. `audit-priority-catalog.ts` owns fixed beginner explanations and review prompts. The service derives results on read; `/api/scans/[id]/protocol-graph/audit-priority` reads the exact graph and Repository Map, with no new migration or execution authority. Versioned canonical content identity binds graph and Security View result IDs and the ruleset. Phase 8B will render the data; no UI or AI inference was added here.
+
 ## Protocol Intelligence Phase 7B
 
 The Protocol Map selects Overview or one of seven closed Phase 7A Security Views. It fetches only the selected read-only projection, checks its scan/graph/content identity against the loaded static artifact, and caches it for the page session. `apps/web/lib/protocol-map.ts` filters canonical graph IDs before the React Flow/Dagre contract-level adapter; function IDs collapse to their canonical contract only for display. Selected details retain source-backed reasons, annotations, warning counts and exact Explorer/source/finding links. Search, focus and filters affect presentation only. The 600-node/1,600-edge renderer bound remains. No core graph type, migration, scanner extraction or dynamic overlay changed. Next: Phase 8 Beginner Mode.
