@@ -1,12 +1,16 @@
 # ContractHunter AI Handoff
 
-## Current product milestone: Protocol Intelligence Phase 7A complete
+## Current milestone: Protocol Intelligence Phase 7 complete
 
-Phase 7A adds `contracthunter-security-view-v1` and seven deterministic read-only projections of validated static graph facts in `packages/core/src/security-view.ts`, plus a narrow closed-type scan API. Results contain only existing graph IDs, source-backed inclusion reasons, bounded annotations, factual summaries, warnings and versioned content identity. Money direction, concrete token identity, oracle semantics and AccessControl are not guessed. Graph truth, Phase 6 Function Explorer, findings, Impact Lab C1/D1 and lifecycle authority are unchanged. **Next: Phase 7B Interactive Security Views in Protocol Map.** The full Phase 7 UI, Beginner ranking and dynamic overlays remain planned.
+Phase 7B renders the seven Phase 7A deterministic Security Views inside the existing Protocol Map. It uses the closed `?view=` selector, one-view-at-a-time read-only API loading, page-session caching, canonical graph IDs, contract-level React Flow/Dagre filtering, static inclusion reasons and warnings, and exact Explorer/source/finding navigation. Function facts stay in textual details rather than expanding all function nodes. Money direction and target identity remain unresolved where static evidence cannot prove them. No graph truth, scanner extraction, finding authority, C1/D1 overlay, AI call or audit-priority ranking changed. **Next: Phase 8 Beginner Mode / Show Me Where To Start.**
+
+## Previous milestone: Protocol Intelligence Phase 7A complete
+
+Phase 7A adds `contracthunter-security-view-v1` and seven deterministic read-only projections of validated static graph facts in `packages/core/src/security-view.ts`, plus a narrow closed-type scan API. Results contain only existing graph IDs, source-backed inclusion reasons, bounded annotations, factual summaries, warnings and versioned content identity. Money direction, concrete token identity, oracle semantics and AccessControl are not guessed. Graph truth, Phase 6 Function Explorer, findings, Impact Lab C1/D1 and lifecycle authority are unchanged. Phase 7B now renders these projections in Protocol Map. Beginner ranking and dynamic overlays remain planned.
 
 ## Prior product milestone: Protocol Intelligence Phase 6B complete
 
-Function rows in Contract Explorer now open a canonical function route. The page consumes the Phase 6A model through a server boundary and shows a bounded source-order timeline, explicit CFG limitation, operation selection, snapshot source preview, exact call/finding links, presentation filters and Beginner/Researcher copy. Static call/write cues are not runtime paths or vulnerability conclusions. The production data model, findings, Impact Lab and C1/D1 overlays are unchanged. Phase 7A now derives static Security View models; Phase 7B UI is next.
+Function rows in Contract Explorer now open a canonical function route. The page consumes the Phase 6A model through a server boundary and shows a bounded source-order timeline, explicit CFG limitation, operation selection, snapshot source preview, exact call/finding links, presentation filters and Beginner/Researcher copy. Static call/write cues are not runtime paths or vulnerability conclusions. The production data model, findings, Impact Lab and C1/D1 overlays are unchanged. Phase 7A now derives static Security View models; Phase 7B UI is implemented.
 
 ## Prior product milestone: Protocol Intelligence Phase 6A complete
 

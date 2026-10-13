@@ -1,6 +1,6 @@
 import dagre from "@dagrejs/dagre";
 import type { Edge, Node } from "@xyflow/react";
-import type { ProtocolGraphEdge, ProtocolGraphNode, StaticProtocolGraphArtifact } from "@contracthunter/core";
+import type { ProtocolGraphEdge, ProtocolGraphNode, SecurityViewResult, StaticProtocolGraphArtifact } from "@contracthunter/core";
 
 export type MapPreset = "all" | "core" | "external" | "upgrade" | "findings";
 export type MapDirection = "both" | "callers" | "callees";
@@ -57,9 +57,17 @@ function trait(node: ProtocolGraphNode, kind: string): boolean {
   return node.characteristics.some((item) => item.kind === kind);
 }
 export function visibleModel(artifact: StaticProtocolGraphArtifact, options: MapOptions,
-  selectedId: string | null = null, direction: MapDirection = "both"): MapView {
+  selectedId: string | null = null, direction: MapDirection = "both", projection: SecurityViewResult | null = null): MapView {
   const all = artifact.graph.nodes, byId = new Map(all.map((node) => [node.id, node]));
-  const conceptual = all.filter((node) => node.kind !== "function");
+  const projectedNodeIds = projection && projection.scanId === artifact.graph.scanId &&
+    projection.protocolGraphId === artifact.graph.id && projection.graphContentSha256 === artifact.contentSha256 ?
+    new Set(projection.nodes.map((item) => item.id)) : projection ? new Set<string>() : null;
+  const projectedOwners = projectedNodeIds && new Set([...projectedNodeIds].flatMap((id) => {
+    const node = byId.get(id);
+    return node ? [mapOwner(node, byId).id] : [];
+  }));
+  const projectedEdges = projection ? new Set(projection.edges.map((item) => item.id)) : null;
+  const conceptual = all.filter((node) => node.kind !== "function" && (!projectedOwners || projectedOwners.has(node.id)));
   const functionsByContract = new Map<string, Extract<ProtocolGraphNode, { kind: "function" }>[]>();
   for (const node of all) if (node.kind === "function") {
     const list = functionsByContract.get(node.contractId) ?? [];
@@ -67,6 +75,7 @@ export function visibleModel(artifact: StaticProtocolGraphArtifact, options: Map
   }
   const findings = new Set(artifact.findingLinks.map((link) => mapOwner(byId.get(link.nodeId)!, byId).id));
   const structural = artifact.graph.edges.filter((edge) => {
+    if (projectedEdges && !projectedEdges.has(edge.id)) return false;
     const from = byId.get(edge.from), to = byId.get(edge.to);
     return from && to && mapOwner(from, byId).id !== mapOwner(to, byId).id;
   });
@@ -95,6 +104,7 @@ export function visibleModel(artifact: StaticProtocolGraphArtifact, options: Map
     if (options.hideLibraries && node.kind === "library" && node.id !== selected) return false;
     if (options.hideDependencies && ["dependency", "external-actor", "external-protocol"].includes(classify(node)) && node.id !== selected) return false;
     if (options.findingOnly && !findings.has(node.id) && node.id !== selected) return false;
+    if (projection) return true;
     if (node.id === selected) return true;
     if (options.preset === "core") return ["core", "periphery"].includes(classify(node)) || connectedToCore.has(node.id) || findings.has(node.id);
     if (options.preset === "findings") return findings.has(node.id);

@@ -1,8 +1,12 @@
 # Development
 
+## Interactive Security Views Phase 7B
+
+Start with `npm run dev`, open any completed hunt that has a finalized ProtocolGraph, then choose **Open Protocol Map**. Switch Overview and all seven Security Views, select a node or edge, inspect **Why this is shown**, use canonical Contract/Function Explorer and source/finding links, test an unresolved call warning, then return to Overview. No scan ID is assumed. Run `npx vitest run apps/web/lib/protocol-map.test.ts apps/web/components/protocol-map-security.test.tsx` for focused adapter/selector tests, followed by audit, typecheck, test, lint and build. Empty Oracle/Permissions views can be correct when extraction has no qualifying evidence. No AI, live RPC, download or transaction is needed.
+
 ## Deterministic Security Views Phase 7A
 
-Run `npx vitest run packages/core/src/security-view.test.ts apps/web/app/api/scans/'[id]'/protocol-graph/security-views/'[view]'/route.test.ts` for focused derivation and API tests, then the normal typecheck/test/lint/build gates. A completed scan with a finalized static graph can be queried through `GET /api/scans/:id/protocol-graph/security-views/:view`; no Security View UI exists yet. The seven projections use only persisted static facts. Oracle and AccessControl results may be empty because the current extractor does not prove those semantics. No AI, live RPC, compiler download or blockchain transaction is needed.
+Run `npx vitest run packages/core/src/security-view.test.ts apps/web/app/api/scans/'[id]'/protocol-graph/security-views/'[view]'/route.test.ts` for focused derivation and API tests, then the normal typecheck/test/lint/build gates. A completed scan with a finalized static graph can be queried through `GET /api/scans/:id/protocol-graph/security-views/:view`; The seven projections use only persisted static facts. Oracle and AccessControl results may be empty because the current extractor does not prove those semantics. No AI, live RPC, compiler download or blockchain transaction is needed.
 
 ## Visual Function Explorer Phase 6B
 

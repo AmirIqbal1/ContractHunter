@@ -1,8 +1,12 @@
 # Architecture
 
+## Protocol Intelligence Phase 7B
+
+The Protocol Map selects Overview or one of seven closed Phase 7A Security Views. It fetches only the selected read-only projection, checks its scan/graph/content identity against the loaded static artifact, and caches it for the page session. `apps/web/lib/protocol-map.ts` filters canonical graph IDs before the React Flow/Dagre contract-level adapter; function IDs collapse to their canonical contract only for display. Selected details retain source-backed reasons, annotations, warning counts and exact Explorer/source/finding links. Search, focus and filters affect presentation only. The 600-node/1,600-edge renderer bound remains. No core graph type, migration, scanner extraction or dynamic overlay changed. Next: Phase 8 Beginner Mode.
+
 ## Protocol Intelligence Phase 7A
 
-`packages/core/src/security-view.ts` derives `contracthunter-security-view-v1` from a validated immutable `StaticProtocolGraphArtifact`. Its seven closed view types select existing graph IDs and attach bounded reason/provenance records and static annotations. Derivation uses indexed direct facts and no general graph path search; the input graph is unchanged. Oracle, role and proxy projections require explicit graph evidence. Token/native transfer direction remains unresolved with current extraction. The read-only `/api/scans/[id]/protocol-graph/security-views/[view]` endpoint validates a closed view name and returns a bounded result with exact same-scan finding metadata where applicable. Views are regenerated on read using a versioned deterministic identity/content hash; there is no new persistence table, migration, frontend graph type, AI call or Impact Lab dependency. Phase 7B will adapt this model in Protocol Map.
+`packages/core/src/security-view.ts` derives `contracthunter-security-view-v1` from a validated immutable `StaticProtocolGraphArtifact`. Its seven closed view types select existing graph IDs and attach bounded reason/provenance records and static annotations. Derivation uses indexed direct facts and no general graph path search; the input graph is unchanged. Oracle, role and proxy projections require explicit graph evidence. Token/native transfer direction remains unresolved with current extraction. The read-only `/api/scans/[id]/protocol-graph/security-views/[view]` endpoint validates a closed view name and returns a bounded result with exact same-scan finding metadata where applicable. Views are regenerated on read using a versioned deterministic identity/content hash; there is no new persistence table, migration, frontend graph type, AI call or Impact Lab dependency. Phase 7B adapts this model in Protocol Map.
 
 ## Protocol Intelligence Phase 6B
 

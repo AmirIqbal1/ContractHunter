@@ -1,5 +1,9 @@
 # Security model
 
+## Interactive Security View boundary (Phase 7B)
+
+The Protocol Map renders Phase 7A projections as read-only filters of a validated static graph. It checks projection scan and graph identity before rendering and uses canonical IDs for drill-down. Repository strings and finding titles render as React text; no HTML insertion or arbitrary filesystem source route is used. Money Flow distinguishes static transfer-like evidence from observed movement and leaves asset direction unresolved. Oracle, role and proxy labels require existing evidence. Unresolved calls remain unresolved annotations; warnings and empty states do not assert absence or safety. View switching, search and focus do not update graph facts, finding authority, Impact Lab evidence or lifecycle state.
+
 ## Security View Phase 7A boundary
 
 Security Views are read-only static projections, not evidence or vulnerability decisions. They reference only existing graph node/edge IDs, preserve source/evidence reasons and reject unknown view types. They do not alter graph facts, finding status, hypothesis confidence/severity/lifecycle, or Impact Lab authority. Unresolved targets remain unresolved; a call edge is not relabeled as an asset transfer. Names alone never establish money movement, oracle identity, role semantics, proxy status or exploitability. The API returns bounded metadata from exact same-scan finding IDs and sanitizes graph/derivation failures. Future observed C1/D1 facts remain separate from these static projections.

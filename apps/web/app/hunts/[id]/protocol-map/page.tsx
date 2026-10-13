@@ -3,13 +3,14 @@ import { notFound } from "next/navigation";
 import { getDatabase, getScan } from "@contracthunter/db";
 import { ProtocolMap } from "@/components/protocol-map";
 import { loadProtocolMapForPage } from "@/lib/protocol-map-server";
+import { parseSecurityMapView } from "@/lib/security-view-map";
 
 export const dynamic = "force-dynamic";
 
 export default async function ProtocolMapPage({ params, searchParams }: { params: Promise<{ id: string }>;
-  searchParams?: Promise<{ node?: string }> }) {
+  searchParams?: Promise<{ node?: string; view?: string }> }) {
   const { id } = await params;
-  const { node } = await (searchParams ?? Promise.resolve({ node: undefined }));
+  const { node, view } = await (searchParams ?? Promise.resolve({ node: undefined, view: undefined }));
   const database = getDatabase();
   const scan = getScan(database, id);
   if (!scan) notFound();
@@ -22,7 +23,7 @@ export default async function ProtocolMapPage({ params, searchParams }: { params
       <p className="muted">{invalid ? "The saved graph failed validation. The underlying scan remains available." :
         "This scan has no finalized static graph. Older scans are not backfilled; run a new scan to generate one."}</p>
       <Link className="muted-link" href={`/hunts/${id}`}>Return to hunt →</Link></div> :
-      <ProtocolMap artifact={artifact} scanId={id} initialSelectedId={artifact.graph.nodes.some((item) =>
+      <ProtocolMap artifact={artifact} scanId={id} initialView={parseSecurityMapView(view)} initialSelectedId={artifact.graph.nodes.some((item) =>
         item.id === node && ["contract", "interface", "library"].includes(item.kind)) ? node : null} />}
   </>;
 }

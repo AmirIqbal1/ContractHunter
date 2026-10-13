@@ -1,5 +1,9 @@
 # API reference
 
+## Protocol Map Security View selector (Phase 7B)
+
+`/hunts/:scanId/protocol-map?view=:view` accepts the seven closed Security View names below. An unknown value opens Overview. The client requests one selected projection from the existing read-only endpoint and checks its scan, graph and artifact content identity before adapting canonical node/edge IDs to the map renderer. It caches each successfully loaded projection for the page session. There is no new write API or browser-provided analysis query.
+
 ## Static Security Views (Phase 7A)
 
 `GET /api/scans/:id/protocol-graph/security-views/:view` accepts exactly `money-flow`, `permissions`, `oracle-flow`, `external-calls`, `upgradeability`, `attack-surface` or `findings`. It returns a bounded `contracthunter-security-view-v1` projection with existing graph IDs, inclusion reasons/provenance, static annotations, counts, warnings and a deterministic content hash. Finding metadata is loaded only by exact same-scan finding ID and capped at 500 entries. Invalid scan/view selectors return 400, missing scan/graph returns 404 and integrity/derivation failures return a sanitized 500. The endpoint is read-only and does not provide a query language, runtime trace or mutation route.

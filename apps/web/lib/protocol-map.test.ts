@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import type { ProtocolGraphEdge, ProtocolGraphNode, StaticProtocolGraphArtifact } from "@contracthunter/core";
+import type { ProtocolGraphEdge, ProtocolGraphNode, SecurityViewResult, StaticProtocolGraphArtifact } from "@contracthunter/core";
 import { defaultOptions, edgeDetails, findingIds, layoutMap, nodeDetails, searchMap, visibleModel } from "./protocol-map";
+import { parseSecurityMapView, projectionNodeFacts, projectionOwnerIds, reasonHelp, securityMapViews } from "./security-view-map";
 
 const location = (sourceUnitName: string, startLine = 1) => ({ sourceUnitName, startLine, endLine: startLine,
   startColumn: 0, endColumn: 1, startByte: 0, endByte: 1 });
@@ -101,5 +102,64 @@ describe("Protocol Map adapter", () => {
     expect(layoutMap(view).nodes).toHaveLength(view.nodes.length);
     const small = visibleModel(fixture(), defaultOptions(fixture()));
     expect(layoutMap(small).nodes.map((node) => node.position)).toEqual(layoutMap(small).nodes.map((node) => node.position));
+  });
+});
+
+describe("Security View map projection", () => {
+  const reason = (code: string) => ({ code, sourceKind: "graph-node", sourceId: "fixture",
+    source: location("src/core/Vault.sol", 18), evidence: evidence("src/core/Vault.sol"), explanationKey: code });
+  const view = (nodes: string[], edges: string[], kind: SecurityViewResult["viewType"] = "money-flow") => ({
+    viewType: kind, scanId: "a", protocolGraphId: "pg:" + "b".repeat(64), graphContentSha256: "c".repeat(64),
+    nodes: nodes.map((id) => ({ id, reasons: [reason("token-transfer")] })),
+    edges: edges.map((id) => ({ id, reasons: [reason("external-call")], callType: "high-level", targetContext: "dependency" })),
+    annotations: [], findingMetadata: [], warnings: [],
+  }) as unknown as SecurityViewResult;
+  it("offers Overview and exactly seven closed views with safe URL parsing", () => {
+    expect(securityMapViews.map((item) => item.value)).toEqual(["money-flow", "permissions", "oracle-flow",
+      "external-calls", "upgradeability", "attack-surface", "findings"]);
+    expect(parseSecurityMapView("money-flow")).toBe("money-flow");
+    expect(parseSecurityMapView("../../../x")).toBe("overview");
+  });
+  it("retains canonical edges and collapses only included functions to their owners", () => {
+    const artifact = fixture(), projection = view(["calculate", "price"], ["external"]);
+    const beforeGraph = JSON.stringify(artifact), beforeView = JSON.stringify(projection);
+    const result = visibleModel(artifact, defaultOptions(artifact), null, "both", projection);
+    expect(result.nodes.map((item) => item.id)).toEqual(["vault", "oracle"]);
+    expect(result.edges.map((item) => item.id)).toEqual(["external"]);
+    expect(projectionOwnerIds(artifact, projection)).toEqual(new Set(["vault", "oracle"]));
+    expect(projectionNodeFacts(artifact, projection, "vault")[0].node.id).toBe("calculate");
+    expect(JSON.stringify(artifact)).toBe(beforeGraph);
+    expect(JSON.stringify(projection)).toBe(beforeView);
+  });
+  it("does not create a money-flow node from a name or relabel a call as a transfer", () => {
+    const artifact = fixture();
+    const result = visibleModel(artifact, defaultOptions(artifact), null, "both", view(["withdraw"], []));
+    expect(result.nodes.map((item) => item.id)).toEqual(["vault"]);
+    expect(result.edges).toEqual([]);
+  });
+  it("keeps roles, proven proxy edges, unresolved call targets and findings distinct", () => {
+    const artifact = fixture();
+    const permissions = visibleModel(artifact, defaultOptions(artifact), null, "both", view(["role", "withdraw"], ["control"], "permissions"));
+    expect(permissions.nodes.map((item) => item.id)).toContain("role");
+    expect(permissions.edges[0].id).toBe("control");
+    const upgrade = visibleModel(artifact, defaultOptions(artifact), null, "both", view(["proxy", "unknown"], ["proxy-edge"], "upgradeability"));
+    expect(upgrade.nodes.find((item) => item.id === "proxy")?.data.badges).toContain("PROXY");
+    expect(upgrade.nodes.some((item) => item.id === "delegate")).toBe(false);
+    const external = visibleModel(artifact, defaultOptions(artifact), null, "both", view(["withdraw", "unknown"], ["unknown-edge"], "external-calls"));
+    expect(external.nodes.some((item) => item.id === "unknown")).toBe(true);
+    expect(external.edges[0].data?.kind).toBe("external-call");
+    const findings = visibleModel(artifact, defaultOptions(artifact), null, "both", view(["withdraw"], [], "findings"));
+    expect(findings.nodes[0].data.findingCount).toBe(1);
+    expect(reasonHelp["delegatecall-present"]).toContain("storage");
+  });
+  it("renders an empty oracle view and caps large projected maps without changing source", () => {
+    const artifact = fixture();
+    expect(visibleModel(artifact, defaultOptions(artifact), null, "both", view([], [], "oracle-flow")).nodes).toEqual([]);
+    for (let i = 0; i < 650; i++) artifact.graph.nodes.push({ ...artifact.graph.nodes[0], id: `extra-${i}`, key: `extra-${i}` });
+    const result = visibleModel(artifact, defaultOptions(artifact), null, "both",
+      view(artifact.graph.nodes.map((item) => item.id), []));
+    expect(result.totalNodes).toBeGreaterThan(600);
+    expect(result.nodes).toHaveLength(600);
+    expect(result.clipped).toBe(true);
   });
 });
