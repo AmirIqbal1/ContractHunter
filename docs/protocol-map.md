@@ -1,5 +1,9 @@
 # Protocol Intelligence / ProtocolGraph
 
+## Finding Integration and Investigation Paths (Phase 9A — implemented)
+
+The [finding integration audit](finding-integration-audit.md) inventories the existing graph, Map, Explorer, Findings View, Start Here, Investigation, Hypothesis and Impact Lab links. Phase 9A adds a bounded `contracthunter-investigation-path-v1` static research model and a read-only API. It connects an exact finding target to nearby call relationships, proven permission/oracle/upgrade context and Phase 6 function operations. Contract-only links remain contract-only; unresolved calls terminate. Paths use source/provenance and canonical IDs. They do not prove execution or exploitation. Phase 9B will render paths; no path canvas was added in 9A.
+
 ## Beginner Mode and Start Here (Phase 8B — implemented)
 
 From a completed hunt with a finalized static graph, choose **Show Me Where To Start**, or open it from Protocol Map. The dedicated `/hunts/:id/start` page renders Phase 8A's bounded Project Overview and server-ordered contract/function recommendations. Beginner and Researcher use the same ranking result. Beginner exposes fixed concept explanations and review prompts; Researcher exposes factor IDs, awarded/potential points, evidence IDs, graph identity and ruleset version. The `?mode=beginner|researcher` preference is preserved through Start Here links into Protocol Map, Contract Explorer and Function Explorer. Filters and search affect presentation only, and the initial list shows five of the bounded ten recommendations with Show more. Contract/function and source links use canonical IDs and source units.

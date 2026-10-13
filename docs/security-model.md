@@ -1,5 +1,9 @@
 # Security model
 
+## Investigation Path boundary (Phase 9A)
+
+An Investigation Path is a static, bounded navigation artifact. It joins exact finding-to-graph links with proven graph relationships and source/provenance. A caller chain means static connectivity only; it does not prove runtime reachability or exploitability. Contract-level fallback is never elevated to a function match. Oracle, asset and proxy context require existing deterministic evidence; unresolved calls do not receive invented targets. Derivation cannot change finding, Investigation or Hypothesis lifecycle, severity or confidence, create evidence, or authorize verification or Impact Lab. D1/C1 observations remain separate future overlays. See [finding-integration-audit.md](finding-integration-audit.md).
+
 ## Beginner Mode boundary (Phase 8B)
 
 Start Here presents the Phase 8A Audit Priority result without changing weights, scores, findings or graph truth. Both display modes show the same evidence. A higher score means more known characteristics worth manual review, not greater vulnerability likelihood. A low score is not a safety conclusion. Partial coverage and unresolved targets remain explicit. Fixed product text supplies concept help; repository strings render as React text. Canonical scan, contract, function and source identities drive navigation. Ranking grants no Impact Lab authority and creates no dynamic evidence.

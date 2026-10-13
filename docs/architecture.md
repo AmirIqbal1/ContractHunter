@@ -1,5 +1,9 @@
 # Architecture
 
+## Protocol Intelligence Phase 9A
+
+`packages/core/src/investigation-path.ts` validates the persisted static graph, selects exact `findingLinks`, indexes static edges, and derives bounded local, caller, callee, privilege, oracle, upgrade and asset-operation context. A step carries canonical node/edge IDs, source, reasons, provenance and fixed concept key. The server resolver joins existing Investigation findings and Hypothesis related Investigation IDs within the scan; it never uses free-text affected names. The read-only API derives on demand, with a versioned content hash and no migration. Path coverage and unresolved targets remain explicit. D1/C1 overlays are reserved as separate observed layers. The complete existing integration audit is in [finding-integration-audit.md](finding-integration-audit.md).
+
 ## Protocol Intelligence Phase 8B
 
 `/hunts/:id/start` reads the finalized graph and Repository Map on the server, runs the existing Phase 8A derivation, and sends only its bounded audit-priority result to the `StartHere` client component. No full graph is sent for this screen. The component does not score or sort contracts; mode, search, filters and Show more change presentation only. It uses the fixed core concept catalog and canonical graph IDs for Explorer, source and Security View links. The hunt and Protocol Map provide entry links. No graph/finding mutation, migration, scanner extraction, AI call or execution route was added.

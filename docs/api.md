@@ -1,5 +1,9 @@
 # API reference
 
+## Investigation Paths (Phase 9A)
+
+`GET /api/scans/:id/protocol-graph/investigation-paths/:subjectType/:subjectId` accepts only `finding`, `investigation`, or `hypothesis` and exact UUIDs. It verifies the scan and subject ownership, reads the finalized validated static graph, resolves existing finding links and returns bounded `contracthunter-investigation-path-v1` context. Wrong scan/subject or missing graph returns 404; malformed IDs/type return 400; derivation failures return a sanitized 500. The endpoint is read-only, supports no arbitrary graph query, and grants no Impact Lab authority. The response contains static paths, canonical steps, operation refs, coverage warnings and an unattached future runtime-overlay marker. See [finding-integration-audit.md](finding-integration-audit.md).
+
 ## Start Here page (Phase 8B)
 
 `GET /hunts/:id/start` is a server-rendered page using the existing read-only Phase 8A derivation. Optional `?mode=beginner|researcher` changes display detail only. The existing `/api/scans/:id/protocol-graph/audit-priority` response and server-owned weights are unchanged. A missing graph or derivation failure shows a bounded page state; errors do not expose internal paths.

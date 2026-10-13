@@ -1,5 +1,9 @@
 # Development
 
+## Investigation Paths Phase 9A
+
+Run `npx vitest run packages/core/src/investigation-path.test.ts apps/web/lib/investigation-path-server.test.ts apps/web/app/api/scans/'[id]'/protocol-graph/investigation-paths/'[subjectType]'/'[subjectId]'/route.test.ts apps/web/app/findings/'[id]'/page.test.tsx`, then the normal audit/typecheck/test/lint/build gates. For an existing scan with a finalized graph and a finding, open that finding and follow any exact Protocol Map, Explorer and source links. The read-only path endpoint accepts that scan and finding ID; an unmapped finding returns `mapping: "unmapped"`. Investigation and Hypothesis subjects use existing exact membership. No visual path page, AI, RPC, download or transaction is required. See [finding-integration-audit.md](finding-integration-audit.md).
+
 ## Beginner Mode and Start Here Phase 8B
 
 Run `npm run dev`, open an existing hunt with finalized Protocol Intelligence data, and choose **Show Me Where To Start**. Inspect Project Overview, ranked contracts, **Why start here?**, factor evidence, recommended functions, score explanation, Security View links and source links. Switch Beginner/Researcher and confirm order/scores remain stable. Open a function and return, open a Security View, then a contract; inspect partial warnings if the scan has them. Return to Protocol Map. No scan ID is assumed. Focused UI tests: `npx vitest run apps/web/components/start-here.test.tsx`. The page is read-only and needs no AI, live RPC, downloads or transactions.

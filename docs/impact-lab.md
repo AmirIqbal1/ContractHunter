@@ -1,5 +1,9 @@
 # ContractHunter v0.3 — Fork & Impact Engine
 
+## Future Protocol Intelligence path overlay boundary
+
+Phase 9A Investigation Paths are static graph-backed navigation. A later visual overlay may align a reviewed local D1 execution trace and C1 state diff with exact path/function identities where provenance permits. Observed calls and state changes must remain separate records; they cannot rewrite static path truth, verify a finding by themselves, or broaden existing Impact Lab session/review authority. Phase 9A performs no execution.
+
 ## Phase D1: local transaction trace capture
 
 After the reviewed Forge worker finishes and its per-job bridge closes, the controller traces only transaction hashes recorded by that bridge for the current execution. Its guarded managed-Anvil capability performs fixed local `eth_getTransactionReceipt`, `eth_getBlockByNumber`, and `debug_traceTransaction` with Anvil 1.7.1 `callTracer`. The PoC worker bridge and browser expose no debug method; the upstream read-only proxy still rejects `debug_*`, `trace_*`, signing and transaction submission. Capture occurs before C1 POST state, diff persistence and final baseline reset.

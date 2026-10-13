@@ -1,5 +1,9 @@
 # ContractHunter AI Handoff
 
+## Current milestone: Protocol Intelligence Phase 9A complete
+
+Phase 9A audited existing finding integrations before adding `contracthunter-investigation-path-v1`. Existing graph/Map/Explorer/Findings View/Start Here links remain. The new read-only service derives bounded static context from exact finding links and existing Investigation/Hypothesis membership. Contract-level ambiguity remains explicit; source-backed steps and operation refs carry canonical IDs, provenance, coverage and unresolved state. Finding detail now links exact graph targets to Map, Explorer and source. No lifecycle, verification or Impact Lab authority changed. **Next: Phase 9B visual Investigation / Finding Paths.** See [finding-integration-audit.md](finding-integration-audit.md).
+
 ## Current milestone: Protocol Intelligence Phase 8B complete
 
 Start Here is a dedicated hunt route backed by the existing Phase 8A server derivation. It shows factual overview counts, unchanged server ranking, canonical Contract/Function Explorer and Security View/source links, fixed concept help, review prompts, and partial-analysis warnings. Beginner/Researcher mode is presentation only. The score is audit interest, never vulnerability likelihood or safety. No AI call, Impact Lab authority, graph mutation or migration was added. **Next: Phase 9 — inspect remaining Finding Integration / Security Paths gaps before changing existing exact finding links.**
