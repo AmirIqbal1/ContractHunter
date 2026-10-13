@@ -1,8 +1,12 @@
 # Development
 
+## Visual Investigation Paths Phase 9B
+
+Run `npm run dev`, open a hunt with findings and a finalized ProtocolGraph, open a finding, then select **View Investigation Path**. Inspect the selected static path and **Why This Connection Exists**; open the affected Function Explorer, return to choose local/caller/callee context, open a relevant Security View, and switch Beginner/Researcher. If a fixture exposes unresolved or truncated results, confirm the terminal/warning copy; then return to the finding. Investigation and Hypothesis details offer the same route when a finalized graph exists. No specific hunt ID is assumed. Focused test: `npx vitest run apps/web/components/investigation-path-view.test.tsx`. Run the usual typecheck, test, lint, build and production audit gates. No AI, live RPC or transaction is used.
+
 ## Investigation Paths Phase 9A
 
-Run `npx vitest run packages/core/src/investigation-path.test.ts apps/web/lib/investigation-path-server.test.ts apps/web/app/api/scans/'[id]'/protocol-graph/investigation-paths/'[subjectType]'/'[subjectId]'/route.test.ts apps/web/app/findings/'[id]'/page.test.tsx`, then the normal audit/typecheck/test/lint/build gates. For an existing scan with a finalized graph and a finding, open that finding and follow any exact Protocol Map, Explorer and source links. The read-only path endpoint accepts that scan and finding ID; an unmapped finding returns `mapping: "unmapped"`. Investigation and Hypothesis subjects use existing exact membership. No visual path page, AI, RPC, download or transaction is required. See [finding-integration-audit.md](finding-integration-audit.md).
+Run `npx vitest run packages/core/src/investigation-path.test.ts apps/web/lib/investigation-path-server.test.ts apps/web/app/api/scans/'[id]'/protocol-graph/investigation-paths/'[subjectType]'/'[subjectId]'/route.test.ts apps/web/app/findings/'[id]'/page.test.tsx`, then the normal audit/typecheck/test/lint/build gates. For an existing scan with a finalized graph and a finding, open that finding and follow any exact Protocol Map, Explorer and source links. The read-only path endpoint accepts that scan and finding ID; an unmapped finding returns `mapping: "unmapped"`. Investigation and Hypothesis subjects use existing exact membership. Phase 9B now renders that result. No AI, RPC, download or transaction is required. See [finding-integration-audit.md](finding-integration-audit.md).
 
 ## Beginner Mode and Start Here Phase 8B
 

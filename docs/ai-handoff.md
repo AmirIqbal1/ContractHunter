@@ -1,8 +1,12 @@
 # ContractHunter AI Handoff
 
-## Current milestone: Protocol Intelligence Phase 9A complete
+## Current milestone: Protocol Intelligence Phase 9B complete
 
-Phase 9A audited existing finding integrations before adding `contracthunter-investigation-path-v1`. Existing graph/Map/Explorer/Findings View/Start Here links remain. The new read-only service derives bounded static context from exact finding links and existing Investigation/Hypothesis membership. Contract-level ambiguity remains explicit; source-backed steps and operation refs carry canonical IDs, provenance, coverage and unresolved state. Finding detail now links exact graph targets to Map, Explorer and source. No lifecycle, verification or Impact Lab authority changed. **Next: Phase 9B visual Investigation / Finding Paths.** See [finding-integration-audit.md](finding-integration-audit.md).
+Phase 9B renders the existing `contracthunter-investigation-path-v1` static result at `/hunts/:scanId/investigation-paths/:subjectType/:subjectId`. Finding, Investigation and Hypothesis detail pages link when a finalized graph exists. The bounded vertical path list preserves server order, canonical target markers, entry-point facts, exact relationships, source/provenance and partial/unresolved/truncated warnings. Beginner uses the existing concept catalog; Researcher exposes IDs, ranges, evidence and derivation identity. The page selects only returned paths and edges, and links to exact Explorer, Map, Security View and finding destinations. The current Protocol Map focuses the owning contract; whole-path highlighting is deferred. No lifecycle, severity, confidence, verification, Impact Lab, graph or C1/D1 authority changed. **Next: Phase 10 Dynamic Impact Lab Overlays.**
+
+## Previous milestone: Protocol Intelligence Phase 9A complete
+
+Phase 9A audited existing finding integrations before adding `contracthunter-investigation-path-v1`. Existing graph/Map/Explorer/Findings View/Start Here links remain. The new read-only service derives bounded static context from exact finding links and existing Investigation/Hypothesis membership. Contract-level ambiguity remains explicit; source-backed steps and operation refs carry canonical IDs, provenance, coverage and unresolved state. Finding detail links exact graph targets to Map, Explorer and source. No lifecycle, verification or Impact Lab authority changed. Phase 9B now renders this model. See [finding-integration-audit.md](finding-integration-audit.md).
 
 ## Current milestone: Protocol Intelligence Phase 8B complete
 

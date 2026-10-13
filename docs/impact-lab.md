@@ -1,5 +1,9 @@
 # ContractHunter v0.3 — Fork & Impact Engine
 
+## Phase 9B static path UI boundary
+
+The Investigation Path page now renders the Phase 9A static graph result and shows Observed Local Execution and Observed State Changes as unattached placeholders. It does not read, align or display D1 traces or C1 diffs, and it has no Impact Lab launch action. Phase 10 may attach observations only through exact execution and canonical path/function identities after preserving the existing reviewed PoC and verified local session authority. Static paths must remain distinct from observed calls and state changes.
+
 ## Future Protocol Intelligence path overlay boundary
 
 Phase 9A Investigation Paths are static graph-backed navigation. A later visual overlay may align a reviewed local D1 execution trace and C1 state diff with exact path/function identities where provenance permits. Observed calls and state changes must remain separate records; they cannot rewrite static path truth, verify a finding by themselves, or broaden existing Impact Lab session/review authority. Phase 9A performs no execution.

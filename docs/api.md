@@ -1,5 +1,9 @@
 # API reference
 
+## Investigation Path page (Phase 9B)
+
+`GET /hunts/:scanId/investigation-paths/:subjectType/:subjectId` is a read-only server page for the same three closed subject types and exact UUIDs as the Phase 9A API. Optional `?mode=beginner|researcher`, `?path=ip:…` and `?edge=pe:…` select presentation only, after validating membership in the returned bounded result. Invalid or cross-scan subjects receive 404; missing or invalid graph data shows a bounded page state. The page reuses Phase 9A derivation and adds no arbitrary graph-query or write endpoint. The browser cannot derive paths or alter finding, hypothesis, graph, verification or Impact Lab records.
+
 ## Investigation Paths (Phase 9A)
 
 `GET /api/scans/:id/protocol-graph/investigation-paths/:subjectType/:subjectId` accepts only `finding`, `investigation`, or `hypothesis` and exact UUIDs. It verifies the scan and subject ownership, reads the finalized validated static graph, resolves existing finding links and returns bounded `contracthunter-investigation-path-v1` context. Wrong scan/subject or missing graph returns 404; malformed IDs/type return 400; derivation failures return a sanitized 500. The endpoint is read-only, supports no arbitrary graph query, and grants no Impact Lab authority. The response contains static paths, canonical steps, operation refs, coverage warnings and an unattached future runtime-overlay marker. See [finding-integration-audit.md](finding-integration-audit.md).

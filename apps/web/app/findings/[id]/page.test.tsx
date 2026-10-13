@@ -18,10 +18,17 @@ describe("finding detail exact graph links", () => {
     expect(html).toContain(`protocol-map?node=${encodeURIComponent(contractId)}`);
     expect(html).toContain(`/functions/${encodeURIComponent(functionId)}`);
     expect(html).toContain("does not establish runtime reachability");
+    expect(html).toContain(`/investigation-paths/finding/${findingId}`);
   });
   it("omits graph navigation when exact attachment is absent", async () => {
     calls.graph.mockReturnValueOnce({ graph: { nodes: [] }, findingLinks: [] });
     const html = renderToStaticMarkup(await FindingPage({ params: Promise.resolve({ id: findingId }) }));
     expect(html).not.toContain("Show in Protocol Map");
+    expect(html).toContain("View Investigation Path");
+  });
+  it("omits the path action when no finalized graph can be loaded", async () => {
+    calls.graph.mockReturnValueOnce(null);
+    const html = renderToStaticMarkup(await FindingPage({ params: Promise.resolve({ id: findingId }) }));
+    expect(html).not.toContain("View Investigation Path");
   });
 });

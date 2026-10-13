@@ -1,8 +1,12 @@
 # Protocol Intelligence / ProtocolGraph
 
+## Investigation Path UI (Phase 9B — implemented)
+
+`/hunts/:scanId/investigation-paths/:subjectType/:subjectId` renders the Phase 9A read-only result for an exact `finding`, `investigation`, or `hypothesis` subject. Detail pages link here when a finalized graph exists. The page uses a vertical ordered step list rather than the full Protocol Map renderer: only bounded server-derived paths are selectable, in server order. Local context, caller/callee chains, privilege, oracle, upgrade and asset-operation context retain exact Phase 9A kind and completeness. The selected edge opens **Why This Connection Exists** with its graph relationship, reasons, source and provenance. Source, Contract Explorer, Function Explorer, Protocol Map, relevant Security Views and exact findings use canonical IDs. The Map currently selects contracts, so function steps focus the owning contract; path highlighting is deferred to Phase 10. Beginner and Researcher show the same path data and order. Unresolved targets terminate; partial and truncated coverage remain visible. Observed Execution and State Changes are unattached future layers. The static path does not assert runtime execution, exploitability, severity or financial impact.
+
 ## Finding Integration and Investigation Paths (Phase 9A — implemented)
 
-The [finding integration audit](finding-integration-audit.md) inventories the existing graph, Map, Explorer, Findings View, Start Here, Investigation, Hypothesis and Impact Lab links. Phase 9A adds a bounded `contracthunter-investigation-path-v1` static research model and a read-only API. It connects an exact finding target to nearby call relationships, proven permission/oracle/upgrade context and Phase 6 function operations. Contract-only links remain contract-only; unresolved calls terminate. Paths use source/provenance and canonical IDs. They do not prove execution or exploitation. Phase 9B will render paths; no path canvas was added in 9A.
+The [finding integration audit](finding-integration-audit.md) inventories the existing graph, Map, Explorer, Findings View, Start Here, Investigation, Hypothesis and Impact Lab links. Phase 9A adds a bounded `contracthunter-investigation-path-v1` static research model and a read-only API. It connects an exact finding target to nearby call relationships, proven permission/oracle/upgrade context and Phase 6 function operations. Contract-only links remain contract-only; unresolved calls terminate. Paths use source/provenance and canonical IDs. They do not prove execution or exploitation. Phase 9B now renders this model without changing it.
 
 ## Beginner Mode and Start Here (Phase 8B — implemented)
 
@@ -52,7 +56,7 @@ Operations are sorted by **source location**. This is a source-order view, **not
 
 ## Status and purpose
 
-**Protocol Intelligence Phases 1–7 implemented:** the frontend-independent ProtocolGraph, deterministic Repository Mapper, immutable static graph, Protocol Map UI, Contract Explorer, Function Explorer model/API/UI and interactive Security Views. Phase 3 uses finalized Repository Maps and, only for the existing supported exact-pragma compilation profile, a checksum-verified trusted `solc --standard-json` AST query over immutable source snapshots. Unsupported profiles receive map-backed contract nodes and explicit warnings rather than guessed calls. Phase 8A audit-priority data model is implemented; Phase 8B UI and Phase 10 dynamic overlays remain planned. No AI call or vulnerability authority was added.
+**Protocol Intelligence Phases 1–9 implemented:** the frontend-independent ProtocolGraph, deterministic Repository Mapper, immutable static graph, Protocol Map UI, Contract and Function Explorers, seven Security Views, Start Here and Investigation Paths. Phase 3 uses finalized Repository Maps and, only for the existing supported exact-pragma compilation profile, a checksum-verified trusted `solc --standard-json` AST query over immutable source snapshots. Unsupported profiles receive map-backed contract nodes and explicit warnings rather than guessed calls. Phase 10 dynamic overlays remain planned. No AI call or vulnerability authority was added.
 
 ## Contract Explorer UI (Phase 5)
 

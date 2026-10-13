@@ -1,5 +1,9 @@
 # Security model
 
+## Investigation Path UI boundary (Phase 9B)
+
+The visual path is a read-only rendering of Phase 9A's bounded static result. Its arrows use only returned edge IDs and relationship kinds; unknown targets end without continuation. The exact target marker uses persisted finding-to-node membership. Entry-point wording means static connectivity, not runtime reachability or permissionless access. A path's presence cannot verify a finding, change status/confidence/severity, create dynamic evidence, assert financial impact, or authorize Impact Lab. Repository titles, signatures, reasons and labels render as React text; source links use canonical source units, never raw host paths. Beginner explanations come from the existing fixed concept catalog. C1 state and D1 traces remain separate future overlays.
+
 ## Investigation Path boundary (Phase 9A)
 
 An Investigation Path is a static, bounded navigation artifact. It joins exact finding-to-graph links with proven graph relationships and source/provenance. A caller chain means static connectivity only; it does not prove runtime reachability or exploitability. Contract-level fallback is never elevated to a function match. Oracle, asset and proxy context require existing deterministic evidence; unresolved calls do not receive invented targets. Derivation cannot change finding, Investigation or Hypothesis lifecycle, severity or confidence, create evidence, or authorize verification or Impact Lab. D1/C1 observations remain separate future overlays. See [finding-integration-audit.md](finding-integration-audit.md).

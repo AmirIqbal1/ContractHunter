@@ -273,3 +273,47 @@ input:focus, select:focus { border-color: #4eae8b; box-shadow: 0 0 0 3px #57e6ad
 .sh-page a:focus-visible, .sh-page button:focus-visible, .sh-page summary:focus-visible, .sh-page input:focus-visible, .sh-page select:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 @media (max-width: 900px) { .sh-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 560px) { .sh-stats, .sh-classifications { grid-template-columns: 1fr; }.sh-card-head { flex-direction: column; }.sh-score { text-align: left; }.sh-tools label, .sh-tools input, .sh-tools select { width: 100%; } }
+
+/* Phase 9B: bounded static Investigation Path, with an equivalent ordered text sequence. */
+.ip-page { min-width: 0; }
+.ip-page a:not(.button) { color: var(--accent); }
+.ip-page h2 { margin-top: 0; }
+.ip-entry { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin: 16px 0 24px; font-size: 12px; color: var(--muted); }
+.ip-disclaimer { max-width: 74ch; border-left: 3px solid #78b3a5; padding: 9px 12px; background: #112620; line-height: 1.5; }
+.ip-overview { margin-bottom: 20px; }
+.ip-identity { font-size: 11px; line-height: 1.6; overflow-wrap: anywhere; color: #afc3cf; }
+.ip-warning { border: 1px solid #9f8155; background: #251e14; border-radius: 7px; padding: 13px 16px; line-height: 1.55; margin: 14px 0; }
+.ip-warning ul { margin-bottom: 0; padding-left: 20px; }
+.ip-selector { display: grid; gap: 6px; max-width: 900px; font-size: 12px; color: var(--muted); }
+.ip-selector select { width: 100%; min-width: 0; padding: 11px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--text); }
+.ip-kind-links { display: flex; flex-wrap: wrap; gap: 7px; margin: 12px 0; }
+.ip-kind-links button { padding: 7px 10px; border: 1px solid var(--line); border-radius: 5px; background: var(--panel); color: var(--text); cursor: pointer; }
+.ip-kind-links button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+.ip-coverage { font-size: 12px; color: #b7c9d3; }
+.ip-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 350px); gap: 18px; align-items: start; }
+.ip-steps { list-style: none; min-width: 0; padding: 0; margin: 0; }
+.ip-steps > li { min-width: 0; }
+.ip-connection { display: flex; align-items: center; gap: 12px; min-height: 54px; padding-left: 23px; }
+.ip-connection span { color: #8cc2b2; font-size: 25px; }
+.ip-connection button { border: 1px solid #567273; background: #122a2a; color: #d2ebe5; border-radius: 5px; padding: 8px 11px; cursor: pointer; text-align: left; font: 700 11px ui-monospace, monospace; letter-spacing: .03em; }
+.ip-connection button[aria-pressed="true"] { border-color: var(--accent); background: #164037; }
+.ip-step { border-left: 4px solid #669e9c; min-width: 0; }
+.ip-target { border-left-color: #e1b272; background: #242015; }
+.ip-unresolved { border-left-color: #b88972; }
+.ip-step-head, .ip-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; }
+.ip-step h3 { margin: 9px 0; font-size: 19px; overflow-wrap: anywhere; }
+.ip-marker { border: 1px solid #9c8556; border-radius: 4px; padding: 4px 7px; color: #f2d7a3; font: 800 10px ui-monospace, monospace; letter-spacing: .05em; }
+.ip-note, .ip-source { font-size: 12px; line-height: 1.5; color: #bccbd0; }
+.ip-source { font-family: ui-monospace, monospace; overflow-wrap: anywhere; }
+.ip-actions { margin: 11px 0; font-size: 12px; }
+.ip-actions a { border: 1px solid #4b6265; border-radius: 5px; padding: 6px 9px; }
+.ip-aside { display: grid; gap: 12px; min-width: 0; }
+.ip-aside .card { overflow-wrap: anywhere; }
+.ip-summary { display: grid; gap: 7px; margin: 0; }
+.ip-summary div { display: flex; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--line); padding: 5px 0; }
+.ip-summary dt { color: var(--muted); }.ip-summary dd { margin: 0; font-weight: 700; }
+.ip-operation-list { padding-left: 20px; line-height: 1.8; }
+.ip-state, .ip-future { margin: 18px 0; }
+.ip-page button:focus-visible, .ip-page a:focus-visible, .ip-page select:focus-visible, .ip-page summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+@media (max-width: 850px) { .ip-layout { grid-template-columns: 1fr; } }
+@media (max-width: 560px) { .ip-connection { padding-left: 5px; }.ip-step { padding: 15px; } }

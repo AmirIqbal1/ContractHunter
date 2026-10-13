@@ -1,5 +1,9 @@
 # Architecture
 
+## Protocol Intelligence Phase 9B
+
+The server page at `/hunts/:scanId/investigation-paths/:subjectType/:subjectId` validates UUIDs, subject ownership and the finalized graph, then calls the existing Phase 9A derivation. Its small display adapter looks up only nodes already named by the result and exact Function Explorer review cues. The React view selects among the returned paths and controls mode/edge disclosure; it does not traverse the graph, infer edges or mutate state. A vertical ordered list avoids Protocol Map relayout and gives keyboard and screen reader users the same steps. Source and Explorer navigation retains canonical IDs. Protocol Map focus uses the contract identity supported by its current route. The static result's unattached C1/D1 markers are displayed as future placeholders, never observations. No schema, migration, API mutation, AI call or execution authority was added.
+
 ## Protocol Intelligence Phase 9A
 
 `packages/core/src/investigation-path.ts` validates the persisted static graph, selects exact `findingLinks`, indexes static edges, and derives bounded local, caller, callee, privilege, oracle, upgrade and asset-operation context. A step carries canonical node/edge IDs, source, reasons, provenance and fixed concept key. The server resolver joins existing Investigation findings and Hypothesis related Investigation IDs within the scan; it never uses free-text affected names. The read-only API derives on demand, with a versioned content hash and no migration. Path coverage and unresolved targets remain explicit. D1/C1 overlays are reserved as separate observed layers. The complete existing integration audit is in [finding-integration-audit.md](finding-integration-audit.md).

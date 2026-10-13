@@ -14,9 +14,11 @@ export default async function FindingPage({ params }: { params: Promise<{ id: st
   let graphTargets: Array<{ id: string; kind: string; name: string; ownerId: string;
     source: { sourceUnitName: string; startLine: number } | null }> = [];
   let additionalTargets = 0;
+  let pathAvailable = false;
   try {
     const artifact = readStaticProtocolGraph(database, finding.scanId);
     if (artifact) {
+      pathAvailable = true;
       const nodes = new Map(artifact.graph.nodes.map((node) => [node.id, node]));
       const linked = artifact.findingLinks.filter((link) => link.findingId === finding.id);
       additionalTargets = Math.max(0, linked.length - 32);
@@ -26,10 +28,11 @@ export default async function FindingPage({ params }: { params: Promise<{ id: st
           ownerId: node.kind === "function" ? node.contractId : node.id }] : [];
       });
     }
-  } catch { graphTargets = []; additionalTargets = 0; }
+  } catch { graphTargets = []; additionalTargets = 0; pathAvailable = false; }
   return <article className="article">
     <header className="page-head"><div><div className="eyebrow">Finding / {finding.detectorId ?? finding.source}</div><h1>{finding.title}</h1><p className="subhead">Recorded {formatDate(finding.createdAt)} · <Link className="muted-link" href={`/hunts/${finding.scanId}`}>{scan?.repositoryName ?? "View hunt"}</Link></p></div><SeverityBadge value={finding.severity} /></header>
     <section className="card"><dl className="details"><div className="detail"><dt>Confidence</dt><dd>{finding.confidence}%</dd></div><div className="detail"><dt>Source</dt><dd className="mono">{finding.source}</dd></div><div className="detail"><dt>Contract / Function</dt><dd className="mono">{finding.contract ?? "—"} / {finding.functionName ?? "—"}</dd></div><div className="detail"><dt>Verification</dt><dd><FindingStatusBadge value={finding.status} /></dd></div><div className="detail" style={{ gridColumn: "1 / -1" }}><dt>Location</dt><dd className="mono">{finding.filePath ?? "—"}{finding.startLine ? `:${finding.startLine}${finding.endLine && finding.endLine !== finding.startLine ? `–${finding.endLine}` : ""}` : ""}</dd></div></dl></section>
+    {pathAvailable && <p className="ip-entry"><Link className="button" href={`/hunts/${encodeURIComponent(finding.scanId)}/investigation-paths/finding/${encodeURIComponent(finding.id)}`}>View Investigation Path →</Link><span>Static source-backed context; no runtime proof.</span></p>}
     {graphTargets.length > 0 && <section className="article-section"><h2>Protocol context</h2><p>Exact static graph attachment. This does not establish runtime reachability or exploitability.</p>
       <ul className="reason-list">{graphTargets.map((target) => <li key={target.id}>{target.kind}: {target.name} ·
         <Link className="muted-link" href={`/hunts/${encodeURIComponent(finding.scanId)}/protocol-map?node=${encodeURIComponent(target.ownerId)}`}> Show in Protocol Map →</Link>

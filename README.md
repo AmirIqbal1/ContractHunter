@@ -15,6 +15,7 @@ Use it only with repositories and contracts you are authorised to analyse. Repos
 - Source-linked Protocol Map with contract relationships, filters and finding references
 - Source-linked Contract Explorer with entry points, callers/callees, findings and review cues
 - Visual Function Explorer with source-order operations, exact links and partial-analysis warnings
+- Static Investigation Paths for findings, investigations and hypotheses, with exact source and provenance links
 - Slither + Aderyn static analysis
 - Deterministic cross-scanner investigations
 - Optional AI protocol analysis and specialist security review
@@ -58,7 +59,7 @@ Deterministic verification options and strategy-aware planning, conservative tar
 
 Phase A1 established managed fork lifecycle and safety; A2 added the read-only upstream boundary and exact deployment identity; A3 proved real Anvil compatibility and isolated the PoC runtime. B1 runs reviewed manual Forge PoCs; C1 captures selected state changes; D1 records bounded local call traces. Deeper impact interpretation and visual investigation remain planned after the ProtocolGraph foundation.
 
-**Protocol Intelligence:** Phases 1–8 include the ProtocolGraph, Repository Mapper, Protocol Map, Contract and Function Explorers, seven Security Views, and **Show Me Where To Start**. Phase 9A audits existing finding links and adds a bounded static Investigation Path model. Open a completed hunt with a finalized static graph, then choose **Show Me Where To Start** for source-linked Audit Priority recommendations or **Open Protocol Map** for the graph. Audit Priority and Investigation Paths guide manual review; neither estimates vulnerability likelihood or proves exploitation. Phase 9B visual paths remain planned. See [Protocol Map architecture](docs/protocol-map.md).
+**Protocol Intelligence:** Phases 1–9 are implemented. Phase 9A audits finding links and derives bounded static Investigation Paths; Phase 9B renders them from finding, investigation and hypothesis detail. Open a completed hunt with a finalized static graph, then choose **Show Me Where To Start** or **Open Protocol Map**, or open a finding and select **View Investigation Path**. The path is source-backed research context, not proof of execution or exploitability. Phase 10 Dynamic Impact Lab Overlays is next. See [Protocol Map architecture](docs/protocol-map.md).
 
 See the [full roadmap](docs/roadmap.md) and [Impact Lab design](docs/impact-lab.md) for details.
 
