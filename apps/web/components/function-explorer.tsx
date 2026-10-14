@@ -73,8 +73,10 @@ const label = (kind: FunctionOperation["kind"], unresolved: boolean) =>
         kind === "loop" ? "Loop" : kind.replaceAll("-", " ");
 
 export function FunctionExplorer({ data, findings, repositoryName, initialOperation = null,
-  initialFilter, initialMode }: { data: FunctionExplorerResponse; findings: FunctionFinding[]; repositoryName: string;
-  initialOperation?: string | null; initialFilter?: string; initialMode?: string }) {
+  initialFilter, initialMode, overlay = null, executionIds = [], callComparison = [] }: { data: FunctionExplorerResponse; findings: FunctionFinding[]; repositoryName: string;
+  initialOperation?: string | null; initialFilter?: string; initialMode?: string;
+  overlay?: import("@contracthunter/core").ImpactOverlay | null; executionIds?: string[];
+  callComparison?: Array<{ edgeId: string; status: "observed" | "not-observed" | "unavailable" }> }) {
   const { model } = data, scanId = model.scanId;
   const [mode, setMode] = useState<DisplayMode>(initialMode === "researcher" ? "researcher" : "beginner");
   const [filter, setFilter] = useState<FlowFilter>(filters.includes(initialFilter as FlowFilter) ? initialFilter as FlowFilter : "all");
@@ -213,6 +215,23 @@ export function FunctionExplorer({ data, findings, repositoryName, initialOperat
       {model.findings.length > 0 && <p className="ce-note">Finding identity is exact at function level. No operation-level source mapping is claimed.</p>}</section>
     {mode === "researcher" && <section className="section"><h2>Extraction provenance</h2><ul className="ce-list">
       {model.provenance.map((item) => <li key={`${item.origin}:${item.version}`}>{item.origin} · {item.version}</li>)}</ul></section>}
-    <section className="section"><h2>Impact Lab and observed data</h2><p className="card muted">No function-level Impact Lab launch is available without an exact eligible finding, reviewed PoC and verified local session. Observed Execution (D1) and Observed State Changes (C1) are future overlays; the flow above is static.</p></section>
+    <section className="section"><h2>Observed Execution</h2><p className="card">SOURCE-ORDER VIEW above is static. OBSERVED RUNTIME ORDER below describes only one reviewed reproduction on a LOCAL FORK.</p>
+      {executionIds.length > 0 && <label>Impact execution <select aria-label="Impact execution" value={overlay?.executionId ?? ""} onChange={(event) => { const url = new URL(window.location.href); url.searchParams.set("execution", event.target.value); window.location.assign(url.toString()); }}>
+        <option value="">Choose an execution</option>{executionIds.map((id, index) => <option key={id} value={id}>Execution {index + 1} · {id.slice(0, 8)}</option>)}</select></label>}
+      {overlay ? <div className="card"><p><strong>LOCAL FORK</strong> · Observed during a reviewed PoC executed against ContractHunter&apos;s isolated local fork.</p>
+        <ol>{overlay.observedCalls.filter((call) => call.mapping.functionNodeId === model.functionId).map((call) => <li key={call.id}>
+          OBSERVED {call.callType} · transaction {call.transactionOrdinal + 1} · trace index {call.ordinal} · {call.outcome.toUpperCase()}
+          {mode === "researcher" && <span className="mono"> · {call.from} → {call.to} · {call.selector ?? "selector unavailable"}</span>}
+        </li>)}</ol>
+        {model.callees.length > 0 && <><h3>Static call relationships compared with this execution</h3><ul>{model.callees.map((edge) => <li key={edge.edgeId}>
+          {edge.kind.toUpperCase()} → {nodes.get(edge.toFunctionId ?? "")?.signature ?? "target unresolved"} · {callComparison.find((item) => item.edgeId === edge.edgeId)?.status === "observed" ?
+            "✓ OBSERVED IN THIS LOCAL EXECUTION" : callComparison.find((item) => item.edgeId === edge.edgeId)?.status === "not-observed" ?
+              "NOT OBSERVED IN THIS EXECUTION" : "UNAVAILABLE — mapping incomplete"}
+          {mode === "researcher" && <span className="mono"> · {edge.edgeId}</span>}</li>)}</ul>
+          <p>A single reproduction does not prove this path can never execute.</p></>}
+        <p>Static operation IDs are not assigned to trace calls. State change observed in the execution; exact operation attribution not proven.</p>
+        <Link href={`/hunts/${encodeURIComponent(scanId)}/impact/executions/${encodeURIComponent(overlay.executionId)}`}>Inspect Observed Local Execution →</Link></div> :
+        <p className="card muted">No exact function mapping is available for the selected execution. Static operations remain source-order facts; no operation is marked executed without authoritative mapping.</p>}
+    </section>
   </>;
 }

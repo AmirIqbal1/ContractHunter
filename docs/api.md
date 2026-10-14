@@ -1,5 +1,9 @@
 # API reference
 
+## Phase 10B read-only pages
+
+`GET /hunts/:scanId/impact/executions/:executionId` displays one exact same-scan reviewed local execution. Investigation Path accepts bounded presentation selectors `?execution=<uuid>&view=static|observed|compare&tx=<ordinal>&call=<overlayCallId>&state=changed|unchanged|unavailable|all|balances|tokens|storage`. Protocol Map accepts `?execution=<uuid>&observed=1&tx=<ordinal>`; Function Explorer accepts `?execution=<uuid>` and shows runtime order only for exact mapped functions. Server loaders validate execution ownership and persisted evidence before rendering. These routes add no mutation, execution command, RPC parameter or browser-derived provenance.
+
 ## Impact Overlay (Phase 10A)
 
 `GET /api/scans/:scanId/impact/poc-executions/:executionId/overlay` returns one derived `contracthunter-impact-overlay-v1` read model for an exact reviewed local PoC execution whose finding or hypothesis belongs to that scan. Both IDs are UUID validated. Wrong scan/execution membership returns 404; malformed IDs return 400; provenance/integrity failures return a sanitized 409. The result separates transactions, observed calls/logs, C1 state observations, optional exact static/path comparisons, factual coverage, capability flags, provenance references and warnings. Historical B1 runs may report trace/state unavailable. No arbitrary trace/state upload, RPC selector, mutation, or Impact Lab launch route is added. Production currently leaves runtime contract/function mapping unresolved without authoritative deployment-to-source evidence.

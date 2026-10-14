@@ -7,6 +7,7 @@ vi.mock("@contracthunter/db", () => ({ getDatabase: () => ({}), getScan: () => (
     contract: "Vault", functionName: "withdraw", status: "candidate", filePath: "src/Vault.sol", startLine: 12,
     endLine: 12, rootCause: "", attackScenario: "", impact: "", evidence: "", createdAt: new Date() }),
   readStaticProtocolGraph: (...args: unknown[]) => calls.graph(...args) }));
+vi.mock("@/lib/impact-overlay-selection", () => ({ listImpactExecutionIds: () => [] }));
 import FindingPage from "./page";
 const findingId = "11111111-1111-4111-8111-111111111111";
 const contractId = `pn:${"a".repeat(64)}`, functionId = `pn:${"b".repeat(64)}`;

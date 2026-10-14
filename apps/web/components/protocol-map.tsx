@@ -4,11 +4,12 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Background, Controls, MiniMap, ReactFlow, ReactFlowProvider, Handle, Position,
   useReactFlow, type NodeProps } from "@xyflow/react";
-import type { ProtocolGraphNode, ProtocolSourceLocation, SecurityViewResult, StaticProtocolGraphArtifact } from "@contracthunter/core";
+import type { ImpactOverlay, ProtocolGraphNode, ProtocolSourceLocation, SecurityViewResult, StaticProtocolGraphArtifact } from "@contracthunter/core";
 import { defaultOptions, edgeDetails, findingIds, layoutMap, nodeDetails, relationshipGroups,
   mapOwner, searchMap, visibleModel, type MapDirection, type MapNodeData, type MapOptions, type MapPreset } from "@/lib/protocol-map";
 import { projectionNodeFacts, projectionOwnerIds, reasonHelp, securityMapViews,
   type SecurityMapView } from "@/lib/security-view-map";
+import { runtimeMapOverlay } from "@/lib/runtime-map-overlay";
 
 const presets: Array<{ value: MapPreset; label: string }> = [
   { value: "all", label: "All" }, { value: "core", label: "Core protocol" },
@@ -49,23 +50,28 @@ function ProtocolNode({ data }: NodeProps) {
 }
 const nodeTypes = { protocol: ProtocolNode };
 function GraphCanvas({ artifact, options, selectedId, selectedEdgeId, setSelectedId, setSelectedEdgeId,
-  focusId, direction, projection }: { artifact: StaticProtocolGraphArtifact; options: MapOptions; projection: SecurityViewResult | null;
+  focusId, direction, projection, overlay, transactionOrdinal }: { artifact: StaticProtocolGraphArtifact; options: MapOptions; projection: SecurityViewResult | null;
+  overlay: ImpactOverlay | null; transactionOrdinal: number;
   selectedId: string | null; selectedEdgeId: string | null; setSelectedId: (id: string | null) => void;
   setSelectedEdgeId: (id: string | null) => void; focusId: string | null; direction: MapDirection }) {
   const flow = useReactFlow();
   const view = useMemo(() => layoutMap(visibleModel(artifact, options, focusId, direction, projection)),
     [artifact, options, focusId, direction, projection]);
+  const runtime = useMemo(() => overlay ? runtimeMapOverlay(artifact, view, overlay, transactionOrdinal) : null,
+    [artifact, view, overlay, transactionOrdinal]);
   const highlighted = useMemo(() => {
+    const displayNodes = runtime ? [...view.nodes, ...runtime.nodes] : view.nodes;
+    const displayEdges = runtime ? [...view.edges, ...runtime.edges] : view.edges;
     const neighbors = new Set(selectedId ? [selectedId] : []);
-    if (selectedId) for (const edge of view.edges) {
+    if (selectedId) for (const edge of displayEdges) {
       if (direction !== "callers" && edge.source === selectedId) neighbors.add(edge.target);
       if (direction !== "callees" && edge.target === selectedId) neighbors.add(edge.source);
     }
-    return { nodes: view.nodes.map((node) => ({ ...node,
+    return { nodes: displayNodes.map((node) => ({ ...node,
       data: { ...node.data, selected: node.id === selectedId, dimmed: !!selectedId && !neighbors.has(node.id) } })),
-    edges: view.edges.map((edge) => ({ ...edge,
+    edges: displayEdges.map((edge) => ({ ...edge,
       style: { ...edge.style, opacity: selectedId && edge.source !== selectedId && edge.target !== selectedId ? 0.22 : 0.8 } })) };
-  }, [view, selectedId, direction]);
+  }, [view, runtime, selectedId, direction]);
   useEffect(() => {
     if (!focusId) return;
     const node = view.nodes.find((item) => item.id === focusId);
@@ -77,7 +83,7 @@ function GraphCanvas({ artifact, options, selectedId, selectedEdgeId, setSelecte
     className: edge.id === selectedEdgeId ? "pm-edge-selected" : undefined })), [highlighted.edges, selectedEdgeId]);
   return <>
     <div className="pm-canvas" aria-label="Protocol relationship graph">
-      {view.nodes.length ? <ReactFlow nodes={highlighted.nodes} edges={styledEdges} nodeTypes={nodeTypes}
+      {highlighted.nodes.length ? <ReactFlow nodes={highlighted.nodes} edges={styledEdges} nodeTypes={nodeTypes}
         fitView fitViewOptions={{ padding: 0.12 }} minZoom={0.1} maxZoom={2} nodesDraggable={false}
         nodesConnectable={false} elementsSelectable nodesFocusable edgesFocusable
         onNodeClick={(_, node) => { setSelectedId(node.id); setSelectedEdgeId(null); }}
@@ -88,6 +94,7 @@ function GraphCanvas({ artifact, options, selectedId, selectedEdgeId, setSelecte
       </ReactFlow> : <div className="pm-empty-canvas">No nodes match these filters. Reset filters or choose another view.</div>}
     </div>
     <div className="pm-counts" role="status">Showing {view.nodes.length} of {view.totalNodes} non-function nodes · {view.edges.length} of {view.totalEdges} cross-node relationships
+      {runtime ? ` · ${runtime.nodes.length} ephemeral runtime nodes and ${runtime.edges.length} observed edges${runtime.clippedCalls ? ` · ${runtime.clippedCalls} calls omitted from canvas; all remain in text` : ""}` : ""}
       {view.hiddenFunctionNodes > 0 ? ` · ${view.hiddenFunctionNodes} functions in details` : ""}
       {view.clipped ? " · renderer limit reached; narrow the filters" : ""}</div>
     <div className="pm-text-relationships"><h3>Visible relationships</h3>
@@ -201,12 +208,16 @@ function ProjectionDetails({ artifact, projection, scanId, selectedId, selectedE
   </section>;
 }
 
-export function ProtocolMap({ artifact, scanId, initialSelectedId = null, initialView = "overview", initialMode = "beginner" }: { artifact: StaticProtocolGraphArtifact;
-  scanId: string; initialSelectedId?: string | null; initialView?: SecurityMapView; initialMode?: "beginner" | "researcher" }) {
+export function ProtocolMap({ artifact, scanId, initialSelectedId = null, initialView = "overview", initialMode = "beginner",
+  overlay = null, executionIds = [], initialObserved = false, initialTx = 0 }: { artifact: StaticProtocolGraphArtifact;
+  scanId: string; initialSelectedId?: string | null; initialView?: SecurityMapView; initialMode?: "beginner" | "researcher";
+  overlay?: ImpactOverlay | null; executionIds?: string[]; initialObserved?: boolean; initialTx?: number }) {
   const [securityView, setSecurityView] = useState<SecurityMapView>(initialView);
   const [projectionCache, setProjectionCache] = useState<Partial<Record<SecurityMapView, SecurityViewResult>>>({});
   const [viewError, setViewError] = useState(false);
   const [researcher, setResearcher] = useState(initialMode === "researcher");
+  const [showObserved, setShowObserved] = useState(initialObserved && !!overlay);
+  const [runtimeTx, setRuntimeTx] = useState(overlay?.transactions.some((item) => item.ordinal === initialTx) ? initialTx : 0);
   const [focusOnly, setFocusOnly] = useState(false);
   const [options, setOptions] = useState<MapOptions>(() => initialSelectedId ?
     { ...defaultOptions(artifact), preset: "all", hideInterfaces: false, hideLibraries: false, hideDependencies: false } :
@@ -286,6 +297,31 @@ export function ProtocolMap({ artifact, scanId, initialSelectedId = null, initia
   }, [projection, focusOnly, visibleSelectedId, artifact, byId]);
   return <div className="pm-workspace">
     <div className="pm-main">
+      {overlay && <section className="card io-map-overlay"><h2>Static Map + Observed Execution</h2>
+        <p><strong>LOCAL FORK</strong> · Observed during a reviewed PoC executed against ContractHunter&apos;s isolated local fork.</p>
+        <label>Impact execution <select aria-label="Impact execution" value={overlay.executionId} onChange={(event) => { const url = new URL(window.location.href); url.searchParams.set("execution", event.target.value); window.location.assign(url.toString()); }}>
+          {executionIds.map((id, index) => <option key={id} value={id}>Execution {index + 1} · {id.slice(0, 8)}</option>)}</select></label>
+        <label>Observed Transaction <select aria-label="Observed Transaction" value={runtimeTx} onChange={(event) => { const next = Number(event.target.value); setRuntimeTx(next); const url = new URL(window.location.href); url.searchParams.set("tx", String(next)); window.history.replaceState(null, "", `${url.pathname}${url.search}`); }}>
+          {overlay.transactions.map((item) => <option key={item.ordinal} value={item.ordinal}>Transaction {item.ordinal + 1}</option>)}</select></label>
+        <button type="button" aria-pressed={showObserved} onClick={() => { setShowObserved((old) => !old); const url = new URL(window.location.href); url.searchParams.set("observed", showObserved ? "0" : "1"); window.history.replaceState(null, "", `${url.pathname}${url.search}`); }}>
+          {showObserved ? "Hide Observed Execution" : "+ Observed Execution"}</button>
+        {showObserved && <><p>Static ProtocolGraph remains unchanged. Dashed observed relationships below belong only to this execution.</p>
+          <div className="io-map-flow" role="list" aria-label="Observed execution relationships">{overlay.observedCalls.filter((item) => item.transactionOrdinal === runtimeTx).map((call) => {
+            const parent = overlay.observedCalls.find((item) => item.id === call.parentCallId && item.transactionOrdinal === runtimeTx);
+            const target = byId.get(call.mapping.functionNodeId ?? call.mapping.contractNodeId ?? "");
+            const source = byId.get(parent?.mapping.functionNodeId ?? parent?.mapping.contractNodeId ?? "");
+            const runtimeId = `io:${overlay.executionId}:${call.id}`;
+            return <div role="listitem" className="io-map-edge" key={runtimeId}>
+              <span>{source?.name ?? (parent?.to ? `${parent.to.slice(0, 8)}…${parent.to.slice(-6)}` : "LOCAL TRANSACTION")}</span>
+              <span aria-hidden="true"> - - - → </span><strong>{call.relationshipStatus === "runtime-only-observed" ? "RUNTIME-ONLY OBSERVED CALL" : `OBSERVED ${call.callType}`}</strong>
+              <span aria-hidden="true"> → </span><span>{target?.name ?? (call.to ? `${call.to.slice(0, 8)}…${call.to.slice(-6)}` : "runtime target unavailable")}</span>
+              {!target && <small> RUNTIME TARGET · STATIC IDENTITY UNRESOLVED</small>}
+              {researcher && <small className="mono"> · {runtimeId} · {call.relationshipStatus}</small>}
+            </div>;
+          })}</div>
+          {!overlay.capabilities.traceAvailable && <p>Observed trace unavailable for this historical or partial execution.</p>}
+          <Link href={`/hunts/${encodeURIComponent(scanId)}/impact/executions/${encodeURIComponent(overlay.executionId)}`}>Inspect call tree and state changes →</Link></>}
+      </section>}
       <nav className="pm-view-selector" aria-label="Security views"><button type="button" aria-pressed={securityView === "overview"}
         onClick={() => changeView("overview")}>Overview</button>{securityMapViews.map((item) => <button type="button" key={item.value}
           aria-pressed={securityView === item.value} onClick={() => changeView(item.value)}>{item.label}</button>)}</nav>
@@ -337,7 +373,7 @@ export function ProtocolMap({ artifact, scanId, initialSelectedId = null, initia
         {artifact.unresolved.length} relationships unresolved · {artifact.graph.warnings.length} extraction warnings. Missing targets are not inferred.
       </p> : null}
       <div className="pm-legend" aria-label={`${securityView} legend`}>{viewLegend[securityView].map((item) => <span key={item}>{item}</span>)}</div>
-      {(securityView === "overview" || projection) && !viewError && <ReactFlowProvider><GraphCanvas artifact={artifact} options={options} projection={displayProjection} selectedId={visibleSelectedId}
+      {(securityView === "overview" || projection) && !viewError && <ReactFlowProvider><GraphCanvas artifact={artifact} options={options} projection={displayProjection} overlay={showObserved ? overlay : null} transactionOrdinal={runtimeTx} selectedId={visibleSelectedId}
         selectedEdgeId={visibleSelectedEdgeId} setSelectedId={selectNode} setSelectedEdgeId={setSelectedEdgeId}
         focusId={focusId} direction={direction} /></ReactFlowProvider>}
     </div>

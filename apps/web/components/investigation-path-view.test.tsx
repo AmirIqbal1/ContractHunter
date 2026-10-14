@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import type { InvestigationPathResult, ProtocolSourceLocation } from "@contracthunter/core";
+import type { ImpactOverlay, InvestigationPathResult, ProtocolSourceLocation } from "@contracthunter/core";
 import { InvestigationPathView, relationshipLabel } from "./investigation-path-view";
 import type { PathNodeDetail } from "@/lib/investigation-path-view";
 
@@ -52,6 +52,25 @@ const render = (value = result(), props: Partial<Parameters<typeof Investigation
     confidence={null} repositoryName="Fixture" {...props} />);
 
 describe("static Investigation Path UI", () => {
+  it("keeps the static path intact while showing exact comparison statuses", () => {
+    const overlay = { executionId: "00000000-0000-4000-8000-000000000002", pathComparisons: [{ pathId: pathA.id,
+      steps: [{ nodeId: router, status: "observed-in-this-local-execution" },
+        { nodeId: helper, status: "observed-in-this-local-execution" },
+        { nodeId: target, status: "not-observed-in-this-execution" }],
+      edges: [{ edgeId: edgeA, status: "observed-in-this-local-execution" },
+        { edgeId: edgeB, status: "not-observed-in-this-execution" }], runtimeOnlyCallIds: [] }],
+      transactions: [], observedCalls: [], observedLogs: [], observedState: [],
+      capabilities: { traceAvailable: false, statePreAvailable: false, stateDiffAvailable: false },
+      coverage: { transactionCount: 0, observedCallCount: 0, contractMappedCallCount: 0, functionMappedCallCount: 0,
+        unmappedCallCount: 0, stateObservationCount: 0, changedObservationCount: 0 },
+      forkIdentity: { chainId: 1, baseBlockNumber: 1, baseBlockHash: "0x0", targetCodeHashes: {} } } as unknown as ImpactOverlay;
+    const staticHtml = render(result(), { initialPathId: pathA.id, overlay, executionIds: [overlay.executionId] });
+    const compare = render(result(), { initialPathId: pathA.id, overlay, executionIds: [overlay.executionId], initialView: "compare" });
+    expect(staticHtml).toContain("STATIC INVESTIGATION PATH"); expect(staticHtml).not.toContain("○ NOT OBSERVED IN THIS EXECUTION");
+    expect(compare).toContain("STATIC INVESTIGATION PATH"); expect(compare).toContain("✓ OBSERVED IN THIS LOCAL EXECUTION");
+    expect(compare).toContain("○ NOT OBSERVED IN THIS EXECUTION");
+    expect(compare).not.toContain("unreachable");
+  });
   it("renders a bounded entry chain, exact finding marker, source and Explorer links", () => {
     const html = render();
     expect(html).toContain("STATIC INVESTIGATION PATH"); expect(html).toContain("EXTERNAL ENTRY POINT");

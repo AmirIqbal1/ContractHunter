@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import type { InvestigationPathResult, ProtocolSourceLocation } from "@contracthunter/core";
+import type { ImpactOverlay, ImpactPathComparison, InvestigationPathResult, ProtocolSourceLocation, StaticProtocolGraphArtifact } from "@contracthunter/core";
 import { auditConcepts } from "@contracthunter/core/audit-priority-catalog";
 import type { PathNodeDetail } from "@/lib/investigation-path-view";
+import { ObservedExecution } from "./observed-execution";
 
 type Path = InvestigationPathResult["paths"][number];
 type Step = Path["steps"][number];
@@ -61,10 +62,13 @@ function pathLabel(path: Path, nodes: Map<string, PathNodeDetail>) {
   }).join(" → ")}`;
 }
 export function InvestigationPathView({ result, nodes, title, status, confidence, repositoryName,
-  initialMode = "beginner", initialPathId = null, initialEdgeId = null }: {
+  initialMode = "beginner", initialPathId = null, initialEdgeId = null, overlay = null, artifact = null,
+  executionIds = [], displayComparisons = [], initialView = "static", initialTx = 0, initialCall = null, initialState = "changed" }: {
   result: InvestigationPathResult; nodes: PathNodeDetail[]; title: string; status: string;
   confidence: number | null; repositoryName: string; initialMode?: Mode; initialPathId?: string | null;
-  initialEdgeId?: string | null;
+  initialEdgeId?: string | null; overlay?: ImpactOverlay | null; artifact?: StaticProtocolGraphArtifact | null;
+  executionIds?: string[]; initialView?: "static" | "observed" | "compare"; initialTx?: number;
+  initialCall?: string | null; initialState?: string; displayComparisons?: ImpactPathComparison[];
 }) {
   const byId = new Map(nodes.map((node) => [node.id, node]));
   const first = result.paths.find((path) => path.id === initialPathId) ??
@@ -72,6 +76,7 @@ export function InvestigationPathView({ result, nodes, title, status, confidence
   const [pathId, setPathId] = useState(first?.id ?? "");
   const [edgeId, setEdgeId] = useState<string | null>(first?.edgeIds.includes(initialEdgeId ?? "") ? initialEdgeId : null);
   const [mode, setMode] = useState<Mode>(initialMode);
+  const [view, setView] = useState<"static" | "observed" | "compare">(overlay ? initialView : "static");
   const path = result.paths.find((item) => item.id === pathId) ?? first;
   const target = path ? byId.get(path.targetNodeId) : nodes.find((node) => result.targetNodeIds.includes(node.id));
   const selectedStep = edgeId ? path?.steps.find((step) => step.viaEdgeId === edgeId) : undefined;
@@ -82,6 +87,11 @@ export function InvestigationPathView({ result, nodes, title, status, confidence
   const ops = result.operations.filter((operation) => operation.functionId === path?.targetNodeId);
   const assets = ops.filter((operation) => ["token-transfer-like", "native-transfer"].includes(operation.kind)).length;
   const relevantViews = path?.securityViews.filter((view) => Object.hasOwn(viewNames, view)) ?? [];
+  const comparison = displayComparisons.find((item) => item.pathId === path?.id) ??
+    overlay?.pathComparisons.find((item) => item.pathId === path?.id);
+  const observationLabel = (value: string | undefined) => value === "observed-in-this-local-execution" ? "✓ OBSERVED IN THIS LOCAL EXECUTION" :
+    value === "not-observed-in-this-execution" ? "○ NOT OBSERVED IN THIS EXECUTION" :
+    value === "comparison-unresolved" ? "? UNAVAILABLE — mapping incomplete" : "STATIC CONTEXT ONLY";
   function choosePath(next: string) { setPathId(next); setEdgeId(null); if (typeof window !== "undefined") {
     const url = new URL(window.location.href); url.searchParams.set("path", next);
     window.history.replaceState(null, "", `${url.pathname}${url.search}`); } }
@@ -97,6 +107,13 @@ export function InvestigationPathView({ result, nodes, title, status, confidence
       <Link className="button secondary-button" href={subjectHref(result.subject.type, result.subject.id)}>← Back to {result.subject.type}</Link></header>
     <div className="sh-mode" role="group" aria-label="Display mode"><button type="button" aria-pressed={mode === "beginner"} onClick={() => chooseMode("beginner")}>Beginner</button>
       <button type="button" aria-pressed={mode === "researcher"} onClick={() => chooseMode("researcher")}>Researcher</button></div>
+    {overlay && <><p className="io-local"><strong>LOCAL FORK</strong> · Observed during a reviewed PoC executed against ContractHunter&apos;s isolated local fork.</p>
+      <label>Impact execution <select aria-label="Impact execution" value={overlay.executionId} onChange={(event) => { const url = new URL(window.location.href); url.searchParams.set("execution", event.target.value); window.location.assign(url.toString()); }}>
+        {executionIds.map((id, index) => <option key={id} value={id}>Execution {index + 1} · {id.slice(0, 8)}</option>)}</select></label>
+      <div className="sh-mode" role="group" aria-label="Evidence view">{(["static", "observed", "compare"] as const).map((item) =>
+        <button type="button" key={item} aria-pressed={view === item} onClick={() => { setView(item); const url = new URL(window.location.href); url.searchParams.set("view", item); window.history.replaceState(null, "", `${url.pathname}${url.search}`); }}>
+          {item === "static" ? "Static Investigation" : item === "observed" ? "Observed Execution" : "Compare"}</button>)}</div></>}
+    {(view !== "observed" || !overlay) && <>
     <section className="card ip-overview"><h2>Target and derivation</h2><dl className="details"><div className="detail"><dt>Subject</dt><dd>{result.subject.type}</dd></div>
       <div className="detail"><dt>Current lifecycle/status</dt><dd>{status}</dd></div><div className="detail"><dt>Affected contract/function</dt>
       <dd>{target ? `${target.contractName ? `${target.contractName}.` : ""}${path?.steps.find((step) => step.nodeId === target.id)?.label ?? target.name}` : "No canonical target"}</dd></div>
@@ -119,6 +136,8 @@ export function InvestigationPathView({ result, nodes, title, status, confidence
           return <button key={kind} type="button" aria-pressed={path.kind === kind} onClick={() => choosePath(firstOfKind.id)}>{kindNames[kind]}</button>;
         })}</div>
         <p className="ip-coverage"><strong>{kindNames[path.kind]}</strong> · {path.completeness} · {path.steps.length} steps · traversal depth {path.edgeIds.length}</p>
+        {view === "compare" && comparison && comparison.runtimeOnlyCallIds.length > 0 &&
+          <p className="io-marker">+ {comparison.runtimeOnlyCallIds.length} runtime-only observed call{comparison.runtimeOnlyCallIds.length === 1 ? "" : "s"} in this execution. Inspect the observed call tree for exact targets.</p>}
         {path.completeness !== "complete-within-bounds" && <p className="ip-warning" role="status"><strong>{path.completeness === "truncated" ? "PATH TRUNCATED" : path.completeness === "unresolved" ? "TARGET UNRESOLVED" : "PARTIAL PATH"}</strong> · This static view may omit relationships beyond current evidence or bounds.</p>}
         <div className="ip-layout"><ol className="ip-steps" aria-label="Textual Investigation Path steps">{path.steps.map((step, index) => {
           const node = byId.get(step.nodeId), previous = byId.get(path.steps[index - 1]?.nodeId);
@@ -128,13 +147,15 @@ export function InvestigationPathView({ result, nodes, title, status, confidence
           return <li key={`${path.id}:${step.nodeId}`}>
             {index > 0 && <div className="ip-connection"><span aria-hidden="true">↓</span><button type="button" aria-pressed={edgeId === step.viaEdgeId}
               onClick={() => setEdgeId(edgeId === step.viaEdgeId ? null : step.viaEdgeId)}>
-              {relationshipLabel(step.relationship, previous, node)} · Why this connection?</button></div>}
+              {relationshipLabel(step.relationship, previous, node)} · Why this connection?</button>
+              {view === "compare" && comparison && <strong className="io-marker">{observationLabel(comparison.edges[index - 1]?.status)}</strong>}</div>}
             <article className={`card ip-step${isTarget ? " ip-target" : ""}${step.uncertainty === "unresolved-target" ? " ip-unresolved" : ""}`}>
               <div className="ip-step-head"><span className="eyebrow">Step {index + 1} · {step.nodeKind}</span>
                 {isTarget && <strong className="ip-marker">FINDING ATTACHED HERE</strong>}
                 {node?.entryPoint && <strong className="ip-marker">EXTERNAL ENTRY POINT</strong>}
                 {step.uncertainty === "unresolved-target" && <strong className="ip-marker">TARGET UNRESOLVED</strong>}</div>
               <h3>{node?.contractName ? `${node.contractName}.` : ""}{step.label}</h3>
+              {view === "compare" && comparison && <p className="io-marker">{observationLabel(comparison.steps[index]?.status)}</p>}
               {node?.entryPoint && <p className="ip-note">This function is externally callable and is statically connected to the finding target through known call relationships.</p>}
               {mode === "beginner" ? <p className="ip-note"><strong>Why this step matters:</strong> {concept.meaning} {concept.why}</p> :
                 <p className="mono ip-identity">Node: {step.nodeId} · Edge entering: {step.viaEdgeId ?? "none"}<br />
@@ -182,7 +203,9 @@ export function InvestigationPathView({ result, nodes, title, status, confidence
         <li>Choose local context, caller chain and callee chain where available.</li><li>Inspect labeled calls and relevant Security Views.</li>
         <li>Review attached findings in their current status.</li><li>Use Impact Lab only through an existing eligible workflow with its own review authority.</li></ol></section>}
       </>}
-    <section className="card ip-future"><h2>Observed data</h2><p>OBSERVED LOCAL EXECUTION — Not attached yet.</p>
-      <p>OBSERVED STATE CHANGES — Not attached yet.</p><p>Future C1/D1 overlays remain separate from this static path.</p></section>
+    </>}
+    {overlay && view !== "static" ? <ObservedExecution overlay={overlay} artifact={artifact} pathId={path?.id}
+      displayComparison={comparison} researcher={mode === "researcher"} initialTx={initialTx} initialCall={initialCall} initialState={initialState} /> :
+      !overlay && <section className="card ip-future"><h2>Observed data</h2><p>Observed trace unavailable. State diff unavailable for this subject.</p></section>}
   </main>;
 }

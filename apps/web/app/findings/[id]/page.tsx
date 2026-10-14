@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { getDatabase, getFinding, getScan, readStaticProtocolGraph } from "@contracthunter/db";
 import { FindingStatusBadge, SeverityBadge } from "@/components/badges";
 import { formatDate } from "@/components/format";
+import { listImpactExecutionIds } from "@/lib/impact-overlay-selection";
 
 export const dynamic = "force-dynamic";
 
@@ -11,6 +12,7 @@ export default async function FindingPage({ params }: { params: Promise<{ id: st
   const finding = getFinding(database, (await params).id);
   if (!finding) notFound();
   const scan = getScan(database, finding.scanId);
+  const executionIds = listImpactExecutionIds(database, finding.scanId, { type: "finding", id: finding.id });
   let graphTargets: Array<{ id: string; kind: string; name: string; ownerId: string;
     source: { sourceUnitName: string; startLine: number } | null }> = [];
   let additionalTargets = 0;
@@ -33,6 +35,8 @@ export default async function FindingPage({ params }: { params: Promise<{ id: st
     <header className="page-head"><div><div className="eyebrow">Finding / {finding.detectorId ?? finding.source}</div><h1>{finding.title}</h1><p className="subhead">Recorded {formatDate(finding.createdAt)} · <Link className="muted-link" href={`/hunts/${finding.scanId}`}>{scan?.repositoryName ?? "View hunt"}</Link></p></div><SeverityBadge value={finding.severity} /></header>
     <section className="card"><dl className="details"><div className="detail"><dt>Confidence</dt><dd>{finding.confidence}%</dd></div><div className="detail"><dt>Source</dt><dd className="mono">{finding.source}</dd></div><div className="detail"><dt>Contract / Function</dt><dd className="mono">{finding.contract ?? "—"} / {finding.functionName ?? "—"}</dd></div><div className="detail"><dt>Verification</dt><dd><FindingStatusBadge value={finding.status} /></dd></div><div className="detail" style={{ gridColumn: "1 / -1" }}><dt>Location</dt><dd className="mono">{finding.filePath ?? "—"}{finding.startLine ? `:${finding.startLine}${finding.endLine && finding.endLine !== finding.startLine ? `–${finding.endLine}` : ""}` : ""}</dd></div></dl></section>
     {pathAvailable && <p className="ip-entry"><Link className="button" href={`/hunts/${encodeURIComponent(finding.scanId)}/investigation-paths/finding/${encodeURIComponent(finding.id)}`}>View Investigation Path →</Link><span>Static source-backed context; no runtime proof.</span></p>}
+    {executionIds.length > 0 && <section className="card"><h2>Observed local reproduction available</h2><p>LOCAL FORK · Read-only evidence from an exact reviewed PoC execution. Finding status is unchanged.</p>
+      <Link href={`/hunts/${encodeURIComponent(finding.scanId)}/investigation-paths/finding/${encodeURIComponent(finding.id)}?execution=${encodeURIComponent(executionIds[0]!)}&view=compare`}>Compare with Static Investigation Path →</Link> · <Link href={`/hunts/${encodeURIComponent(finding.scanId)}/impact/executions/${encodeURIComponent(executionIds[0]!)}`}>View Observed Execution →</Link></section>}
     {graphTargets.length > 0 && <section className="article-section"><h2>Protocol context</h2><p>Exact static graph attachment. This does not establish runtime reachability or exploitability.</p>
       <ul className="reason-list">{graphTargets.map((target) => <li key={target.id}>{target.kind}: {target.name} ·
         <Link className="muted-link" href={`/hunts/${encodeURIComponent(finding.scanId)}/protocol-map?node=${encodeURIComponent(target.ownerId)}`}> Show in Protocol Map →</Link>

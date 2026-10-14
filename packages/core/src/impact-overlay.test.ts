@@ -284,4 +284,9 @@ describe("Phase 10A deterministic Impact Overlay", () => {
     expect(result.observedCalls[1]?.revertDetail).toBe("<script>alert(1)</script>");
     expect(JSON.stringify(result)).not.toContain("<div");
   });
+  it("excludes runtime authority and endpoint fields from the public overlay", () => {
+    const payload = JSON.stringify(deriveImpactOverlay(fixture()));
+    for (const field of ["runtimeTokenSha256", "privateKey", "rpcUrl", "dockerSocket", "workerSecret",
+      "hostPath", "upstreamUrl"]) expect(payload).not.toContain(`"${field}"`);
+  });
 });

@@ -1,8 +1,19 @@
 # Development
 
+## Phase 10B local manual check
+
+1. Start ContractHunter with `npm run dev` and open a hunt containing an eligible finding or hypothesis with an existing persisted reviewed Impact execution.
+2. Open its Investigation Path. Choose an Impact execution, then switch Static Investigation, Observed Execution and Compare.
+3. Inspect the transaction selector, call tree, a mapped call if authoritative mapping exists, and a runtime-only or unmapped call if captured. Inspect Observed State Changes, including unchanged and unavailable filters.
+4. Open Protocol Map with that execution and enable Observed Execution. Verify dashed observed edges and ephemeral runtime targets disappear when disabled.
+5. Open Function Explorer for a mapped function, when one exists, and compare SOURCE-ORDER VIEW with OBSERVED RUNTIME ORDER. Switch Beginner/Researcher.
+6. Return to the finding/hypothesis and confirm status, severity and confidence did not change. No live RPC, transaction or new PoC is needed to inspect persisted evidence.
+
+Run `npm run typecheck`, `npm test`, `npm run lint`, `npm run build`, and attempt `npm audit --omit=dev`. Production deployment-to-source mapping remains unavailable without an authoritative witness; unmapped calls are an expected accurate result. Historical executions can show unavailable trace/state rather than an empty successful visualization.
+
 ## Impact Overlay Phase 10A
 
-Run `npx vitest run packages/core/src/impact-overlay.test.ts` for bounded synthetic local trace/state evidence, then `npm run typecheck`, `npm test`, `npm run lint`, `npm run build`, and attempt `npm audit --omit=dev`. The read-only endpoint is `/api/scans/:scanId/impact/poc-executions/:executionId/overlay`; use an existing exact execution ID from a reviewed local PoC under the same scan. Its response is model data, with no Phase 10B visual screen. A current production response can retain runtime addresses while all graph contract/function mappings remain unresolved because deployed code hashes are not linked authoritatively to static source identities. Inspect `capabilities`, `warnings`, transaction-local blocks, observed call order and C1 unavailable states. No live RPC or transaction is needed for the synthetic tests.
+Run `npx vitest run packages/core/src/impact-overlay.test.ts` for bounded synthetic local trace/state evidence, then `npm run typecheck`, `npm test`, `npm run lint`, `npm run build`, and attempt `npm audit --omit=dev`. The read-only endpoint is `/api/scans/:scanId/impact/poc-executions/:executionId/overlay`; use an existing exact execution ID from a reviewed local PoC under the same scan. Its response is model data used by the Phase 10B visual screens. A current production response can retain runtime addresses while all graph contract/function mappings remain unresolved because deployed code hashes are not linked authoritatively to static source identities. Inspect `capabilities`, `warnings`, transaction-local blocks, observed call order and C1 unavailable states. No live RPC or transaction is needed for the synthetic tests.
 
 ## Visual Investigation Paths Phase 9B
 
