@@ -11,6 +11,7 @@ import { authoritativeInvariantEvidence, executableInvariantProposals, executabl
 export * from "./schema";
 export { recordImpactForkSession, recoverStaleImpactForkSessions, readImpactForkSession } from "./impact-fork-sessions";
 export * from "./impact-poc";
+export * from "./impact-scenario";
 export * from "./impact-state";
 export * from "./impact-trace";
 export * from "./repository-map";
@@ -626,9 +627,43 @@ export function createDatabase(databasePath: string) {
     })(); }
     catch (error) { throw new Error(`Database migration 0015_protocol_static_graphs failed without committing changes: ${error instanceof Error ? error.message : String(error)}`); }
   }
+  if (!sqlite.prepare("SELECT 1 FROM schema_migrations WHERE id = ?").get("0016_v0_3_impact_scenarios")) {
+    try { sqlite.transaction(() => {
+      sqlite.exec(`CREATE TABLE impact_scenario_revisions (
+        id TEXT PRIMARY KEY, scenario_id TEXT NOT NULL, revision INTEGER NOT NULL CHECK(revision>=1),
+        revision_of TEXT REFERENCES impact_scenario_revisions(id),
+        scan_id TEXT NOT NULL REFERENCES scans(id) ON DELETE CASCADE,
+        execution_id TEXT NOT NULL REFERENCES impact_poc_executions(id),
+        subject_type TEXT NOT NULL CHECK(subject_type IN ('finding','hypothesis')),
+        subject_id TEXT NOT NULL,
+        asset_flow_content_sha256 TEXT NOT NULL,
+        accounting_ruleset_version TEXT NOT NULL,
+        schema TEXT NOT NULL CHECK(schema='contracthunter-impact-scenario-v1'),
+        status TEXT NOT NULL CHECK(status IN ('draft','reviewed','rejected')),
+        assignments_json TEXT NOT NULL, note TEXT NOT NULL CHECK(length(note)<=1000),
+        content_sha256 TEXT NOT NULL, created_at INTEGER NOT NULL,
+        reviewed_at INTEGER, rejected_at INTEGER,
+        UNIQUE(scenario_id,revision));
+      CREATE INDEX impact_scenarios_execution_idx ON impact_scenario_revisions(scan_id,execution_id,scenario_id,revision);
+      CREATE TRIGGER impact_scenario_identity_immutable BEFORE UPDATE ON impact_scenario_revisions
+        WHEN OLD.scenario_id IS NOT NEW.scenario_id OR OLD.revision IS NOT NEW.revision OR
+          OLD.revision_of IS NOT NEW.revision_of OR OLD.scan_id IS NOT NEW.scan_id OR
+          OLD.execution_id IS NOT NEW.execution_id OR OLD.subject_type IS NOT NEW.subject_type OR
+          OLD.subject_id IS NOT NEW.subject_id OR OLD.asset_flow_content_sha256 IS NOT NEW.asset_flow_content_sha256 OR
+          OLD.accounting_ruleset_version IS NOT NEW.accounting_ruleset_version OR OLD.created_at IS NOT NEW.created_at
+        BEGIN SELECT RAISE(ABORT,'scenario identity immutable'); END;
+      CREATE TRIGGER impact_scenario_final_immutable BEFORE UPDATE ON impact_scenario_revisions
+        WHEN OLD.status<>'draft' BEGIN SELECT RAISE(ABORT,'reviewed scenario immutable'); END;
+      CREATE TRIGGER impact_scenario_final_no_delete BEFORE DELETE ON impact_scenario_revisions
+        WHEN OLD.status<>'draft' AND EXISTS(SELECT 1 FROM scans WHERE id=OLD.scan_id)
+        BEGIN SELECT RAISE(ABORT,'reviewed scenario immutable'); END;`);
+      sqlite.prepare("INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)").run("0016_v0_3_impact_scenarios", Date.now());
+    })(); }
+    catch (error) { throw new Error(`Database migration 0016_v0_3_impact_scenarios failed without committing changes: ${error instanceof Error ? error.message : String(error)}`); }
+  }
   const integrity = sqlite.pragma("quick_check") as Array<{ quick_check: string }>;
   const foreignKeyViolations = sqlite.pragma("foreign_key_check") as unknown[];
-  const requiredTables = ["scans", "scan_source_snapshots", "scan_source_snapshot_files", "scan_compilation_provenance", "scan_compilation_source_units", "scan_scanner_alignment", "findings", "scan_scanners", "investigations", "investigation_findings", "protocol_analyses", "invariants", "security_review_plans", "security_reviewer_runs", "vulnerability_hypotheses", "hypothesis_verification_runs", "verification_plan_attempts", "executable_invariant_runs", "executable_invariant_proposals", "invariant_replay_artifacts", "invariant_replay_runs", "authoritative_invariant_evidence", "invariant_evidence_reviews", "hypothesis_lifecycle_transitions", "hypothesis_groups", "hypothesis_group_members", "impact_fork_sessions", "impact_poc_artifacts", "impact_poc_executions", "impact_state_snapshots", "impact_state_observations", "impact_state_diffs", "impact_state_changes", "impact_transaction_traces", "impact_trace_nodes", "impact_trace_logs", "repository_maps", "static_protocol_graphs"];
+  const requiredTables = ["scans", "scan_source_snapshots", "scan_source_snapshot_files", "scan_compilation_provenance", "scan_compilation_source_units", "scan_scanner_alignment", "findings", "scan_scanners", "investigations", "investigation_findings", "protocol_analyses", "invariants", "security_review_plans", "security_reviewer_runs", "vulnerability_hypotheses", "hypothesis_verification_runs", "verification_plan_attempts", "executable_invariant_runs", "executable_invariant_proposals", "invariant_replay_artifacts", "invariant_replay_runs", "authoritative_invariant_evidence", "invariant_evidence_reviews", "hypothesis_lifecycle_transitions", "hypothesis_groups", "hypothesis_group_members", "impact_fork_sessions", "impact_poc_artifacts", "impact_poc_executions", "impact_state_snapshots", "impact_state_observations", "impact_state_diffs", "impact_state_changes", "impact_transaction_traces", "impact_trace_nodes", "impact_trace_logs", "repository_maps", "static_protocol_graphs", "impact_scenario_revisions"];
   const presentTables = new Set((sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as Array<{ name: string }>).map((row) => row.name));
   const repositoryMapTriggers = new Set((sqlite.prepare("SELECT name FROM sqlite_master WHERE type='trigger' AND name LIKE 'repository_maps_%'").all() as Array<{ name: string }>).map((row) => row.name));
   if (!["repository_maps_immutable", "repository_maps_no_delete"].every((name) => repositoryMapTriggers.has(name)))

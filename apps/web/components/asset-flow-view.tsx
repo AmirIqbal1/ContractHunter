@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import type { AssetFlow, AssetFlowEntry, AttemptedAssetFlow } from "@contracthunter/core";
+import type { AssetFlow, AssetFlowEntry, AttemptedAssetFlow, ImpactScenario } from "@contracthunter/core";
 
 type Position = AssetFlow["netPositions"][number];
 type Movement = { id: string; transactionOrdinal: number; transactionHash: string; assetId: string;
@@ -18,10 +18,10 @@ const assetName = (asset: AssetFlow["assets"][number] | undefined) => !asset ? "
   asset.standard === "native" ? `NATIVE (wei)` :
   `${asset.standard === "token-unknown-standard" ? "TOKEN · UNKNOWN STANDARD" : asset.standard.toUpperCase()} · ${asset.contractAddress ?? "unknown"}${asset.tokenId !== null ? ` · token ID ${asset.tokenId}` : ""}`;
 
-export function AssetFlowView({ flow, executionIds, txPositions, labels, initialTx, initialAsset,
-  initialParticipant, initialStatus, initialMode, investigationHref }: { flow: AssetFlow; executionIds: string[];
-  txPositions: Record<number, Position[]>; labels: Record<string, string>; initialTx?: string;
-  initialAsset?: string; initialParticipant?: string; initialStatus?: string; initialMode?: string;
+export function AssetFlowView({ flow, executionIds, txPositions, labels, scenarios = [], initialTx, initialAsset,
+  initialParticipant, initialStatus, initialMode, initialEntry, investigationHref }: { flow: AssetFlow; executionIds: string[];
+  txPositions: Record<number, Position[]>; labels: Record<string, string>; scenarios?: ImpactScenario[]; initialTx?: string;
+  initialAsset?: string; initialParticipant?: string; initialStatus?: string; initialMode?: string; initialEntry?: string;
   investigationHref?: string | null }) {
   const router = useRouter();
   const [tx, setTx] = useState(initialTx === "all" || !flow.transactions.some((item) => String(item.ordinal) === initialTx) ? "all" : initialTx!);
@@ -30,7 +30,8 @@ export function AssetFlowView({ flow, executionIds, txPositions, labels, initial
   const [showAttempted, setShowAttempted] = useState(initialStatus === "attempted");
   const [standard, setStandard] = useState("all"), [mapping, setMapping] = useState("all");
   const [search, setSearch] = useState(""), [sort, setSort] = useState("canonical");
-  const [page, setPage] = useState(0), [selectedId, setSelectedId] = useState<string | null>(null);
+  const [page, setPage] = useState(0), [selectedId, setSelectedId] = useState<string | null>(
+    flow.ledgerEntries.some((item) => item.id === initialEntry) ? initialEntry! : null);
   const [showUnchanged, setShowUnchanged] = useState(false);
   const [mode, setMode] = useState(initialMode === "researcher" ? "researcher" : "beginner");
   const assets = new Map(flow.assets.map((item) => [item.id, item]));
@@ -108,12 +109,15 @@ export function AssetFlowView({ flow, executionIds, txPositions, labels, initial
     <nav className="ip-actions" aria-label="Impact execution views"><Link href={base}>Observed Execution</Link>
       <Link href={`${base}?state=all#observed-state`}>Observed State Changes</Link>
       {investigationHref && <Link href={investigationHref}>Back to Investigation Path</Link>}
+      <Link href={`${base}/assets/scenarios/new`}>Create Impact Scenario</Link>
       <Link href={`/hunts/${encodeURIComponent(flow.scanId)}/protocol-map?view=money-flow`}>Compare with Static Money Flow</Link></nav>
     <p>Static Money Flow shows source-backed transfer-like operations. Observed Asset Flow shows committed movement evidence from this one isolated reproduction.</p>
     <div className="sh-mode" aria-label="Display mode">{(["beginner", "researcher"] as const).map((value) =>
       <button key={value} type="button" aria-pressed={mode === value} onClick={() => { setMode(value); urlSet("mode", value); }}>{value === "beginner" ? "Beginner" : "Researcher"}</button>)}</div>
     {mode === "beginner" && <p>Committed movement is supported by successful local execution evidence. Attempted movement did not become committed state. Net observed movement is assets received minus assets sent. Reconciliation checks recorded movements against captured before and after balances.</p>}
     {flow.status === "partial" && <p className="af-warning" role="status"><strong>PARTIAL ASSET ACCOUNTING.</strong> This view contains the movements supported by available evidence. It may not represent every asset movement in the execution.</p>}
+    {scenarios.length > 0 && <section className="card"><h2>Impact Scenarios</h2><ul>{scenarios.map((item) =>
+      <li key={item.scenarioId}><Link href={`${base}/assets/scenarios/${encodeURIComponent(item.scenarioId)}`}>Scenario {item.scenarioId.slice(0, 8)} · revision {item.revision} · {item.status.toUpperCase()}</Link></li>)}</ul></section>}
     {flow.status === "unavailable" || !flow.capabilities.assetAccountingAvailable ? <section className="card"><h2>Asset accounting unavailable for this execution.</h2><p>Historical or incomplete evidence does not support this accounting view.</p><Link href={base}>Observed Execution</Link> · <Link href={`${base}?state=all#observed-state`}>Observed State Changes</Link></section> : <>
       <section className="card"><h2>Evidence summary</h2><dl className="io-grid">{evidenceMetrics.map(([name, value]) => <div key={name}><dt>{name}</dt><dd>{value}</dd></div>)}</dl>
         {mode === "researcher" && <p className="mono">Schema {flow.schema} · Accounting ruleset {flow.rulesetVersion} · Content SHA-256 {flow.contentSha256} · Execution {flow.executionId} · E1 overlay {flow.provenance.overlayContentSha256}</p>}</section>
@@ -137,7 +141,7 @@ export function AssetFlowView({ flow, executionIds, txPositions, labels, initial
             {group.length > 1 ? <details><summary>View {group.length} canonical entries</summary><ul>{group.map((item) => <li key={item.id}><button type="button" onClick={() => setSelectedId(item.id)}>{item.id} · {item.entry?.tokenId !== null ? `token ID ${item.entry?.tokenId} · ` : ""}{item.amount} raw</button></li>)}</ul></details> : <button type="button" onClick={() => setSelectedId(first.id)}>View ledger entry</button>}</div>;
         })}</div>{committed.length === 0 && <p>No committed asset movements match this view.{tx !== "all" && displayedTxs[0]?.status === "reverted" ? " No committed asset movements from this transaction." : ""}</p>}</section>
       {showAttempted && <section className="card af-attempted"><h2>ATTEMPTED — REVERTED</h2><p>These native value attempts are outside the committed ledger and net positions.</p><ul>{attempted.map((item) => <li key={item.id}><button type="button" onClick={() => setSelectedId(item.id)}>Transaction {item.transactionOrdinal + 1} · {person(item.from)} → {person(item.to)} · {raw(item.amount)} wei · {item.evidence}</button></li>)}</ul>{attempted.length === 0 && <p>No attempted flows match this view.</p>}</section>}
-      <section className="card"><h2>LEDGER</h2><p>Canonical order follows E1 transaction/evidence order. Sorting changes presentation only.</p><label>Sort ledger <select value={sort} onChange={(event) => { setSort(event.target.value); setPage(0); }}><option value="canonical">Canonical order</option><option value="amount">Amount</option><option value="asset">Asset</option><option value="participant">Sender</option></select></label>
+      <section className="card" id="asset-ledger"><h2>LEDGER</h2><p>Canonical order follows E1 transaction/evidence order. Sorting changes presentation only.</p><label>Sort ledger <select value={sort} onChange={(event) => { setSort(event.target.value); setPage(0); }}><option value="canonical">Canonical order</option><option value="amount">Amount</option><option value="asset">Asset</option><option value="participant">Sender</option></select></label>
         <p>Showing {sorted.length ? page * PAGE_SIZE + 1 : 0}–{Math.min((page + 1) * PAGE_SIZE, sorted.length)} of {sorted.length} entries.</p><div className="af-table-wrap"><table><thead><tr><th>Tx</th><th>Asset</th><th>From</th><th>To</th><th>Amount</th><th>Kind</th><th>Evidence</th><th>Status</th><th>Detail</th></tr></thead><tbody>{pageRows.map((item) => <tr key={item.id}><td>{item.transactionOrdinal + 1}</td><td>{assetName(assets.get(item.assetId))}</td><td>{person(item.from)}</td><td>{person(item.to)}</td><td>{item.entry?.standard === "erc721" ? `token ID ${item.entry.tokenId}` : `${raw(item.amount)} ${item.entry?.standard === "native" || item.attempt ? "wei" : "raw"}`}</td><td>{item.kind}</td><td>{item.evidence}</td><td>{item.status === "committed" ? "COMMITTED" : "ATTEMPTED — REVERTED"}</td><td><button type="button" onClick={() => setSelectedId(item.id)}>Inspect</button></td></tr>)}</tbody></table></div><div className="af-pages"><button type="button" disabled={page === 0} onClick={() => setPage(page - 1)}>Previous</button><span>Page {page + 1} of {Math.max(1, Math.ceil(sorted.length / PAGE_SIZE))}</span><button type="button" disabled={(page + 1) * PAGE_SIZE >= sorted.length} onClick={() => setPage(page + 1)}>Next</button></div>
         {selected && <aside className="io-detail" aria-live="polite"><h3>Ledger evidence detail</h3><dl className="io-grid"><div><dt>Ledger/attempt ID</dt><dd className="mono">{selected.id}</dd></div><div><dt>Transaction hash</dt><dd className="mono">{selected.transactionHash}</dd></div><div><dt>Asset ID</dt><dd className="mono">{selected.assetId}</dd></div><div><dt>From</dt><dd className="mono">{selected.from}{mode === "researcher" && <button type="button" onClick={() => navigator.clipboard.writeText(selected.from)}>Copy</button>}</dd></div><div><dt>To</dt><dd className="mono">{selected.to}{mode === "researcher" && <button type="button" onClick={() => navigator.clipboard.writeText(selected.to)}>Copy</button>}</dd></div><div><dt>Raw amount</dt><dd className="mono">{selected.amount}{selected.entry?.standard === "erc721" ? " (ledger movement count; token ID below)" : ""}</dd></div><div><dt>Movement / evidence</dt><dd>{selected.kind} · {selected.evidence}</dd></div><div><dt>Status</dt><dd>{selected.status}</dd></div>{selected.entry && <><div><dt>Evidence ID / order domain</dt><dd className="mono">{selected.entry.evidenceId} · {selected.entry.orderDomain}</dd></div><div><dt>Log ID / trace call ID</dt><dd className="mono">{selected.entry.logId ?? "—"} / {selected.entry.runtimeCallId ?? "—"}</dd></div><div><dt>Log index</dt><dd>Unavailable in E1 read model</dd></div><div><dt>Token ID / operator</dt><dd className="mono">{selected.entry.tokenId ?? "—"} / {selected.entry.operator ?? "—"}</dd></div><div><dt>Classification witness</dt><dd className="mono">{selected.entry.classificationEvidenceId ?? "Unavailable"}</dd></div><div><dt>Mapped contract / function</dt><dd className="mono">{selected.entry.mappedContractNodeId ?? "Unresolved"} / {selected.entry.mappedFunctionNodeId ?? "Unresolved"}</dd></div></>}{selected.attempt && <div><dt>Revert reason</dt><dd>{selected.attempt.reason}</dd></div>}</dl>
           <p className="mono">Ruleset {flow.rulesetVersion} · Content SHA-256 {flow.contentSha256} · Overlay {flow.provenance.overlayContentSha256} · Trace hashes {flow.provenance.traceContentSha256.join(", ") || "unavailable"} · PRE {flow.provenance.preSnapshotSha256 ?? "unavailable"} · POST {flow.provenance.postSnapshotSha256 ?? "unavailable"}</p>

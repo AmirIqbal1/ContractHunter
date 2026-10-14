@@ -1,5 +1,11 @@
 # Development
 
+## Impact Lab F1 local manual check
+
+Open an existing completed Impact execution with E1/E2 asset accounting. From **Asset Flow**, choose **Create Impact Scenario**. Inspect all participants before assigning roles; create a draft, explicitly assign one or more Scenario Subject participants and Protocol participants, optionally add Counterparties, save, and inspect **PREVIEW — NOT REVIEWED**. Confirm disposable senders, mapped contracts, and positive balances were not auto-assigned. Confirm roles with the manual-annotation warning, then inspect role positions, direct protocol↔subject transfers, independent assets, inherited reconciliation/warnings, and separate gas. Choose **Edit Roles** and confirm a new draft revision while the reviewed revision remains in history. Switch Beginner/Researcher; verify finding/hypothesis status is unchanged and no PoC reruns. No specific hunt or execution ID is assumed.
+
+Run focused tests with `npx vitest run packages/core/src/impact-scenario.test.ts packages/db/src/impact-scenario.test.ts apps/web/lib/impact-scenario-server.test.ts apps/web/components/scenario-review-view.test.tsx`, then typecheck, full tests, lint, build, and the production audit attempt. No OpenAI, live RPC, blockchain transaction, or download is needed.
+
 ## Impact Lab E2 manual verification
 
 Run `npx vitest run apps/web/components/asset-flow-view.test.tsx` for focused presentation checks. Start ContractHunter (`npm run dev` after local setup, or Docker Compose), open any hunt with a completed Impact execution and E1 accounting, open its execution, then click **Asset Flow**. Inspect committed flows and each transaction; inspect the canonical ledger, participant net movement and reconciliation; toggle attempted/reverted flows; inspect gas cost; filter by asset and participant; follow any exact mapped contract/function and runtime call links; switch Beginner/Researcher; compare with Static Money Flow. Confirm no finding, lifecycle or execution mutation occurs. Do not assume a specific hunt or execution ID. Current production evidence may leave contract/function mappings and token standards unresolved.

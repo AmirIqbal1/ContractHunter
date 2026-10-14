@@ -1,5 +1,9 @@
 # API reference
 
+## Impact Lab Phase F1 scenarios
+
+The scan/execution-scoped base is `/api/scans/:scanId/impact/poc-executions/:executionId/scenarios`. `GET` lists current scenario revisions and `POST` creates a draft from bounded `{assignments, note}`; selectors are opaque IDs resolved against the exact E1 participant catalog. `GET`/`PATCH /:scenarioId` read or edit the current draft (PATCH requires current `revisionId`). `POST /:scenarioId/review` accepts `{revisionId, decision: reviewed|rejected}`. `POST /:scenarioId/revisions` creates a new draft revision after a finalized decision. `GET /:scenarioId/impact` returns only a current compatible reviewed ScenarioImpact; stale, draft, and rejected scenarios receive a bounded conflict response. The UI routes are `/hunts/:scanId/impact/executions/:executionId/assets/scenarios/new` and `.../scenarios/:scenarioId`. All actions recheck exact scan/execution/E1 binding, have bounded bodies, and perform no RPC or PoC execution.
+
 ## Impact Lab Phase E2 Asset Flow page
 
 `GET /hunts/:scanId/impact/executions/:executionId/assets` is a server-rendered, read-only page using the existing E1 service. UUID and scan/execution ownership checks apply. Bounded URL presentation state includes transaction ordinal, exact asset ID, participant address, attempted-flow toggle and display mode; invalid selections fall back to all. The page adds no browser-submitted accounting or mutation API. Reconciliation remains execution-wide because C1 snapshots are not transaction-local.

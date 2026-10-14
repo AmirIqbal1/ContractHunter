@@ -1,5 +1,9 @@
 # Architecture
 
+## Impact Lab Phase F1 scenario boundary
+
+`packages/core/src/impact-scenario.ts` defines versioned reviewed role assignments and a pure, deterministic ScenarioImpact projection over committed E1 ledger entries. Opaque participant selectors bind exact E1 content to addresses; server validation rejects selectors outside the bound catalog and duplicate or conflicting roles. The server resolves exact scan/execution/subject ownership through the existing E1 and Impact Overlay loaders. `impact_scenario_revisions` stores only researcher decisions and review provenance. Reviewed/rejected rows are immutable; draft edits and new numbered revisions preserve history. ScenarioImpact is derived on read and is not persisted. The client displays server results and sends bounded selectors, roles, and a plain-text note; it cannot submit ledger or calculation inputs. No ProtocolGraph, overlay, AssetFlow, finding, hypothesis, or execution write occurs.
+
 ## Impact Lab Phase E2 visual read model
 
 `/hunts/:scanId/impact/executions/:executionId/assets` loads the exact scan-owned E1 result server-side and passes its canonical ledger, catalogs, warnings and reconciliation to a read-only client component. The server derives transaction-specific net/gross positions from committed E1 ledger entries using BigInt; the client only filters, sorts, paginates, groups visually and selects evidence. The flow is a bounded structured directional list rather than a Protocol Map force layout. It groups only same-transaction, same-asset, same-direction, same-order-domain entries and preserves individual IDs. The semantic ledger and net table remain usable without the graph. Asset Flow does not write to ProtocolGraph, C1/D1, E1, findings or execution state. No migration was added.

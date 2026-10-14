@@ -1,5 +1,9 @@
 # Security model
 
+## Impact Lab Phase F1 role-review boundary
+
+Scenario APIs validate UUID hunt, execution, scenario, and revision IDs, then load the exact scan-owned E1 result and authoritative execution subject. Browser role input contains only bounded opaque E1-derived participant selectors and a closed role value. Unknown selectors, duplicates, zero-address assignment, stale E1 hashes, and non-current revisions are rejected. Draft preview is explicitly non-reviewed; only a reviewed current revision can be served by the read-only impact endpoint. Database triggers prevent updates or deletion of finalized revisions. Manual role labels are annotations, not ProtocolGraph identity or lifecycle evidence. Notes and graph labels render as React text. The API returns no private key, RPC credential/URL, runtime token, worker secret, Docker control, or host path. F1 cannot run PoCs, call RPC, assign severity, or verify findings.
+
 ## Impact Lab Phase E2 visual boundary
 
 The nested Asset Flow route validates UUIDs and hunt existence, then uses the E1 exact execution ownership and evidence-integrity gate. Execution switching reloads that gate. The browser receives the existing E1 read model and presentation-only server projections; it submits no ledger, classification, pricing or execution input. Filters and grouping cannot alter canonical entries. Mapped navigation uses canonical IDs only; unmapped addresses receive no invented graph identity. React renders labels, addresses and event-derived text as plain text. No private keys, RPC URLs/credentials, runtime tokens, worker secrets, Docker internals or host paths are exposed. No new AI, execution or finding/lifecycle authority is added.
