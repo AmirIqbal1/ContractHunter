@@ -1,5 +1,9 @@
 # Security model
 
+## Impact Lab Phase E1 accounting boundary
+
+The E1 GET path accepts only UUID scan and execution IDs and reuses Phase 10's reviewed-artifact, fork-session, same-scan subject and C1/D1 content/provenance validation. The client supplies no ledger rules, standard bindings, trace, receipt or transaction hash. The server performs no RPC call or execution. Production supplies no trusted token-standard binding, so ambiguous Transfer events remain unknown-standard; reverted effects are excluded from committed ledger. Gas cost is unavailable without persisted effective gas price and is never mixed into asset transfer entries. Output contains exact addresses, raw integer values and bounded evidence IDs, with no runtime token hash, private key, RPC URL/credential, worker secret, Docker control or host path. The route sanitizes internal errors. Accounting does not verify a finding or alter confidence, severity, hypothesis lifecycle, ProtocolGraph, Impact Overlay or Impact Lab authority.
+
 ## Phase 10B presentation boundary
 
 Execution selectors come from reviewed artifacts scoped to the scan and optional subject. A browser-supplied execution ID is checked against that list and then independently validated by the Phase 10A resolver; it cannot select another hunt's evidence. URL transaction/call/path IDs are admitted only if present in the loaded overlay/path. React escapes runtime revert text, calldata previews, topics, labels and addresses. The UI renders only D1 bounded previews and hashes; it does not request raw RPC responses. No raw runtime token, private key, upstream RPC URL, worker secret, Docker control data or host path is part of the overlay read model. An exact source link requires canonical graph mapping. Dynamic observations do not change finding state, hypothesis confidence/severity, ProtocolGraph, Investigation Path or Impact Lab authority.

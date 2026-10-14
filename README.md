@@ -1,5 +1,9 @@
 # ContractHunter
 
+## Impact Lab Phase E1 — deterministic asset-flow accounting (unreleased v0.3)
+
+The read-only `contracthunter-asset-flow-v1` engine derives exact local-fork native value movements and committed receipt-log token transfer facts from one reviewed Impact execution. It keeps attempted/reverted flows, PRE/POST net observations, net/gross raw-unit positions, reconciliation and unavailable execution gas cost separate. The scan-scoped API is `/api/scans/:scanId/impact/poc-executions/:executionId/asset-flow`. Token standards without authoritative classification remain unresolved. Phase E2 Visual Asset Flow is next; profit, protocol loss, severity and Phase F are not implemented. See [Impact Lab](docs/impact-lab.md).
+
 ContractHunter is evolving from a locally hosted smart-contract scanner into a **Web3 security research environment**. Its direction is to help beginners and experienced researchers understand large protocols, find important contracts and relationships, inspect attack surface, investigate findings, verify hypotheses, and safely reproduce impact on a local fork. The research path is **understand → investigate → verify → reproduce → explain impact**.
 
 **Core product priorities:** **#1 Protocol Map** and **#2 Contract Explorer**, both with initial research interfaces implemented. These are core capabilities for understanding a protocol before and during vulnerability research. The design principle is: *Do not hide Web3 security complexity from beginners — make it understandable visually while keeping the real technical information available.* The source-order Function Explorer and deterministic Security View models are implemented; interactive Security Views are implemented.
@@ -10,7 +14,7 @@ The read-only, deterministic Impact Overlay model now combines exact reviewed lo
 
 ## Impact Lab Phase D1 (unreleased v0.3)
 
-Impact Lab foundations are implemented through A1 fork lifecycle and safety, A2 read-only upstream forking, A3 isolated PoC runtime, B1 reviewed manual Forge execution, C1 PRE/POST state capture and diff, and D1 local transaction traces. Reviewed PoCs run only against verified local Anvil forks. There is no autonomous PoC generation, live-chain submission, asset-flow inference, or automatic vulnerability verification. See [Impact Lab](docs/impact-lab.md).
+Impact Lab foundations are implemented through A1 fork lifecycle and safety, A2 read-only upstream forking, A3 isolated PoC runtime, B1 reviewed manual Forge execution, C1 PRE/POST state capture and diff, D1 local transaction traces, and E1 read-only asset accounting. Reviewed PoCs run only against verified local Anvil forks. There is no autonomous PoC generation, live-chain submission, profit/loss inference, or automatic vulnerability verification. See [Impact Lab](docs/impact-lab.md).
 
 Use it only with repositories and contracts you are authorised to analyse. Repository content is treated as hostile input.
 
@@ -63,7 +67,7 @@ Deterministic verification options and strategy-aware planning, conservative tar
 
 Phase A1 established managed fork lifecycle and safety; A2 added the read-only upstream boundary and exact deployment identity; A3 proved real Anvil compatibility and isolated the PoC runtime. B1 runs reviewed manual Forge PoCs; C1 captures selected state changes; D1 records bounded local call traces. Deeper impact interpretation and visual investigation remain planned after the ProtocolGraph foundation.
 
-**Protocol Intelligence:** Phases 1–10 are implemented in unreleased development. Phase 9A derives bounded static Investigation Paths; Phase 9B renders them from finding, investigation and hypothesis detail. Phase 10A derives a separate observed local execution/state read model. Open a completed hunt with a finalized static graph, then choose **Show Me Where To Start** or **Open Protocol Map**, or open a finding and select **View Investigation Path**. Static paths are source-backed research context, not proof of execution or exploitability. Next: Impact Lab Phase E — Deterministic Asset-Flow Accounting (not implemented). See [Protocol Map architecture](docs/protocol-map.md).
+**Protocol Intelligence:** Phases 1–10 are implemented in unreleased development. Phase 9A derives bounded static Investigation Paths; Phase 9B renders them from finding, investigation and hypothesis detail. Phase 10A derives a separate observed local execution/state read model. Open a completed hunt with a finalized static graph, then choose **Show Me Where To Start** or **Open Protocol Map**, or open a finding and select **View Investigation Path**. Static paths are source-backed research context, not proof of execution or exploitability. Impact Lab E1 accounting is implemented; E2 Visual Asset Flow is next. See [Protocol Map architecture](docs/protocol-map.md).
 
 See the [full roadmap](docs/roadmap.md) and [Impact Lab design](docs/impact-lab.md) for details.
 

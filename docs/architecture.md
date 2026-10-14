@@ -1,5 +1,9 @@
 # Architecture
 
+## Impact Lab Phase E1
+
+`packages/core/src/asset-flow.ts` is a pure server-side adapter over the exact, validated Phase 10 overlay. It retains transaction boundaries, committed ledger entries, reverted native attempts, typed asset/participant catalogs, exact BigInt net/gross positions, PRE/POST reconciliation, capability/warning flags and a canonical content hash. `apps/web/lib/asset-flow-server.ts` reuses the Phase 10 scan/execution/subject provenance gate, reads the bound session's disposable accounts, and supplies no unproven token-standard bindings. A narrow read-only API exposes the bounded derived result. Native trace order and receipt-log order are separate; no call-to-log chronology or call-to-state causality is inferred. No persistence or migration was added. The current D1 receipt lacks effective gas price, so execution cost remains unavailable. The current deployment witness and token standard registry remain unavailable in production; unknown identities stay unknown. E2 can render this model without altering Phase 10 or findings.
+
 ## Protocol Intelligence Phase 10B
 
 `impact-overlay-selection.ts` lists at most 32 reviewed execution selectors scoped to a scan and optional subject. The existing `loadImpactOverlay` resolver rechecks execution/artifact/session/subject ownership and C1/D1 integrity for the selected ID. Server pages derive the bounded overlay and canonical static graph; client components only select view, transaction, call, search and filters. Execution detail, Investigation Path, Function Explorer and Protocol Map consume the same exact overlay. Runtime Map nodes and edges are renderer-only objects with `io:` IDs, never graph mutations. The static Map layout is retained; observed edges are separately dashed and labeled. There is no new migration, RPC use, execution route or AI call.

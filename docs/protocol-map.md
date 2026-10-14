@@ -87,7 +87,7 @@ Node styles distinguish core, periphery, interface, library, role, proxy traits 
 
 Source actions open `/hunts/<scan-id>/source?unit=<canonical-unit>&line=<line>`. The server admits only source units already in the validated graph and displays a bounded excerpt from the immutable scan snapshot. If no snapshot is available, it reports that limitation and does not read a mutable checkout. Graph-derived text is rendered through ordinary escaped React text, never raw HTML. The UI is navigation data only: no finding verification, evidence, severity, confidence or lifecycle updates.
 
-The Map remains the overview and the Explorer is its contract drill-down. Full Beginner Mode, asset-flow inference, Impact Lab runtime overlays and AI explanations remain future work.
+The Map remains the overview and the Explorer is its contract drill-down. E1 asset accounting and Phase 10 runtime overlays are implemented separately. Visual asset flow and AI explanations remain future work.
 
 ## Repository Mapper v1
 

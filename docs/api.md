@@ -1,5 +1,9 @@
 # API reference
 
+## Impact Lab Phase E1 asset accounting
+
+`GET /api/scans/:scanId/impact/poc-executions/:executionId/asset-flow` returns one derived `contracthunter-asset-flow-v1` result under `contracthunter-asset-accounting-v1`. It reuses exact reviewed execution ownership and C1/D1 integrity checks. Malformed UUIDs return 400, another scan's or missing execution returns 404, and integrity/derivation failures return sanitized 409. The result includes capabilities, committed ledger, attempted native flows, separate execution-cost availability, assets/participants, exact raw-unit net/gross positions, reconciliation, warnings, provenance IDs and content SHA-256. It is read-only; no body, arbitrary hash, pricing query, PoC execution or mutation is accepted. Production has no trusted ERC20/ERC721 standard binding or persisted effective gas price, so ambiguous Transfer logs and gas cost remain explicitly unresolved.
+
 ## Phase 10B read-only pages
 
 `GET /hunts/:scanId/impact/executions/:executionId` displays one exact same-scan reviewed local execution. Investigation Path accepts bounded presentation selectors `?execution=<uuid>&view=static|observed|compare&tx=<ordinal>&call=<overlayCallId>&state=changed|unchanged|unavailable|all|balances|tokens|storage`. Protocol Map accepts `?execution=<uuid>&observed=1&tx=<ordinal>`; Function Explorer accepts `?execution=<uuid>` and shows runtime order only for exact mapped functions. Server loaders validate execution ownership and persisted evidence before rendering. These routes add no mutation, execution command, RPC parameter or browser-derived provenance.

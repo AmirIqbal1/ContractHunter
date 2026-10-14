@@ -1,5 +1,9 @@
 # Development
 
+## Impact Lab E1 local verification
+
+Run `npx vitest run packages/core/src/asset-flow.test.ts apps/web/lib/asset-flow-server.test.ts apps/web/app/api/scans/'[id]'/impact/poc-executions/'[executionId]'/asset-flow/route.test.ts`, then the project typecheck, test, lint and build gates and a production dependency audit attempt. For an existing reviewed local execution, request the scan-scoped `/api/scans/:scanId/impact/poc-executions/:executionId/asset-flow` endpoint. Inspect transaction-local committed and attempted entries, raw units, unknown-standard Transfer facts, PRE/POST reconciliation, unavailable gas cost, capability flags and content hash. The endpoint is model data for future E2; no visual asset-flow page is added. No live RPC, AI, download or transaction is required.
+
 ## Phase 10B local manual check
 
 1. Start ContractHunter with `npm run dev` and open a hunt containing an eligible finding or hypothesis with an existing persisted reviewed Impact execution.
