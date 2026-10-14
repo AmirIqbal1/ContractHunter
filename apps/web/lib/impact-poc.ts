@@ -4,7 +4,7 @@ import { createServer, request as httpRequest, type Server } from "node:http";
 import path from "node:path";
 import { IMPACT_TRACE_LIMITS, impactPoCExecutionSchema, impactPoCReviewSchema, makeImpactObservationPlan, planHash,
   type ImpactForkSession, type ImpactStateProvenance, type ImpactStateSnapshot,
-  type ImpactTransactionTrace } from "@contracthunter/core";
+  type ImpactTransactionTrace, type ImpactObservationPlan } from "@contracthunter/core";
 import { createImpactPoCArtifact, createImpactPoCExecution, getDatabase, readImpactPoCArtifact,
   readImpactPoCExecution, reviewImpactPoCArtifact, updateImpactPoCExecution, persistImpactStateArtifacts,
   readImpactExecutionState, readImpactExecutionTraces, persistImpactTraceCapture, type DatabaseClient } from "@contracthunter/db";
@@ -24,6 +24,17 @@ const METHODS = new Set(["eth_chainId", "eth_blockNumber", "eth_getBlockByNumber
   "eth_estimateGas", "eth_sendTransaction"]);
 const MAX_TX = 4;
 let activeJob: string | null = null;
+/** Reserves the existing single PoC controller across all replay iterations. */
+export function reserveImpactReplayController(runId: string): () => void {
+  if (activeJob) throw Error("impact_worker_busy");
+  activeJob = runId;
+  return () => { if (activeJob === runId) activeJob = null; };
+}
+export function transferImpactReplayController(fromId: string, runId: string): () => void {
+  if (activeJob !== fromId) throw Error("impact_replay_lease_invalid");
+  activeJob = runId;
+  return () => { if (activeJob === runId) activeJob = null; };
+}
 function hashToken(token: string): string { return createHash("sha256").update(token).digest("hex"); }
 async function boundedBody(input: AsyncIterable<Uint8Array>, max: number): Promise<Buffer> {
   const chunks: Uint8Array[] = []; let bytes = 0;
@@ -142,6 +153,8 @@ export function getManualPoCExecutionState(id: string) { return readImpactExecut
 export function getManualPoCExecutionTraces(id: string) { return readImpactExecutionTraces(getDatabase(), id); }
 export async function executeManualPoC(sessionId: string, input: unknown, deps: {
   database?: DatabaseClient; service?: ImpactForkService; resolveHandle?: (id: string) => ImpactForkHandle | undefined;
+  replayLeaseId?: string; resetBefore?: boolean; resetAfter?: boolean;
+  reviewedObservationPlan?: ImpactObservationPlan;
 } = {}) {
   const { pocArtifactId, observations } = impactPoCExecutionSchema.parse(input);
   const database = deps.database ?? getDatabase();
@@ -155,8 +168,17 @@ export async function executeManualPoC(sessionId: string, input: unknown, deps: 
     artifact.findingId !== session.findingId || artifact.hypothesisId !== session.hypothesisId ||
     artifact.sourceSha256 !== createHash("sha256").update(Buffer.from(artifact.source, "utf8")).digest("hex").replace(/^/, "sha256:"))
     throw Error("impact_poc_identity_invalid");
-  const plan = makeImpactObservationPlan(session.disposableAccounts[0]!, session.targetContracts, observations);
-  if (activeJob) throw Error("impact_worker_busy");
+  const plan = deps.reviewedObservationPlan ??
+    makeImpactObservationPlan(session.disposableAccounts[0]!, session.targetContracts, observations);
+  if (deps.reviewedObservationPlan &&
+    JSON.stringify(makeImpactObservationPlan(session.disposableAccounts[0]!, session.targetContracts, {
+      nativeBalances: plan.nativeBalances.filter((address) => address !== session.disposableAccounts[0] &&
+        !session.targetContracts.includes(address)),
+      erc20Balances: plan.erc20Balances, erc721Owners: plan.erc721Owners,
+      erc1155Balances: plan.erc1155Balances, storageSlots: plan.storageSlots, viewCalls: plan.viewCalls,
+    })) !== JSON.stringify(plan)) throw Error("impact_replay_observation_plan_invalid");
+  if (activeJob && activeJob !== deps.replayLeaseId) throw Error("impact_worker_busy");
+  if (deps.replayLeaseId && activeJob !== deps.replayLeaseId) throw Error("impact_replay_lease_invalid");
   const executionId = randomUUID(), token = handle.token;
   const provenance: ImpactStateProvenance = { executionId, sessionId, runtimeTokenSha256: hashToken(token),
     chainId: session.chainId, forkBlock: session.resolvedForkBlock, forkBlockHash: session.forkBlockHash!,
@@ -165,8 +187,8 @@ export async function executeManualPoC(sessionId: string, input: unknown, deps: 
   createImpactPoCExecution(database, { id: executionId, artifactId: artifact.id,
     sourceSha256: artifact.sourceSha256, sessionId, runtimeTokenSha256: hashToken(token), chainId: session.chainId,
     forkBlock: session.resolvedForkBlock, forkBlockHash: session.forkBlockHash!, targetCodeHashes: session.targetCodeHashes,
-    forgeVersion: null, forgeSha256: null });
-  activeJob = executionId;
+    forgeVersion: null, forgeSha256: null }, deps.replayLeaseId);
+  if (!deps.replayLeaseId) activeJob = executionId;
   const txHashes: string[] = [];
   let bridge: Awaited<ReturnType<typeof startBridge>> | null = null;
   let result: Record<string, unknown> | null = null;
@@ -178,7 +200,7 @@ export async function executeManualPoC(sessionId: string, input: unknown, deps: 
   let stage: "reset" | "pre" | "worker" | "trace" | "post" | "persist" = "reset";
   const read = (method: string, params: unknown[]) => service.readLocalImpactState(handle, method, params);
   try {
-    await service.resetForkSession(handle);
+    if (deps.resetBefore !== false) await service.resetForkSession(handle);
     stage = "pre";
     pre = await captureImpactState(plan, provenance, "pre", read);
     stage = "worker";
@@ -226,9 +248,11 @@ export async function executeManualPoC(sessionId: string, input: unknown, deps: 
       }
     }
     finally {
-      try { await service.resetForkSession(handle); }
-      catch { failureCode = "impact_reset_failed"; await service.stopForkSession(handle).catch(() => undefined); }
-      activeJob = null;
+      if (deps.resetAfter !== false) {
+        try { await service.resetForkSession(handle); }
+        catch { failureCode = "impact_reset_failed"; await service.stopForkSession(handle).catch(() => undefined); }
+      }
+      if (!deps.replayLeaseId) activeJob = null;
     }
   }
   const forge = result?.forge as Record<string, unknown> | undefined;

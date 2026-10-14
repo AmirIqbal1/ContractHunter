@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { impactPoCCreateSchema, impactPoCExecutionSchema, impactPoCSourceHash } from "@contracthunter/core";
-import { validateImpactLocalCalls } from "./impact-poc";
+import { reserveImpactReplayController, transferImpactReplayController, validateImpactLocalCalls } from "./impact-poc";
 
 const findingId = "00000000-0000-4000-8000-000000000001";
 const sender = `0x${"1".repeat(40)}`;
@@ -13,6 +13,15 @@ const validate = (value: unknown, remaining = 4) =>
   validateImpactLocalCalls(Buffer.from(JSON.stringify(value)), sender, remaining);
 
 describe("manual Impact PoC admission", () => {
+  it("keeps a single controller lease across replay iterations without an open transfer gap", () => {
+    const releasePlaceholder = reserveImpactReplayController("plan");
+    expect(() => reserveImpactReplayController("other")).toThrow("impact_worker_busy");
+    const releaseRun = transferImpactReplayController("plan", "run");
+    releasePlaceholder();
+    expect(() => reserveImpactReplayController("other")).toThrow("impact_worker_busy");
+    releaseRun();
+    const releaseNext = reserveImpactReplayController("next"); releaseNext();
+  });
   it("requires an exact reviewed source identity and excludes browser-controlled execution fields", () => {
     expect(impactPoCSourceHash(source)).toMatch(/^sha256:[0-9a-f]{64}$/);
     expect(impactPoCCreateSchema.parse(create()).source).toBe(source);

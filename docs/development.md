@@ -1,5 +1,9 @@
 # Development
 
+## Impact Lab F2A local manual check
+
+Start ContractHunter with `npm run dev`. Open an existing completed Impact execution with E1 accounting and a current reviewed F1 scenario, then choose **Scenario Replay**. Inspect source hash, fork identity, reviewed roles and starting captured resources. Create a 2-iteration independent draft, confirm its local-only review statement, review and start it. Inspect the run status, each iteration's exact execution/C1/D1/E1/F1 evidence and independent match table; confirm no cumulative total is shown. Create a separate cumulative plan with 2–5 repetitions, review/start it, inspect evolving captured resources and per-asset cumulative values, then request cancellation on a run and confirm no later iteration starts. Confirm final reset, unchanged finding/hypothesis state, no PoC source change and no upstream transaction. Do not assume a hunt or execution ID. A live local fork and existing worker are needed for the manual replay; no real-chain transaction or OpenAI call is needed.
+
 ## Impact Lab F1 local manual check
 
 Open an existing completed Impact execution with E1/E2 asset accounting. From **Asset Flow**, choose **Create Impact Scenario**. Inspect all participants before assigning roles; create a draft, explicitly assign one or more Scenario Subject participants and Protocol participants, optionally add Counterparties, save, and inspect **PREVIEW — NOT REVIEWED**. Confirm disposable senders, mapped contracts, and positive balances were not auto-assigned. Confirm roles with the manual-annotation warning, then inspect role positions, direct protocol↔subject transfers, independent assets, inherited reconciliation/warnings, and separate gas. Choose **Edit Roles** and confirm a new draft revision while the reviewed revision remains in history. Switch Beginner/Researcher; verify finding/hypothesis status is unchanged and no PoC reruns. No specific hunt or execution ID is assumed.

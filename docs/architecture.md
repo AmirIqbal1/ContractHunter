@@ -1,5 +1,9 @@
 # Architecture
 
+## Impact Lab Phase F2A replay boundary
+
+The frontend-independent `impact-scenario-replay` core defines strict mode/count input, content-bound plan identity, semantic comparison and per-asset cumulative projection. Migration `0017_v0_3_scenario_replay` stores immutable finalized plan revisions, separately triggered runs and immutable finalized iteration references. The controller extends the existing B1 single-job lease across a run; each iteration calls the same reviewed-artifact worker and persists normal C1/D1 evidence. E1 and F1 accounting are derived from each iteration's exact execution. Independent mode resets between iterations; cumulative mode preserves local state and verifies PRE/POST continuity. Final reset failure stops the fork. Web/API layers submit only plan selectors, mode, count and explicit review/start/cancel decisions, never PoC source, calldata, RPC or execution commands. No ProtocolGraph, finding, hypothesis, AssetFlow or reviewed F1 role mutation occurs.
+
 ## Impact Lab Phase F1 scenario boundary
 
 `packages/core/src/impact-scenario.ts` defines versioned reviewed role assignments and a pure, deterministic ScenarioImpact projection over committed E1 ledger entries. Opaque participant selectors bind exact E1 content to addresses; server validation rejects selectors outside the bound catalog and duplicate or conflicting roles. The server resolves exact scan/execution/subject ownership through the existing E1 and Impact Overlay loaders. `impact_scenario_revisions` stores only researcher decisions and review provenance. Reviewed/rejected rows are immutable; draft edits and new numbered revisions preserve history. ScenarioImpact is derived on read and is not persisted. The client displays server results and sends bounded selectors, roles, and a plain-text note; it cannot submit ledger or calculation inputs. No ProtocolGraph, overlay, AssetFlow, finding, hypothesis, or execution write occurs.

@@ -33,6 +33,7 @@ export * from "./impact-trace";
 export * from "./impact-overlay";
 export * from "./asset-flow";
 export * from "./impact-scenario";
+export * from "./impact-scenario-replay";
 export * from "./impact-selector";
 export * from "./protocol-graph";
 export * from "./repository-map";

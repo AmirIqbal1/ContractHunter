@@ -132,6 +132,7 @@ export function ScenarioReviewView({ flow, labels, participantIds, scenario, imp
       <label><input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} /> These roles are manual scenario annotations. They do not establish attacker, victim, ownership, exploitability, or finding validity.</label>
       <p><button type="button" disabled={busy || dirty || !confirmed} onClick={() => decide("reviewed")}>Confirm and Review Scenario</button> <button type="button" disabled={busy} onClick={() => decide("rejected")}>Reject Draft</button></p></section>}
     {scenario?.status === "reviewed" && !stale && !historical && <section className="card"><h2>Review decision</h2><p>This reviewed revision is immutable. Rejecting it creates a separate historical rejection revision and removes it as the current reviewed interpretation.</p>
+      <p><Link href={`${base}/scenarios/${encodeURIComponent(scenario.scenarioId)}/replay`}>Scenario Replay — bounded local repetitions</Link></p>
       <button type="button" disabled={busy} onClick={() => decide("rejected")}>Reject Current Interpretation</button></section>}
     {impact && <>
       <section className="card"><h2>{impact.preview ? "PREVIEW — NOT REVIEWED" : "ROLE-BASED OBSERVED ACCOUNTING"}</h2>

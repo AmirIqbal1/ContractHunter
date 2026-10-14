@@ -71,13 +71,20 @@ export function reviewImpactPoCArtifact(database: DatabaseClient, id: string, de
     .run(decision, Date.now(), id).changes) throw Error("impact_poc_not_draft");
   return readImpactPoCArtifact(database, id)!;
 }
-export function createImpactPoCExecution(database: DatabaseClient, input: Omit<ImpactPoCExecution, "status" | "createdAt" | "startedAt" | "completedAt" | "exitCode" | "compiled" | "executed" | "transactionScope" | "stdout" | "stderr" | "transactionHashes" | "errorCode" | "observationPlan" | "observationPlanSha256" | "preSnapshotId" | "postSnapshotId" | "stateDiffId" | "stateChangeCount" | "stateCaptureAvailable" | "traceCaptureStatus" | "traceCount" | "traceNodeCount" | "traceErrorCode" | "traceAvailable" | "traceIds">): ImpactPoCExecution {
+export function createImpactPoCExecution(database: DatabaseClient, input: Omit<ImpactPoCExecution, "status" | "createdAt" | "startedAt" | "completedAt" | "exitCode" | "compiled" | "executed" | "transactionScope" | "stdout" | "stderr" | "transactionHashes" | "errorCode" | "observationPlan" | "observationPlanSha256" | "preSnapshotId" | "postSnapshotId" | "stateDiffId" | "stateChangeCount" | "stateCaptureAvailable" | "traceCaptureStatus" | "traceCount" | "traceNodeCount" | "traceErrorCode" | "traceAvailable" | "traceIds">,
+  replayRunId?: string): ImpactPoCExecution {
   const createdAt = Date.now();
-  database.sqlite.prepare(`INSERT INTO impact_poc_executions
+  database.sqlite.transaction(() => {
+    const active = database.sqlite.prepare(`SELECT id FROM impact_scenario_replay_runs
+      WHERE status IN ('queued','running') LIMIT 1`).get() as { id: string } | undefined;
+    if ((active && active.id !== replayRunId) || (replayRunId && active?.id !== replayRunId))
+      throw Error("impact_replay_controller_busy");
+    database.sqlite.prepare(`INSERT INTO impact_poc_executions
     (id,artifact_id,source_sha256,session_id,runtime_token_sha256,chain_id,fork_block,fork_block_hash,target_code_hashes,forge_version,forge_sha256,status,created_at)
     VALUES (?,?,?,?,?,?,?,?,?,?,?,'created',?)`).run(input.id, input.artifactId, input.sourceSha256, input.sessionId,
     input.runtimeTokenSha256, input.chainId, input.forkBlock, input.forkBlockHash,
     JSON.stringify(input.targetCodeHashes), input.forgeVersion, input.forgeSha256, createdAt);
+  })();
   return readImpactPoCExecution(database, input.id)!;
 }
 export function readImpactPoCExecution(database: DatabaseClient, id: string): ImpactPoCExecution | null {

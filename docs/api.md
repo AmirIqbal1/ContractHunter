@@ -1,5 +1,9 @@
 # API reference
 
+## Impact Lab Phase F2A replay
+
+Under `/api/scans/:scanId/impact/poc-executions/:executionId/scenarios/:scenarioId/replay-plans`, `GET` lists current plans and `POST` accepts only `{mode, iterationCount}`. `GET`/`PATCH /:planId` read or edit a current draft (`revisionId`, mode, count). `POST /:planId/review` accepts a revision ID and reviewed/rejected decision; `POST /:planId/revisions` creates a draft revision. `GET`/`POST /:planId/runs` list runs or explicitly start a reviewed plan with its revision ID. `GET /:planId/runs/:runId` returns bounded status and deterministic evidence/result; `POST /:planId/runs/:runId/cancel` requests cancellation after the current iteration. Every action validates scan, execution, scenario, plan and E1/PoC/fork binding server-side. Start does not accept transaction or source content. UI routes extend the reviewed scenario at `.../assets/scenarios/:scenarioId/replay` and `.../replay/:planId`.
+
 ## Impact Lab Phase F1 scenarios
 
 The scan/execution-scoped base is `/api/scans/:scanId/impact/poc-executions/:executionId/scenarios`. `GET` lists current scenario revisions and `POST` creates a draft from bounded `{assignments, note}`; selectors are opaque IDs resolved against the exact E1 participant catalog. `GET`/`PATCH /:scenarioId` read or edit the current draft (PATCH requires current `revisionId`). `POST /:scenarioId/review` accepts `{revisionId, decision: reviewed|rejected}`. `POST /:scenarioId/revisions` creates a new draft revision after a finalized decision. `GET /:scenarioId/impact` returns only a current compatible reviewed ScenarioImpact; stale, draft, and rejected scenarios receive a bounded conflict response. The UI routes are `/hunts/:scanId/impact/executions/:executionId/assets/scenarios/new` and `.../scenarios/:scenarioId`. All actions recheck exact scan/execution/E1 binding, have bounded bodies, and perform no RPC or PoC execution.
