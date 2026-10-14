@@ -1,5 +1,9 @@
 # Protocol Intelligence / ProtocolGraph
 
+## Observed Asset Flow versus Static Money Flow
+
+Impact Lab Phase E2 provides a purpose-built read-only Asset Flow page for one exact reviewed local execution. Its committed edges come only from E1 ledger evidence, and runtime-only addresses remain in that view rather than being inserted into ProtocolGraph. **Static Money Flow** is a source-backed security view of operations that may move value; **Observed Asset Flow** is the committed accounting evidence observed during an isolated local reproduction. The Asset Flow page links to the static Money Flow view for comparison without fabricating static transfer edges. No Asset Flow overlay mode was added to Protocol Map. Phase E is implemented; Phase F scenario analysis remains planned.
+
 ## Phase 10B visual dynamic overlays — implemented
 
 Investigation Path supports Static Investigation, Observed Execution and Compare. The static path, source links, node/edge IDs and path derivation remain unchanged. Compare uses the exact overlay's path comparison statuses; missing runtime coverage or authoritative mapping appears as unavailable. “Not observed in this execution” never means unreachable. Runtime-only calls remain separate observed facts. Each local transaction has an explicit selector, ordered call tree, bounded detail, logs and PRE/POST state panel. Selecting another execution changes only the observed layer.
@@ -8,7 +12,7 @@ Protocol Map offers an optional observed layer for one exact execution and one e
 
 ## Deterministic Impact Overlay model (Phase 10A — implemented)
 
-The read-only `contracthunter-impact-overlay-v1` model keeps D1 **OBSERVED LOCAL EXECUTION** and C1 **OBSERVED STATE CHANGE** records separate from source-backed static ProtocolGraph and Phase 9 Investigation Paths. Exact graph call-edge comparison says “observed in this local execution” or, when mapping and trace coverage suffice, “not observed in this execution”; the latter does not imply dead code. Unmapped calls leave unmatched comparisons unresolved, and non-call relationships remain static context only. Runtime-only observed calls never become static edges. Transaction boundaries and local receipt block/hash remain distinct from the fork base block/hash. A trace call is not assigned causality for a C1 state change. Mapping requires an authoritative exact deployment-to-source witness; current production evidence lacks one, so addresses/selectors may remain unmapped. Phase 10B renders the visual integration. Phase 10 is implemented; Impact Lab Phase E remains planned.
+The read-only `contracthunter-impact-overlay-v1` model keeps D1 **OBSERVED LOCAL EXECUTION** and C1 **OBSERVED STATE CHANGE** records separate from source-backed static ProtocolGraph and Phase 9 Investigation Paths. Exact graph call-edge comparison says “observed in this local execution” or, when mapping and trace coverage suffice, “not observed in this execution”; the latter does not imply dead code. Unmapped calls leave unmatched comparisons unresolved, and non-call relationships remain static context only. Runtime-only observed calls never become static edges. Transaction boundaries and local receipt block/hash remain distinct from the fork base block/hash. A trace call is not assigned causality for a C1 state change. Mapping requires an authoritative exact deployment-to-source witness; current production evidence lacks one, so addresses/selectors may remain unmapped. Phase 10B renders the visual integration. Phase 10 is implemented; Impact Lab Phase E is implemented.
 
 ## Investigation Path UI (Phase 9B — implemented)
 

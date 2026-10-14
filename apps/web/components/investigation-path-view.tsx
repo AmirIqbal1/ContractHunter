@@ -110,6 +110,7 @@ export function InvestigationPathView({ result, nodes, title, status, confidence
     {overlay && <><p className="io-local"><strong>LOCAL FORK</strong> · Observed during a reviewed PoC executed against ContractHunter&apos;s isolated local fork.</p>
       <label>Impact execution <select aria-label="Impact execution" value={overlay.executionId} onChange={(event) => { const url = new URL(window.location.href); url.searchParams.set("execution", event.target.value); window.location.assign(url.toString()); }}>
         {executionIds.map((id, index) => <option key={id} value={id}>Execution {index + 1} · {id.slice(0, 8)}</option>)}</select></label>
+      <div className="ip-actions"><Link href={`/hunts/${encodeURIComponent(result.scanId)}/impact/executions/${encodeURIComponent(overlay.executionId)}/assets`}>Asset Flow</Link></div>
       <div className="sh-mode" role="group" aria-label="Evidence view">{(["static", "observed", "compare"] as const).map((item) =>
         <button type="button" key={item} aria-pressed={view === item} onClick={() => { setView(item); const url = new URL(window.location.href); url.searchParams.set("view", item); window.history.replaceState(null, "", `${url.pathname}${url.search}`); }}>
           {item === "static" ? "Static Investigation" : item === "observed" ? "Observed Execution" : "Compare"}</button>)}</div></>}

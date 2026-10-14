@@ -1,5 +1,9 @@
 # Security model
 
+## Impact Lab Phase E2 visual boundary
+
+The nested Asset Flow route validates UUIDs and hunt existence, then uses the E1 exact execution ownership and evidence-integrity gate. Execution switching reloads that gate. The browser receives the existing E1 read model and presentation-only server projections; it submits no ledger, classification, pricing or execution input. Filters and grouping cannot alter canonical entries. Mapped navigation uses canonical IDs only; unmapped addresses receive no invented graph identity. React renders labels, addresses and event-derived text as plain text. No private keys, RPC URLs/credentials, runtime tokens, worker secrets, Docker internals or host paths are exposed. No new AI, execution or finding/lifecycle authority is added.
+
 ## Impact Lab Phase E1 accounting boundary
 
 The E1 GET path accepts only UUID scan and execution IDs and reuses Phase 10's reviewed-artifact, fork-session, same-scan subject and C1/D1 content/provenance validation. The client supplies no ledger rules, standard bindings, trace, receipt or transaction hash. The server performs no RPC call or execution. Production supplies no trusted token-standard binding, so ambiguous Transfer events remain unknown-standard; reverted effects are excluded from committed ledger. Gas cost is unavailable without persisted effective gas price and is never mixed into asset transfer entries. Output contains exact addresses, raw integer values and bounded evidence IDs, with no runtime token hash, private key, RPC URL/credential, worker secret, Docker control or host path. The route sanitizes internal errors. Accounting does not verify a finding or alter confidence, severity, hypothesis lifecycle, ProtocolGraph, Impact Overlay or Impact Lab authority.

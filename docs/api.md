@@ -1,5 +1,9 @@
 # API reference
 
+## Impact Lab Phase E2 Asset Flow page
+
+`GET /hunts/:scanId/impact/executions/:executionId/assets` is a server-rendered, read-only page using the existing E1 service. UUID and scan/execution ownership checks apply. Bounded URL presentation state includes transaction ordinal, exact asset ID, participant address, attempted-flow toggle and display mode; invalid selections fall back to all. The page adds no browser-submitted accounting or mutation API. Reconciliation remains execution-wide because C1 snapshots are not transaction-local.
+
 ## Impact Lab Phase E1 asset accounting
 
 `GET /api/scans/:scanId/impact/poc-executions/:executionId/asset-flow` returns one derived `contracthunter-asset-flow-v1` result under `contracthunter-asset-accounting-v1`. It reuses exact reviewed execution ownership and C1/D1 integrity checks. Malformed UUIDs return 400, another scan's or missing execution returns 404, and integrity/derivation failures return sanitized 409. The result includes capabilities, committed ledger, attempted native flows, separate execution-cost availability, assets/participants, exact raw-unit net/gross positions, reconciliation, warnings, provenance IDs and content SHA-256. It is read-only; no body, arbitrary hash, pricing query, PoC execution or mutation is accepted. Production has no trusted ERC20/ERC721 standard binding or persisted effective gas price, so ambiguous Transfer logs and gas cost remain explicitly unresolved.

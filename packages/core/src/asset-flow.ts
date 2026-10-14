@@ -59,6 +59,24 @@ export type AssetFlow = Readonly<{ schema: typeof ASSET_FLOW_SCHEMA; rulesetVers
     classificationEvidenceIds: string[] };
   contentSha256: string }>;
 
+/** Server-side presentation projection. Canonical ledger identity and order are unchanged. */
+export function assetFlowPositionsForTransaction(flow: AssetFlow, ordinal: number): AssetFlow["netPositions"] {
+  const positions = new Map<string, { participant: string; assetId: string; incoming: bigint; outgoing: bigint }>();
+  for (const entry of flow.ledgerEntries) {
+    if (entry.transactionOrdinal !== ordinal) continue;
+    for (const [participant, incoming, outgoing] of [
+      [entry.from, 0n, BigInt(entry.amount)], [entry.to, BigInt(entry.amount), 0n]
+    ] as const) {
+      const key = `${participant}:${entry.assetId}`;
+      const current = positions.get(key) ?? { participant, assetId: entry.assetId, incoming: 0n, outgoing: 0n };
+      current.incoming += incoming; current.outgoing += outgoing; positions.set(key, current);
+    }
+  }
+  return [...positions.values()].sort((a, b) => `${a.assetId}:${a.participant}`.localeCompare(`${b.assetId}:${b.participant}`))
+    .map((item) => ({ participant: item.participant, assetId: item.assetId, incoming: item.incoming.toString(),
+      outgoing: item.outgoing.toString(), netObservedMovement: (item.incoming - item.outgoing).toString() }));
+}
+
 function word(data: string, offset: number): bigint | null {
   const start = 2 + offset * 2;
   return start + 64 <= data.length ? BigInt(`0x${data.slice(start, start + 64)}`) : null;

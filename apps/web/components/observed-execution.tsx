@@ -123,7 +123,7 @@ export function ObservedExecution({ overlay, artifact, initialTx = 0, initialCal
       {states.length ? (["native", "erc20", "erc721", "erc1155", "storage", "view"] as const).map((kind) => {
         const group = states.filter((item) => item.kind === kind);
         if (!group.length) return null;
-        return <div key={kind}><h3>{({ native: "Native balances", erc20: "ERC20", erc721: "ERC721", erc1155: "ERC1155", storage: "Storage", view: "Supported views" })[kind]}</h3><ul className="io-state-list">{group.map((item) => <li key={item.observationId}><strong>{stateName(item)}</strong> · {item.state.toUpperCase()}
+        return <div key={kind}><h3>{({ native: "Native balances", erc20: "ERC20", erc721: "ERC721", erc1155: "ERC1155", storage: "Storage", view: "Supported views" })[kind]}</h3><ul className="io-state-list">{group.map((item) => <li id={`obs-${item.observationId}`} key={item.observationId}><strong>{stateName(item)}</strong> · {item.state.toUpperCase()}
         <div className="mono">PRE {item.beforeStatus === "available" ? item.before : `UNAVAILABLE (${item.beforeErrorCode ?? "not captured"})`} → POST {item.afterStatus === "available" ? item.after : `UNAVAILABLE (${item.afterErrorCode ?? "not captured"})`}
           {item.delta !== null && ` · delta ${BigInt(item.delta) > 0n ? "+" : ""}${item.delta}`}</div>
         {item.contractNodeId && <Link href={`/hunts/${encodeURIComponent(overlay.scanId)}/contracts/${encodeURIComponent(item.contractNodeId)}`}>Open Contract</Link>}
