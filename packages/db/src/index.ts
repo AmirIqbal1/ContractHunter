@@ -15,6 +15,7 @@ export * from "./impact-scenario";
 export * from "./impact-scenario-replay";
 export * from "./impact-state";
 export * from "./impact-trace";
+export * from "./evidence-package";
 export * from "./repository-map";
 export * from "./static-protocol-graph";
 
@@ -701,9 +702,27 @@ export function createDatabase(databasePath: string) {
     })(); }
     catch (error) { throw new Error(`Database migration 0017_v0_3_scenario_replay failed without committing changes: ${error instanceof Error ? error.message : String(error)}`); }
   }
+  if (!sqlite.prepare("SELECT 1 FROM schema_migrations WHERE id = ?").get("0018_v0_3_evidence_packages")) {
+    try { sqlite.transaction(() => {
+      sqlite.exec(`CREATE TABLE evidence_packages (
+        id TEXT PRIMARY KEY, scan_id TEXT NOT NULL REFERENCES scans(id) ON DELETE CASCADE,
+        subject_type TEXT NOT NULL CHECK(subject_type IN ('finding','investigation','hypothesis')),
+        subject_id TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('draft','finalized')),
+        selection_json TEXT NOT NULL, package_json TEXT NOT NULL, manifest_sha256 TEXT NOT NULL,
+        content_sha256 TEXT NOT NULL, created_at INTEGER NOT NULL, finalized_at INTEGER);
+      CREATE INDEX evidence_packages_subject_idx ON evidence_packages(scan_id,subject_type,subject_id,created_at);
+      CREATE TRIGGER evidence_packages_final_immutable BEFORE UPDATE ON evidence_packages
+        WHEN OLD.status='finalized' BEGIN SELECT RAISE(ABORT,'finalized evidence package immutable'); END;
+      CREATE TRIGGER evidence_packages_final_no_delete BEFORE DELETE ON evidence_packages
+        WHEN OLD.status='finalized' AND EXISTS(SELECT 1 FROM scans WHERE id=OLD.scan_id)
+        BEGIN SELECT RAISE(ABORT,'finalized evidence package immutable'); END;`);
+      sqlite.prepare("INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)").run("0018_v0_3_evidence_packages", Date.now());
+    })(); }
+    catch (error) { throw new Error(`Database migration 0018_v0_3_evidence_packages failed without committing changes: ${error instanceof Error ? error.message : String(error)}`); }
+  }
   const integrity = sqlite.pragma("quick_check") as Array<{ quick_check: string }>;
   const foreignKeyViolations = sqlite.pragma("foreign_key_check") as unknown[];
-  const requiredTables = ["scans", "scan_source_snapshots", "scan_source_snapshot_files", "scan_compilation_provenance", "scan_compilation_source_units", "scan_scanner_alignment", "findings", "scan_scanners", "investigations", "investigation_findings", "protocol_analyses", "invariants", "security_review_plans", "security_reviewer_runs", "vulnerability_hypotheses", "hypothesis_verification_runs", "verification_plan_attempts", "executable_invariant_runs", "executable_invariant_proposals", "invariant_replay_artifacts", "invariant_replay_runs", "authoritative_invariant_evidence", "invariant_evidence_reviews", "hypothesis_lifecycle_transitions", "hypothesis_groups", "hypothesis_group_members", "impact_fork_sessions", "impact_poc_artifacts", "impact_poc_executions", "impact_state_snapshots", "impact_state_observations", "impact_state_diffs", "impact_state_changes", "impact_transaction_traces", "impact_trace_nodes", "impact_trace_logs", "repository_maps", "static_protocol_graphs", "impact_scenario_revisions", "impact_scenario_replay_plans", "impact_scenario_replay_runs", "impact_scenario_replay_iterations"];
+  const requiredTables = ["scans", "scan_source_snapshots", "scan_source_snapshot_files", "scan_compilation_provenance", "scan_compilation_source_units", "scan_scanner_alignment", "findings", "scan_scanners", "investigations", "investigation_findings", "protocol_analyses", "invariants", "security_review_plans", "security_reviewer_runs", "verification_plan_attempts", "vulnerability_hypotheses", "hypothesis_verification_runs", "executable_invariant_runs", "executable_invariant_proposals", "invariant_replay_artifacts", "invariant_replay_runs", "authoritative_invariant_evidence", "invariant_evidence_reviews", "hypothesis_lifecycle_transitions", "hypothesis_groups", "hypothesis_group_members", "impact_fork_sessions", "impact_poc_artifacts", "impact_poc_executions", "impact_state_snapshots", "impact_state_observations", "impact_state_diffs", "impact_state_changes", "impact_transaction_traces", "impact_trace_nodes", "impact_trace_logs", "repository_maps", "static_protocol_graphs", "impact_scenario_revisions", "impact_scenario_replay_plans", "impact_scenario_replay_runs", "impact_scenario_replay_iterations", "evidence_packages"];
   const presentTables = new Set((sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as Array<{ name: string }>).map((row) => row.name));
   const repositoryMapTriggers = new Set((sqlite.prepare("SELECT name FROM sqlite_master WHERE type='trigger' AND name LIKE 'repository_maps_%'").all() as Array<{ name: string }>).map((row) => row.name));
   if (!["repository_maps_immutable", "repository_maps_no_delete"].every((name) => repositoryMapTriggers.has(name)))

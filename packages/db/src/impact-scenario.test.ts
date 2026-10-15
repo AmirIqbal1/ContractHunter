@@ -51,10 +51,10 @@ describe("reviewed scenario revision persistence", () => {
     const dir = mkdtempSync(path.join(os.tmpdir(), "impact-f1-migration-")); dirs.push(dir);
     const file = path.join(dir, "test.db");
     const created = createDatabase(file);
-    expect(created.sqlite.prepare("SELECT COUNT(*) AS count FROM schema_migrations").get()).toEqual({ count: 17 });
+    expect(created.sqlite.prepare("SELECT COUNT(*) AS count FROM schema_migrations").get()).toEqual({ count: 18 });
     closeDatabase(created);
     const old = new Database(file);
-    old.exec("DROP TABLE impact_scenario_replay_iterations; DROP TABLE impact_scenario_replay_runs; DROP TABLE impact_scenario_replay_plans; DELETE FROM schema_migrations WHERE id='0017_v0_3_scenario_replay'; DROP TABLE impact_scenario_revisions; DELETE FROM schema_migrations WHERE id='0016_v0_3_impact_scenarios'; CREATE TABLE impact_scenario_revisions(id TEXT PRIMARY KEY)");
+    old.exec("DROP TABLE evidence_packages; DELETE FROM schema_migrations WHERE id='0018_v0_3_evidence_packages'; DROP TABLE impact_scenario_replay_iterations; DROP TABLE impact_scenario_replay_runs; DROP TABLE impact_scenario_replay_plans; DELETE FROM schema_migrations WHERE id='0017_v0_3_scenario_replay'; DROP TABLE impact_scenario_revisions; DELETE FROM schema_migrations WHERE id='0016_v0_3_impact_scenarios'; CREATE TABLE impact_scenario_revisions(id TEXT PRIMARY KEY)");
     old.close();
     expect(() => createDatabase(file)).toThrow("0016_v0_3_impact_scenarios");
     const check = new Database(file, { readonly: true });

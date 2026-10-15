@@ -1,8 +1,12 @@
 # Architecture
 
+## Impact Lab G1 evidence substrate
+
+`packages/core/src/evidence-package.ts` owns canonical JSON serialization, bounded artifact/manifest and package hashing, fixed assumptions/limitations, capability taxonomy, and integrity verification. The web service resolves subject → exact scan-time source/static graph/path → reviewed PoC → fork/execution → C1/D1/E1 → reviewed F1 → selected F2 through persisted IDs and content bindings. It projects only safe fields and never calls a controller or RPC. Migration 0018 stores a bounded frozen JSON snapshot so a finalized package remains inspectable if current presentation models change; source excerpt and artifact content hashes retain provenance to immutable originals. Finalization re-resolves the evidence and rejects a changed manifest or package hash, requiring a new draft. The scan-scoped API separates draft creation, finalization, read, and JSON download. G2 may consume this UI-independent v1 structure without changing G1 evidence.
+
 ## Impact Lab Phase F2B read-only presentation
 
-The nested run page resolves scan → execution → scenario → plan revision → run using the existing F2A server result service. A core presentation projection computes completed cumulative prefixes with BigInt and verifies the final per-asset/role net against F2A's authoritative cumulative result. The React view filters, selects and charts exact strings; it does not derive replay status or authoritative accounting. Native/E1 values, ERC1155 identities and ERC721 token IDs remain separate. Runtime evidence and mapped navigation use persisted canonical IDs only. No schema migration or execution path was added. Phase F is implemented for reviewed bounded scenario analysis; Phase G export is next.
+The nested run page resolves scan → execution → scenario → plan revision → run using the existing F2A server result service. A core presentation projection computes completed cumulative prefixes with BigInt and verifies the final per-asset/role net against F2A's authoritative cumulative result. The React view filters, selects and charts exact strings; it does not derive replay status or authoritative accounting. Native/E1 values, ERC1155 identities and ERC721 token IDs remain separate. Runtime evidence and mapped navigation use persisted canonical IDs only. No schema migration or execution path was added. Phase F is implemented for reviewed bounded scenario analysis; Phase G2 report/export is next.
 
 ## Impact Lab Phase F2A replay boundary
 

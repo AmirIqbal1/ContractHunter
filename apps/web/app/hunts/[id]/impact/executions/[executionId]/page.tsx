@@ -26,6 +26,7 @@ export default async function ImpactExecutionPage({ params, searchParams }: {
     <header className="page-head"><div><div className="eyebrow">LOCAL FORK · IMPACT LAB</div><h1>Observed Local Execution</h1><p className="subhead">Exact reviewed PoC execution · {executionId}</p></div></header>
     <div className="ip-actions">{overlay.investigationPathResultId && <Link href={`${path}&view=compare`}>Compare With Investigation Path</Link>}
       <Link href={`/hunts/${encodeURIComponent(id)}/impact/executions/${encodeURIComponent(executionId)}/assets`}>Asset Flow</Link>
+      <Link href={`/hunts/${encodeURIComponent(id)}/evidence-packages/new?subjectType=${overlay.subject.type}&subjectId=${encodeURIComponent(overlay.subject.id)}&executionId=${encodeURIComponent(executionId)}`}>Create Evidence Package</Link>
       {overlay.protocolGraphId && <Link href={`/hunts/${encodeURIComponent(id)}/protocol-map?execution=${encodeURIComponent(executionId)}&observed=1`}>Show on Protocol Map</Link>}
       {overlay.capabilities.traceAvailable && <a href="#observed-execution">View Observed Execution</a>}
       {overlay.capabilities.statePreAvailable && <a href="#observed-state">View State Changes</a>}</div>

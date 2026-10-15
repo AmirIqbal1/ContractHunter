@@ -1,5 +1,9 @@
 # Security model
 
+## G1 package authority and redaction
+
+The browser submits only exact canonical subject/execution/scenario/replay selectors. The server verifies same-scan ownership and authoritative PoC/session/E1/F1/F2 bindings, then copies only allowlisted evidence fields. It excludes upstream and local RPC endpoints, credentials, disposable keys, raw runtime tokens, worker/process internals, Docker control data, and host paths. PoC source or source excerpts with detected sensitive text are omitted with an explicit warning. Frozen packages have database update/delete guards, canonical manifest and content hashes, and a core integrity verifier; these hashes do not constitute signatures. Source, revert, token, finding, and annotation text remains untrusted plain data in React. Draft creation, finalization, reads and download never invoke the PoC/replay controller, fork lifecycle, worker or RPC. The production Compose Impact worker rebuild and live local-fork smoke gate remains open for v0.3.
+
 ## Impact Lab Phase F2B result-view boundary
 
 The run result route checks the scan, source execution, scenario, plan and run chain before rendering. It reads persisted F2A/C1/D1/E1/F1 evidence; all controls are local presentation state. The page cannot start, edit, increase or optimize replay. It renders token metadata, labels and revert/error text as React text, and passes only safe IDs/statuses to the browser. RPC URL, credentials, runtime token, worker secrets, host paths and Docker control data remain server-only. Missing accounting, restart and timeout do not become successful final-reset or zero-movement claims. No lifecycle, severity, pricing, TVL, maximum-drain, upstream or AI authority changes.

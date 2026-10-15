@@ -68,7 +68,7 @@ function fixture() {
 describe("reviewed replay persistence", () => {
   it("adds migration 17 without guessing any historical replay", () => {
     const { database } = fixture();
-    try { expect(database.sqlite.prepare("SELECT count(*) AS count FROM schema_migrations").get()).toEqual({ count: 17 });
+    try { expect(database.sqlite.prepare("SELECT count(*) AS count FROM schema_migrations").get()).toEqual({ count: 18 });
       expect(database.sqlite.prepare("SELECT count(*) AS count FROM impact_scenario_replay_plans").get()).toEqual({ count: 0 });
       expect(database.sqlite.pragma("foreign_key_check")).toEqual([]); }
     finally { closeDatabase(database); }

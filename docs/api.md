@@ -1,5 +1,9 @@
 # API reference
 
+## G1 Evidence Package (scan scoped)
+
+`POST /api/scans/:scanId/impact/evidence-packages` accepts strict JSON `{ subjectType, subjectId, executionId, scenarioRevisionId, replayRunId }` with UUID selectors and nullable optional IDs. It creates a draft from server-resolved persisted evidence, not browser-supplied artifacts. `POST /api/scans/:scanId/impact/evidence-packages/:packageId/finalize` revalidates and freezes it. `GET /api/scans/:scanId/impact/evidence-packages/:packageId` returns the bounded canonical read model, while `GET .../:packageId/download` returns finalized JSON with `application/json`, `nosniff`, and an ID-based filename. All reads enforce scan ownership and package integrity. No package endpoint executes a PoC, replay, RPC or worker. The UI routes are `/hunts/:scanId/evidence-packages/new` and `/hunts/:scanId/evidence-packages/:packageId`.
+
 ## Impact Lab Phase F2B result view
 
 The read-only run page is `/hunts/:scanId/impact/executions/:executionId/assets/scenarios/:scenarioId/replay/:planId/runs/:runId`. It reuses F2A `GET /api/scans/:scanId/impact/poc-executions/:executionId/scenarios/:scenarioId/replay-plans/:planId/runs/:runId` for authoritative result/status data. No new write endpoint or browser-submitted accounting was added. The page resolves and validates exact iteration execution IDs server-side before providing evidence links and safe metadata. Unknown, cross-scan or incompatible run evidence is rejected or displayed as unavailable.

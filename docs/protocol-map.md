@@ -1,5 +1,9 @@
 # Protocol Intelligence / ProtocolGraph
 
+## G1 static context in Evidence Packages
+
+G1 can freeze the exact relevant ProtocolGraph node/edge subset, static Investigation Path, and matching Security View references for a selected subject. These retain canonical IDs, graph/path content hashes, provenance and partial/truncation warnings. The package keeps static context separate from observed Impact Overlay, E1 Asset Flow and reviewed F1 interpretation; it neither inserts runtime nodes into ProtocolGraph nor treats a static Money Flow edge as a committed transfer. Full graph export and optional Audit Priority context are outside the v1 package.
+
 ## Observed Asset Flow versus Static Money Flow
 
 Impact Lab Phase E2 provides a purpose-built read-only Asset Flow page for one exact reviewed local execution. Its committed edges come only from E1 ledger evidence, and runtime-only addresses remain in that view rather than being inserted into ProtocolGraph. **Static Money Flow** is a source-backed security view of operations that may move value; **Observed Asset Flow** is the committed accounting evidence observed during an isolated local reproduction. The Asset Flow page links to the static Money Flow view for comparison without fabricating static transfer edges. No Asset Flow overlay mode was added to Protocol Map. Phase E is implemented; Phase F scenario analysis remains planned.

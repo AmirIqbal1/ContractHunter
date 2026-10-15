@@ -1,5 +1,9 @@
 # Development
 
+## Impact Lab G1 manual check
+
+Start ContractHunter with `npm run dev`. Open a hunt with an existing finding, investigation, or hypothesis and choose **Create Evidence Package**. Inspect the static-only draft first. For a subject with a completed reviewed Impact execution, open **Observed Local Execution** and choose **Create Evidence Package** there. Inspect required dynamic capability states, source excerpt, PoC/fork identities, transactions, trace/state/asset evidence, warnings and manifest. If a current reviewed scenario or terminal replay exists, create a separate package from its page and inspect exact roles, per-asset accounting, bounded iterations and final reset. Create the draft, confirm the freeze statement, finalize, inspect the immutable index/provenance and download JSON. Verify the JSON hashes and that a wrong scan ID cannot read it. Confirm finding/hypothesis status is unchanged and no PoC, replay, fork, worker or RPC starts. No fixed hunt, execution or run ID is assumed. Run `npm run typecheck`, `npm test`, `npm run lint`, `npm run build`, and attempt `npm audit --omit=dev`. G1 does not replace the unresolved production Compose worker rebuild and live local-fork smoke release gate.
+
 ## Impact Lab F2B local manual check
 
 1. Start ContractHunter with `npm run dev`.

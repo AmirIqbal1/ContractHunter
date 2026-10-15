@@ -124,6 +124,7 @@ export function ScenarioReplayResultView({ scanId, executionId, scenarioId, plan
       <Link href={`${scenarioBase}/replay/${encodeURIComponent(plan.planId)}`}>Replay Plan</Link>
       <Link href={base}>Single Observed Reproduction</Link><Link href={`${base}/assets`}>Source Asset Flow</Link>
       {subject && <Link href={`${context}/investigation-paths/${subject.type}/${encodeURIComponent(subject.id)}`}>Static Investigation Path</Link>}</nav>
+    {subject && ["completed", "failed", "cancelled"].includes(run.status) && <p className="ip-entry"><Link href={`${context}/evidence-packages/new?subjectType=${subject.type}&subjectId=${encodeURIComponent(subject.id)}&executionId=${encodeURIComponent(plan.executionId)}&scenarioRevisionId=${encodeURIComponent(plan.scenarioRevisionId)}&replayRunId=${encodeURIComponent(run.id)}`}>Create Evidence Package</Link></p>}
     <p role="note" className="af-warning">Bounded replay does not establish unlimited repeatability, maximum protocol impact, or real-chain exploitability.</p>
     <div className="sh-mode" aria-label="Display mode">{(["beginner", "researcher"] as const).map((value) =>
       <button key={value} type="button" aria-pressed={mode === value} onClick={() => setMode(value)}>{value === "beginner" ? "Beginner" : "Researcher"}</button>)}</div>

@@ -30,6 +30,7 @@ export default async function ScenarioPage({ params, searchParams }: {
   const labels = Object.fromEntries((artifact?.graph.nodes ?? []).map((node) => [node.id,
     node.kind === "function" ? node.signature : node.name]));
   return <main className="io-page"><nav className="ce-breadcrumb"><Link href={`/hunts/${encodeURIComponent(id)}/impact/executions/${encodeURIComponent(executionId)}/assets`}>Asset Flow</Link><span>/</span><strong>Scenario Analysis</strong></nav>
+    {selected.status === "reviewed" && !stale && <p className="ip-entry"><Link href={`/hunts/${encodeURIComponent(id)}/evidence-packages/new?subjectType=${selected.subject.type}&subjectId=${encodeURIComponent(selected.subject.id)}&executionId=${encodeURIComponent(executionId)}&scenarioRevisionId=${encodeURIComponent(selected.id)}`}>Create Evidence Package</Link></p>}
     <ScenarioReviewView flow={view.flow} labels={labels}
       participantIds={Object.fromEntries(view.flow.participants.map((item) => [item.address, scenarioParticipantId(view.flow, item.address)]))}
       scenario={selected}

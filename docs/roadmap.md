@@ -1,24 +1,28 @@
 # Roadmap
 
+## Impact Lab Phase G1 — implemented; G2 next
+
+G1 adds an immutable, bounded, versioned Evidence Package over exact persisted static/source and reviewed local reproduction records. It freezes JSON, an artifact manifest and deterministic hashes; shows partial/unavailable capabilities and provenance; and exposes a read-only download. It neither reruns execution nor produces a bug-bounty narrative. Phase G2 Bug-Bounty Report and Export is next and remains unimplemented. The production Compose Impact PoC worker current-source rebuild and full live local-fork smoke remains a v0.3 release gate.
+
 ## Impact Lab Phase F — implemented for reviewed bounded scenario analysis
 
-F2B adds the exact, read-only replay-run result page. Independent repetitions show factual consistency and variation against the reviewed reference without cumulative summation. Cumulative repetitions show only completed per-asset movement and captured resource evolution, with table-backed integer-safe charts, evidence links, stop/reset states and partial warnings. F2A's 2–5 bound and worker authority are unchanged. No projection, maximum drain, fiat value, TVL, severity or lifecycle decision is derived. **Next: Impact Lab Phase G — Evidence and Bug-Bounty Export; not implemented.**
+F2B adds the exact, read-only replay-run result page. Independent repetitions show factual consistency and variation against the reviewed reference without cumulative summation. Cumulative repetitions show only completed per-asset movement and captured resource evolution, with table-backed integer-safe charts, evidence links, stop/reset states and partial warnings. F2A's 2–5 bound and worker authority are unchanged. No projection, maximum drain, fiat value, TVL, severity or lifecycle decision is derived. **Next: Impact Lab Phase G2 — Bug-Bounty Report and Export; not implemented.**
 
 ## Impact Lab Phase F2A — implemented
 
-F2A adds reviewed plans for 2–5 repetitions of the same B1 PoC bound to a current reviewed F1 scenario. Independent replay tests consistency from one baseline; cumulative replay measures only completed sequential local repetitions. Iteration evidence, exact per-asset role accounting, factual stop reasons and final reset safety remain separate from lifecycle authority and economic interpretation. **Phase F2B is implemented; Phase G export is next. Severity, maximum-drain search and fiat valuation remain outside Phase F.**
+F2A adds reviewed plans for 2–5 repetitions of the same B1 PoC bound to a current reviewed F1 scenario. Independent replay tests consistency from one baseline; cumulative replay measures only completed sequential local repetitions. Iteration evidence, exact per-asset role accounting, factual stop reasons and final reset safety remain separate from lifecycle authority and economic interpretation. **Phase F2B is implemented; Phase G2 report/export is next. Severity, maximum-drain search and fiat valuation remain outside Phase F.**
 
 ## Impact Lab Phase F1 — implemented
 
-F1 adds explicit reviewed scenario roles over exact E1 accounting. Immutable revisions bind one execution and E1 content identity. Deterministic per-asset role positions, direct role transfers, unassigned warnings, reconciliation, and gas separation are displayed without inferring ownership, profit, loss, severity, prices, or exploitability. **Phase F2A and F2B are implemented; Phase G export is next.**
+F1 adds explicit reviewed scenario roles over exact E1 accounting. Immutable revisions bind one execution and E1 content identity. Deterministic per-asset role positions, direct role transfers, unassigned warnings, reconciliation, and gas separation are displayed without inferring ownership, profit, loss, severity, prices, or exploitability. **Phase F2A and F2B are implemented; Phase G2 report/export is next.**
 
 ## Impact Lab Phase E — implemented; F1 adds reviewed roles
 
-E2 adds a read-only visual Asset Flow page to the exact E1 result. It provides a bounded directional flow, complete paginated canonical ledger, separate attempted layer and execution cost, raw-unit per-asset net/gross positions, PRE/POST reconciliation, catalogs, warnings, and exact evidence links. It does not derive scenario roles, profit, protocol loss, pricing, severity or exploitability. **Phase F1, F2A and F2B are implemented; Phase G export is next.**
+E2 adds a read-only visual Asset Flow page to the exact E1 result. It provides a bounded directional flow, complete paginated canonical ledger, separate attempted layer and execution cost, raw-unit per-asset net/gross positions, PRE/POST reconciliation, catalogs, warnings, and exact evidence links. It does not derive scenario roles, profit, protocol loss, pricing, severity or exploitability. **Phase F1, F2A and F2B are implemented; Phase G2 report/export is next.**
 
 ## Impact Lab Phase E1 — deterministic asset-flow accounting implemented
 
-The read-only versioned asset ledger derives committed local native value and exact receipt-log token transfer facts from one reviewed execution. Reverted attempts, snapshot net observations, reconciliation and unavailable gas cost remain separate. Shared ERC20/ERC721 Transfer events without trusted standard classification stay unknown-standard. No profit/loss, severity, AI, new PoC authority or migration was added. **Phase E and F are implemented for reviewed bounded analysis; Phase G export is next.**
+The read-only versioned asset ledger derives committed local native value and exact receipt-log token transfer facts from one reviewed execution. Reverted attempts, snapshot net observations, reconciliation and unavailable gas cost remain separate. Shared ERC20/ERC721 Transfer events without trusted standard classification stay unknown-standard. No profit/loss, severity, AI, new PoC authority or migration was added. **Phase E and F are implemented for reviewed bounded analysis; Phase G2 report/export is next.**
 
 ## Protocol Intelligence Phase 10 — Dynamic Impact Lab Overlays implemented
 
