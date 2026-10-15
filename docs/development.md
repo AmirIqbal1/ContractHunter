@@ -1,5 +1,28 @@
 # Development
 
+## Impact Lab F2B local manual check
+
+1. Start ContractHunter with `npm run dev`.
+2. Open a reviewed F1 scenario with an existing completed F2A replay.
+3. Open the reviewed plan, then its run result.
+4. Inspect the run header, source PoC hash, fork block and local-only warning.
+5. Inspect an independent replay result and its exact reference/match/variation table.
+6. Inspect a cumulative replay result if available.
+7. Select each iteration and open its exact execution evidence.
+8. Inspect per-iteration transactions, trace, state, asset and scenario accounting.
+9. Select each asset; confirm unrelated assets are not combined.
+10. Inspect observed resource PRE/POST evolution and the equivalent exact table.
+11. Inspect final F2A cumulative movement and direct role transfers.
+12. Inspect any recorded stop reason and the final reset status.
+13. Follow an iteration's Observed Execution link.
+14. Follow its Asset Flow and State Changes links.
+15. Follow canonical Explorer/Map links where exact mapping exists.
+16. Switch Beginner and Researcher presentation.
+17. Confirm no projected/max-drain result or future chart line appears.
+18. Confirm finding/hypothesis status and reviewed PoC remain unchanged.
+
+No specific run ID is assumed. The F2B page itself reads persisted evidence and needs no live RPC, worker, OpenAI or transaction.
+
 ## Impact Lab F2A local manual check
 
 Start ContractHunter with `npm run dev`. Open an existing completed Impact execution with E1 accounting and a current reviewed F1 scenario, then choose **Scenario Replay**. Inspect source hash, fork identity, reviewed roles and starting captured resources. Create a 2-iteration independent draft, confirm its local-only review statement, review and start it. Inspect the run status, each iteration's exact execution/C1/D1/E1/F1 evidence and independent match table; confirm no cumulative total is shown. Create a separate cumulative plan with 2–5 repetitions, review/start it, inspect evolving captured resources and per-asset cumulative values, then request cancellation on a run and confirm no later iteration starts. Confirm final reset, unchanged finding/hypothesis state, no PoC source change and no upstream transaction. Do not assume a hunt or execution ID. A live local fork and existing worker are needed for the manual replay; no real-chain transaction or OpenAI call is needed.

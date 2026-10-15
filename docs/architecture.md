@@ -1,5 +1,9 @@
 # Architecture
 
+## Impact Lab Phase F2B read-only presentation
+
+The nested run page resolves scan → execution → scenario → plan revision → run using the existing F2A server result service. A core presentation projection computes completed cumulative prefixes with BigInt and verifies the final per-asset/role net against F2A's authoritative cumulative result. The React view filters, selects and charts exact strings; it does not derive replay status or authoritative accounting. Native/E1 values, ERC1155 identities and ERC721 token IDs remain separate. Runtime evidence and mapped navigation use persisted canonical IDs only. No schema migration or execution path was added. Phase F is implemented for reviewed bounded scenario analysis; Phase G export is next.
+
 ## Impact Lab Phase F2A replay boundary
 
 The frontend-independent `impact-scenario-replay` core defines strict mode/count input, content-bound plan identity, semantic comparison and per-asset cumulative projection. Migration `0017_v0_3_scenario_replay` stores immutable finalized plan revisions, separately triggered runs and immutable finalized iteration references. The controller extends the existing B1 single-job lease across a run; each iteration calls the same reviewed-artifact worker and persists normal C1/D1 evidence. E1 and F1 accounting are derived from each iteration's exact execution. Independent mode resets between iterations; cumulative mode preserves local state and verifies PRE/POST continuity. Final reset failure stops the fork. Web/API layers submit only plan selectors, mode, count and explicit review/start/cancel decisions, never PoC source, calldata, RPC or execution commands. No ProtocolGraph, finding, hypothesis, AssetFlow or reviewed F1 role mutation occurs.

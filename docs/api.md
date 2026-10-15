@@ -1,5 +1,9 @@
 # API reference
 
+## Impact Lab Phase F2B result view
+
+The read-only run page is `/hunts/:scanId/impact/executions/:executionId/assets/scenarios/:scenarioId/replay/:planId/runs/:runId`. It reuses F2A `GET /api/scans/:scanId/impact/poc-executions/:executionId/scenarios/:scenarioId/replay-plans/:planId/runs/:runId` for authoritative result/status data. No new write endpoint or browser-submitted accounting was added. The page resolves and validates exact iteration execution IDs server-side before providing evidence links and safe metadata. Unknown, cross-scan or incompatible run evidence is rejected or displayed as unavailable.
+
 ## Impact Lab Phase F2A replay
 
 Under `/api/scans/:scanId/impact/poc-executions/:executionId/scenarios/:scenarioId/replay-plans`, `GET` lists current plans and `POST` accepts only `{mode, iterationCount}`. `GET`/`PATCH /:planId` read or edit a current draft (`revisionId`, mode, count). `POST /:planId/review` accepts a revision ID and reviewed/rejected decision; `POST /:planId/revisions` creates a draft revision. `GET`/`POST /:planId/runs` list runs or explicitly start a reviewed plan with its revision ID. `GET /:planId/runs/:runId` returns bounded status and deterministic evidence/result; `POST /:planId/runs/:runId/cancel` requests cancellation after the current iteration. Every action validates scan, execution, scenario, plan and E1/PoC/fork binding server-side. Start does not accept transaction or source content. UI routes extend the reviewed scenario at `.../assets/scenarios/:scenarioId/replay` and `.../replay/:planId`.

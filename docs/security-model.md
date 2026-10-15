@@ -1,5 +1,9 @@
 # Security model
 
+## Impact Lab Phase F2B result-view boundary
+
+The run result route checks the scan, source execution, scenario, plan and run chain before rendering. It reads persisted F2A/C1/D1/E1/F1 evidence; all controls are local presentation state. The page cannot start, edit, increase or optimize replay. It renders token metadata, labels and revert/error text as React text, and passes only safe IDs/statuses to the browser. RPC URL, credentials, runtime token, worker secrets, host paths and Docker control data remain server-only. Missing accounting, restart and timeout do not become successful final-reset or zero-movement claims. No lifecycle, severity, pricing, TVL, maximum-drain, upstream or AI authority changes.
+
 ## Impact Lab Phase F2A replay authority
 
 Replay requires a current reviewed F1 scenario, matching E1 hash, the exact reviewed B1 artifact and observation plan, and a live guarded fork with the original runtime token hash and fork identity. Browser input is strictly the closed two-mode choice and integer 2–5; it cannot supply source, transactions, sender, funding, target, endpoint or commands. The existing B1 worker retains its networkless, unprivileged, read-only-root Docker boundary, fixed Forge mode and per-job limits. A single controller lease excludes concurrent normal PoC execution for the full replay. The run checks a 10-minute server deadline before each bounded iteration, supports cancellation after the current iteration, never resumes after restart, and attempts final baseline reset; failure stops the fork. Replay evidence does not verify a finding, change confidence or assign severity. API/UI expose hashes and local evidence IDs, never RPC URLs, credentials, private keys, raw runtime tokens, worker secrets, Docker control or host paths.

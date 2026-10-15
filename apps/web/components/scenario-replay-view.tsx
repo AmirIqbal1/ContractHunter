@@ -94,8 +94,9 @@ export function ScenarioReplayView({ scanId, executionId, scenarioId, plan, plan
           if (value?.run) { setRun(value.run); setResult(null); } }}>Start Reviewed Local Replay</button>}
       {plan && <p className="mono">Plan revision ID {plan.id} · content {plan.contentSha256} · ruleset contracthunter-scenario-replay-ruleset-v1</p>}
     </section>
-    {runs.length > 0 && <section className="card"><h2>Run history</h2><ul>{runs.map((item) => <li key={item.id}><Link href={`${base}/replay/${encodeURIComponent(plan!.planId)}?run=${encodeURIComponent(item.id)}`}>Run {item.id} · {item.status} · {item.stopReason ?? "no stop reason"}</Link></li>)}</ul></section>}
+    {runs.length > 0 && <section className="card"><h2>Run history</h2><ul>{runs.map((item) => <li key={item.id}><Link href={`${base}/replay/${encodeURIComponent(plan!.planId)}/runs/${encodeURIComponent(item.id)}`}>View bounded replay result · {item.id} · {item.status} · {item.stopReason ?? "no stop reason"}</Link></li>)}</ul></section>}
     {run && <section className="card"><h2>Run status</h2><p>{run.status.toUpperCase()} · {run.id} · {run.stopReason ?? "No stop reason"}</p>
+      {plan && <p><Link href={`${base}/replay/${encodeURIComponent(plan.planId)}/runs/${encodeURIComponent(run.id)}`}>Open visual replay result</Link></p>}
       {["queued", "running"].includes(run.status) && <button type="button" disabled={busy || run.cancelRequested}
         onClick={async () => { const value = await action(`${resource}/runs/${encodeURIComponent(run.id)}/cancel`, {});
           if (value?.run) setRun(value.run); }}>Cancel after current iteration</button>}</section>}
