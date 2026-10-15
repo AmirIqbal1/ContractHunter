@@ -1,5 +1,9 @@
 # Protocol Intelligence / ProtocolGraph
 
+## G2 report static context
+
+G2 renders only the ProtocolGraph subset, Security View references and Investigation Path already frozen in the selected finalized G1 package. The static path is labelled research context and does not establish execution or exploitability. The Markdown report retains canonical source units, line ranges and full identities; preview and print use the same section model. No report reads the current ProtocolGraph or source tree, and observed calls remain separate from static relationships. **Impact Lab Phase G is implemented; next is v0.3.0 Release Hardening.**
+
 ## G1 static context in Evidence Packages
 
 G1 can freeze the exact relevant ProtocolGraph node/edge subset, static Investigation Path, and matching Security View references for a selected subject. These retain canonical IDs, graph/path content hashes, provenance and partial/truncation warnings. The package keeps static context separate from observed Impact Overlay, E1 Asset Flow and reviewed F1 interpretation; it neither inserts runtime nodes into ProtocolGraph nor treats a static Money Flow edge as a committed transfer. Full graph export and optional Audit Priority context are outside the v1 package.

@@ -1,5 +1,32 @@
 # Development
 
+## Impact Lab G2 manual check
+
+1. Start ContractHunter with `npm run dev`.
+2. Open a finalized G1 Evidence Package in any hunt.
+3. Choose **Create Bug-Bounty Report draft**.
+4. Inspect the automatically derived read-only sections.
+5. Add a bounded researcher summary and save the draft.
+6. Add a researcher impact statement if desired, then save.
+7. Inspect the **DRAFT BUG-BOUNTY REPORT** preview.
+8. Inspect affected code, source unit, snapshot hash and source excerpt.
+9. Inspect reviewed PoC and local-only reproduction facts when available.
+10. Inspect execution, trace and state changes when available.
+11. Inspect committed and attempted asset movement separately.
+12. Inspect reviewed scenario accounting, when selected.
+13. Inspect bounded replay semantics and stop reason, when selected.
+14. Inspect assumptions and limitations.
+15. Inspect the evidence index, provenance and hashes in the appendix.
+16. Finalize the report.
+17. Download Markdown.
+18. Compare downloaded Markdown sections and exact values with the preview.
+19. Use **Copy Markdown** and compare the copied text with the download.
+20. Open the read-only Print view and try Browser Print → Save as PDF.
+21. Verify exact Evidence Package, manifest and report hashes and the integrity state.
+22. Verify no finding/status/evidence mutation occurred.
+
+Use a static-only package and partial/full dynamic packages where available. Test a new draft revision, wrong-scan access and an oversized field. This workflow itself starts no RPC, PoC, replay, worker, scanner or AI. Run typecheck, tests, lint and build. The production Compose Impact worker trusted current-source rebuild and full live local-fork smoke remain a separate v0.3 release gate. **Impact Lab Phase G is implemented; next is v0.3.0 Release Hardening.**
+
 ## Impact Lab G1 manual check
 
 Start ContractHunter with `npm run dev`. Open a hunt with an existing finding, investigation, or hypothesis and choose **Create Evidence Package**. Inspect the static-only draft first. For a subject with a completed reviewed Impact execution, open **Observed Local Execution** and choose **Create Evidence Package** there. Inspect required dynamic capability states, source excerpt, PoC/fork identities, transactions, trace/state/asset evidence, warnings and manifest. If a current reviewed scenario or terminal replay exists, create a separate package from its page and inspect exact roles, per-asset accounting, bounded iterations and final reset. Create the draft, confirm the freeze statement, finalize, inspect the immutable index/provenance and download JSON. Verify the JSON hashes and that a wrong scan ID cannot read it. Confirm finding/hypothesis status is unchanged and no PoC, replay, fork, worker or RPC starts. No fixed hunt, execution or run ID is assumed. Run `npm run typecheck`, `npm test`, `npm run lint`, `npm run build`, and attempt `npm audit --omit=dev`. G1 does not replace the unresolved production Compose worker rebuild and live local-fork smoke release gate.

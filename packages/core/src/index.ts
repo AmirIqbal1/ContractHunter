@@ -44,3 +44,4 @@ export * from "./security-view";
 export * from "./audit-priority";
 export * from "./investigation-path";
 export * from "./evidence-package";
+export * from "./bounty-report";

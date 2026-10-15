@@ -16,6 +16,7 @@ export * from "./impact-scenario-replay";
 export * from "./impact-state";
 export * from "./impact-trace";
 export * from "./evidence-package";
+export * from "./bounty-report";
 export * from "./repository-map";
 export * from "./static-protocol-graph";
 
@@ -720,9 +721,28 @@ export function createDatabase(databasePath: string) {
     })(); }
     catch (error) { throw new Error(`Database migration 0018_v0_3_evidence_packages failed without committing changes: ${error instanceof Error ? error.message : String(error)}`); }
   }
+  if (!sqlite.prepare("SELECT 1 FROM schema_migrations WHERE id = ?").get("0019_v0_3_bounty_reports")) {
+    try { sqlite.transaction(() => {
+      sqlite.exec(`CREATE TABLE bounty_reports (
+        id TEXT PRIMARY KEY, scan_id TEXT NOT NULL REFERENCES scans(id) ON DELETE CASCADE,
+        evidence_package_id TEXT NOT NULL REFERENCES evidence_packages(id),
+        revision_of TEXT REFERENCES bounty_reports(id),
+        status TEXT NOT NULL CHECK(status IN ('draft','finalized')),
+        report_json TEXT NOT NULL, package_content_hash TEXT NOT NULL, manifest_hash TEXT NOT NULL,
+        content_hash TEXT NOT NULL, created_at INTEGER NOT NULL, finalized_at INTEGER);
+      CREATE INDEX bounty_reports_package_idx ON bounty_reports(scan_id,evidence_package_id,created_at);
+      CREATE TRIGGER bounty_reports_final_immutable BEFORE UPDATE ON bounty_reports
+        WHEN OLD.status='finalized' BEGIN SELECT RAISE(ABORT,'finalized bounty report immutable'); END;
+      CREATE TRIGGER bounty_reports_final_no_delete BEFORE DELETE ON bounty_reports
+        WHEN OLD.status='finalized' AND EXISTS(SELECT 1 FROM scans WHERE id=OLD.scan_id)
+        BEGIN SELECT RAISE(ABORT,'finalized bounty report immutable'); END;`);
+      sqlite.prepare("INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)").run("0019_v0_3_bounty_reports", Date.now());
+    })(); }
+    catch (error) { throw new Error(`Database migration 0019_v0_3_bounty_reports failed without committing changes: ${error instanceof Error ? error.message : String(error)}`); }
+  }
   const integrity = sqlite.pragma("quick_check") as Array<{ quick_check: string }>;
   const foreignKeyViolations = sqlite.pragma("foreign_key_check") as unknown[];
-  const requiredTables = ["scans", "scan_source_snapshots", "scan_source_snapshot_files", "scan_compilation_provenance", "scan_compilation_source_units", "scan_scanner_alignment", "findings", "scan_scanners", "investigations", "investigation_findings", "protocol_analyses", "invariants", "security_review_plans", "security_reviewer_runs", "verification_plan_attempts", "vulnerability_hypotheses", "hypothesis_verification_runs", "executable_invariant_runs", "executable_invariant_proposals", "invariant_replay_artifacts", "invariant_replay_runs", "authoritative_invariant_evidence", "invariant_evidence_reviews", "hypothesis_lifecycle_transitions", "hypothesis_groups", "hypothesis_group_members", "impact_fork_sessions", "impact_poc_artifacts", "impact_poc_executions", "impact_state_snapshots", "impact_state_observations", "impact_state_diffs", "impact_state_changes", "impact_transaction_traces", "impact_trace_nodes", "impact_trace_logs", "repository_maps", "static_protocol_graphs", "impact_scenario_revisions", "impact_scenario_replay_plans", "impact_scenario_replay_runs", "impact_scenario_replay_iterations", "evidence_packages"];
+  const requiredTables = ["scans", "scan_source_snapshots", "scan_source_snapshot_files", "scan_compilation_provenance", "scan_compilation_source_units", "scan_scanner_alignment", "findings", "scan_scanners", "investigations", "investigation_findings", "protocol_analyses", "invariants", "security_review_plans", "security_reviewer_runs", "verification_plan_attempts", "vulnerability_hypotheses", "hypothesis_verification_runs", "executable_invariant_runs", "executable_invariant_proposals", "invariant_replay_artifacts", "invariant_replay_runs", "authoritative_invariant_evidence", "invariant_evidence_reviews", "hypothesis_lifecycle_transitions", "hypothesis_groups", "hypothesis_group_members", "impact_fork_sessions", "impact_poc_artifacts", "impact_poc_executions", "impact_state_snapshots", "impact_state_observations", "impact_state_diffs", "impact_state_changes", "impact_transaction_traces", "impact_trace_nodes", "impact_trace_logs", "repository_maps", "static_protocol_graphs", "impact_scenario_revisions", "impact_scenario_replay_plans", "impact_scenario_replay_runs", "impact_scenario_replay_iterations", "evidence_packages", "bounty_reports"];
   const presentTables = new Set((sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as Array<{ name: string }>).map((row) => row.name));
   const repositoryMapTriggers = new Set((sqlite.prepare("SELECT name FROM sqlite_master WHERE type='trigger' AND name LIKE 'repository_maps_%'").all() as Array<{ name: string }>).map((row) => row.name));
   if (!["repository_maps_immutable", "repository_maps_no_delete"].every((name) => repositoryMapTriggers.has(name)))

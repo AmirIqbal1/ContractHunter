@@ -5,8 +5,9 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { type EvidencePackage } from "@contracthunter/core";
 
-export function EvidencePackageView({ value, persisted, history = [] }: { value: EvidencePackage; persisted: boolean;
-  history?: Array<{ id: string; status: string; createdAt: number }> }) {
+export function EvidencePackageView({ value, persisted, history = [], reports = [] }: { value: EvidencePackage; persisted: boolean;
+  history?: Array<{ id: string; status: string; createdAt: number }>;
+  reports?: Array<{ id: string; status: string; createdAt: number }> }) {
   const router = useRouter();
   const [mode, setMode] = useState<"beginner" | "researcher">("beginner");
   const [selected, setSelected] = useState<string | null>(null);
@@ -37,6 +38,18 @@ export function EvidencePackageView({ value, persisted, history = [] }: { value:
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Package action failed."); }
     finally { setBusy(false); }
   }
+  async function createReport() {
+    setBusy(true); setError("");
+    try {
+      const response = await fetch(`${api}/${encodeURIComponent(value.packageId)}/reports`,
+        { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+      if (!response.ok) throw Error("Report draft could not be created from this package.");
+      const result = await response.json() as { reportId: string };
+      router.push(`${here}/reports/${encodeURIComponent(result.reportId)}`);
+      router.refresh();
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Report action failed."); }
+    finally { setBusy(false); }
+  }
   return <div className="af-view"><header className="page-head"><div>
     <div className="eyebrow">{value.status === "finalized" ? "FINALIZED EVIDENCE PACKAGE" : "DRAFT EVIDENCE PACKAGE"}</div>
     <h1>Evidence Package</h1>
@@ -55,6 +68,12 @@ export function EvidencePackageView({ value, persisted, history = [] }: { value:
     {error && <p role="alert" className="af-warning">{error}</p>}
     {history.length > 0 && <section className="card"><h2>Earlier packages for this subject</h2><ul>{history.map((item) =>
       <li key={item.id}><Link href={`/hunts/${encodeURIComponent(value.scanId)}/evidence-packages/${encodeURIComponent(item.id)}`}>{item.status.toUpperCase()} · {new Date(item.createdAt).toISOString()} · {item.id}</Link></li>)}</ul></section>}
+    {value.status === "finalized" && <section className="card"><h2>Bug-bounty reports</h2>
+      <p>Draft and finalized reports remain bound to this exact package content and manifest.</p>
+      <button type="button" disabled={busy} onClick={createReport}>Create Bug-Bounty Report draft</button>
+      {reports.length > 0 && <ul>{reports.map((item) => <li key={item.id}>
+        <Link href={`${here}/reports/${encodeURIComponent(item.id)}`}>{item.status.toUpperCase()} · {new Date(item.createdAt).toISOString()} · {item.id}</Link>
+      </li>)}</ul>}</section>}
     <section className="card"><h2>{value.status === "finalized" ? "Finalized evidence" : "Package preview"}</h2>
       <dl className="io-grid"><div><dt>Subject</dt><dd>{value.subject.type} · {value.subject.title} · {value.subject.status}</dd></div>
         <div><dt>Capability</dt><dd>{value.completeness}</dd></div>

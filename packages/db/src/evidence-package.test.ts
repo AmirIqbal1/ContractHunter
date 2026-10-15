@@ -48,7 +48,7 @@ describe("evidence package persistence", () => {
       expect(() => database.sqlite.prepare("DELETE FROM evidence_packages WHERE id=?").run(id))
         .toThrow("finalized evidence package immutable");
       expect(database.sqlite.prepare("SELECT count(*) AS count FROM schema_migrations").get())
-        .toEqual({ count: 18 });
+        .toEqual({ count: 19 });
     } finally { closeDatabase(database); }
   });
 });

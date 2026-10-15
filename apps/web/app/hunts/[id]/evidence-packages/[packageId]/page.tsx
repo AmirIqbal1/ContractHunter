@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { getDatabase, readEvidencePackage } from "@contracthunter/db";
+import { getDatabase, readEvidencePackage, listBountyReports } from "@contracthunter/db";
 import { EvidencePackageView } from "@/components/evidence-package-view";
 import { idSchema } from "@/lib/api";
 
@@ -11,5 +11,6 @@ export default async function EvidencePackagePage({ params }: { params: Promise<
   try { value = readEvidencePackage(getDatabase(), id, packageId); }
   catch { notFound(); }
   if (!value) notFound();
-  return <main className="io-page"><EvidencePackageView value={value} persisted /></main>;
+  const reports = value.status === "finalized" ? listBountyReports(getDatabase(), id, packageId) : [];
+  return <main className="io-page"><EvidencePackageView value={value} persisted reports={reports} /></main>;
 }
