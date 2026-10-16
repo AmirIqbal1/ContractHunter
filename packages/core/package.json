@@ -1,8 +1,13 @@
 {
   "name": "@contracthunter/core",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
-  "exports": { ".": "./src/index.ts", "./audit-priority-catalog": "./src/audit-priority-catalog.ts" },
-  "dependencies": { "zod": "^3.25.76" }
+  "exports": {
+    ".": "./src/index.ts",
+    "./audit-priority-catalog": "./src/audit-priority-catalog.ts"
+  },
+  "dependencies": {
+    "zod": "^3.25.76"
+  }
 }

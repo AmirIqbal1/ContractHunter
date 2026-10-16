@@ -2,7 +2,7 @@
 
 ## Impact Lab Phase G2 and Phase G — implemented
 
-G2 adds a deterministic, versioned bug-bounty report derived only from an immutable finalized G1 package. Bounded researcher plain text is editable in a draft; final reports and revisions preserve hash-bound history. Markdown is the primary export and browser print provides optional PDF saving. Evidence facts remain read only, with no AI, PoC, replay, RPC, severity calculation or impact extrapolation. **v0.3.0 Release Hardening is in progress.** The trusted production Impact PoC worker rebuild and disposable local-fork B1–E1/G1/G2 smoke passed. v0.3.0 is not released.
+G2 adds a deterministic, versioned bug-bounty report derived only from an immutable finalized G1 package. Bounded researcher plain text is editable in a draft; final reports and revisions preserve hash-bound history. Markdown is the primary export and browser print provides optional PDF saving. Evidence facts remain read only, with no AI, PoC, replay, RPC, severity calculation or impact extrapolation. **v0.3.0 automated release hardening passed; manual browser review and publication remain.** The trusted production Impact PoC worker rebuild and disposable local-fork B1–E1/G1/G2 smoke passed. v0.3.0 is not released.
 
 ## Impact Lab Phase G1 — implemented
 
@@ -42,7 +42,7 @@ Reviewed manual Forge PoCs run only against a verified local fork through the fi
 
 ## Current direction — Protocol Intelligence
 
-**RELEASED:** v0.2.2 scanner, investigation and verification workflows. **COMPLETE IN UNRELEASED v0.3:** Protocol Intelligence 1–10 and Impact Lab A1–G2, including bounded F2 replay, immutable G1 Evidence Packages and deterministic G2 reports. **NEXT:** v0.3.0 Release Hardening and manual release decision. **Core product priorities:** **#1 Protocol Map** and **#2 Contract Explorer**.
+**RELEASED:** v0.2.2 scanner, investigation and verification workflows. **COMPLETE IN UNRELEASED v0.3:** Protocol Intelligence 1–10 and Impact Lab A1–G2, including bounded F2 replay, immutable G1 Evidence Packages and deterministic G2 reports. **NEXT:** Manual browser acceptance and v0.3.0 release workflow. **Core product priorities:** **#1 Protocol Map** and **#2 Contract Explorer**.
 
 ContractHunter is growing into a Web3 security research environment for beginners and experienced researchers. The principle is: **Do not hide Web3 security complexity from beginners — make it understandable visually while keeping the real technical information available.** The intended research path is understand → investigate → verify → reproduce → explain impact. This pipeline marks direction, not completed functionality:
 

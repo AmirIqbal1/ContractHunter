@@ -2,6 +2,8 @@
 
 ## 0.3.0 — release candidate, not released
 
+Automated final release gates passed; manual browser review and publication remain.
+
 ### Added
 
 - Protocol Map, Contract and Function Explorers, seven Security Views, Start Here and static Investigation Paths.
