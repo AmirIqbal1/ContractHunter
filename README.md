@@ -1,12 +1,14 @@
 # ContractHunter
 
+ContractHunter is a **Web3 security research environment**. The released v0.2.2 workflow covers scanning, investigations and deterministic local verification. The unreleased v0.3.0 candidate adds static protocol understanding, reviewed local-fork reproduction, bounded impact analysis and evidence/report export. Static findings, local execution and reports have distinct authority; none establishes protocol safety or bounty eligibility on its own.
+
 ## Impact Lab Phase G2 — Bug-Bounty Report and Export (implemented, unreleased v0.3)
 
-A finalized G1 Evidence Package can now create a draft `contracthunter-bounty-report-v1` report under `contracthunter-bounty-report-ruleset-v1`. The report model and Markdown renderer use only that verified package. A researcher can edit bounded plain-text title, summary, impact statement, reproduction note and context fields; evidence facts remain read only. Finalized report revisions are immutable and bind the package content and manifest hashes. Download deterministic UTF-8 Markdown, copy the exact download text, or use the clean browser print view to save a PDF. G2 runs no PoC, replay, RPC, scanner or AI. **Impact Lab Phase G is implemented. Next: v0.3.0 Release Hardening.** The production Compose Impact PoC worker trusted current-source rebuild and full live local-fork smoke remain v0.3 release gates; v0.3.0 is not released.
+A finalized G1 Evidence Package can now create a draft `contracthunter-bounty-report-v1` report under `contracthunter-bounty-report-ruleset-v1`. The report model and Markdown renderer use only that verified package. A researcher can edit bounded plain-text title, summary, impact statement, reproduction note and context fields; evidence facts remain read only. Finalized report revisions are immutable and bind the package content and manifest hashes. Download deterministic UTF-8 Markdown, copy the exact download text, or use the clean browser print view to save a PDF. G2 runs no PoC, replay, RPC, scanner or AI. **Impact Lab Phase G is implemented. v0.3.0 Release Hardening is in progress.** The trusted production Impact PoC worker rebuild and disposable local-fork B1–E1/G1/G2 smoke passed; v0.3.0 is not released.
 
 ## Impact Lab Phase G1 — deterministic Evidence Package (unreleased v0.3)
 
-An exact finding, investigation, or hypothesis can now create a draft Evidence Package from persisted scan and Impact Lab records, then explicitly finalize an immutable JSON package. The server resolves canonical IDs, freezes bounded source excerpts, static paths/graph context, reviewed PoC and fork identity, local execution, C1/D1/E1 evidence, reviewed F1 roles, and selected F2 replay evidence when present. The manifest, provenance links, capability states, warnings, fixed limitations, and SHA-256 hashes make missing or partial evidence visible. Packaging reads persisted evidence only; it does not run a PoC, replay, worker, fork, or RPC. **Impact Lab G1 and G2 are implemented.** The production Compose Impact PoC worker still needs a trusted current-source rebuild and full live local-fork smoke before v0.3 release.
+An exact finding, investigation, or hypothesis can now create a draft Evidence Package from persisted scan and Impact Lab records, then explicitly finalize an immutable JSON package. The server resolves canonical IDs, freezes bounded source excerpts, static paths/graph context, reviewed PoC and fork identity, local execution, C1/D1/E1 evidence, reviewed F1 roles, and selected F2 replay evidence when present. The manifest, provenance links, capability states, warnings, fixed limitations, and SHA-256 hashes make missing or partial evidence visible. Packaging reads persisted evidence only; it does not run a PoC, replay, worker, fork, or RPC. **Impact Lab G1 and G2 are implemented.** Release hardening has verified the production worker through a disposable local-fork smoke; final release assessment remains in progress.
 
 ## Impact Lab Phase F2B — visual bounded replay (unreleased v0.3)
 
@@ -28,7 +30,7 @@ The read-only **Asset Flow** view is available from an eligible Impact execution
 
 The read-only `contracthunter-asset-flow-v1` engine derives exact local-fork native value movements and committed receipt-log token transfer facts from one reviewed Impact execution. It keeps attempted/reverted flows, PRE/POST net observations, net/gross raw-unit positions, reconciliation and unavailable execution gas cost separate. The scan-scoped API is `/api/scans/:scanId/impact/poc-executions/:executionId/asset-flow`. Token standards without authoritative classification remain unresolved. E2 renders this result, F1 adds reviewed scenario roles, and F2B renders bounded replay. Profit, protocol loss, severity, and fiat valuation are outside this implementation. See [Impact Lab](docs/impact-lab.md).
 
-ContractHunter is evolving from a locally hosted smart-contract scanner into a **Web3 security research environment**. Its direction is to help beginners and experienced researchers understand large protocols, find important contracts and relationships, inspect attack surface, investigate findings, verify hypotheses, and safely reproduce impact on a local fork. The research path is **understand → investigate → verify → reproduce → explain impact**.
+ContractHunter helps beginners and experienced researchers understand large protocols, find important contracts and relationships, inspect attack surface, investigate findings, verify hypotheses, and reproduce reviewed PoCs on an isolated local fork. The research path is **understand → investigate → verify → reproduce → explain impact**.
 
 **Core product priorities:** **#1 Protocol Map** and **#2 Contract Explorer**, both with initial research interfaces implemented. These are core capabilities for understanding a protocol before and during vulnerability research. The design principle is: *Do not hide Web3 security complexity from beginners — make it understandable visually while keeping the real technical information available.* The source-order Function Explorer and deterministic Security View models are implemented; interactive Security Views are implemented.
 
@@ -45,6 +47,7 @@ Use it only with repositories and contracts you are authorised to analyse. Repos
 ## Features
 
 - Source-linked Protocol Map with contract relationships, filters and finding references
+- Security Views and Start Here guidance with deterministic audit-interest cues
 - Source-linked Contract Explorer with entry points, callers/callees, findings and review cues
 - Visual Function Explorer with source-order operations, exact links and partial-analysis warnings
 - Static Investigation Paths for findings, investigations and hypotheses, with exact source and provenance links
@@ -55,6 +58,9 @@ Use it only with repositories and contracts you are authorised to analyse. Repos
 - Structured local verification with deterministic Foundry harnesses
 - Foundry fuzz testing and stateful invariant testing, with Echidna as a manually selected second local engine for a narrower stateful subset
 - Deterministic counterexample replay with explicit relevance review
+- Reviewed local-fork PoCs, state diffs, transaction traces and runtime overlays
+- Asset Flow, reviewed scenario accounting and bounded independent/cumulative replay
+- Immutable Evidence Packages and deterministic bug-bounty Markdown reports with a print view
 - API cost estimates and recorded usage visibility
 - Local-first, Docker-first operation
 

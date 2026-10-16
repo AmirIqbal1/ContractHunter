@@ -163,6 +163,31 @@ function snapshot(databasePath: string) {
   return result;
 }
 
+describe("v0.2.2 to v0.3.0 migration", () => {
+  it("preserves historical research and leaves new Impact evidence unavailable", () => {
+    const directory = mkdtempSync(path.join(tmpdir(), "contracthunter-v022-upgrade-")); directories.push(directory);
+    const file = path.join(directory, "v022.db");
+    const ids = seedV019Shape(file);
+    closeDatabase(createDatabase(file));
+    const old = new Database(file);
+    rewindImpactMigration(old);
+    const historicalTables = ["scans", "findings", "investigations", "vulnerability_hypotheses", "hypothesis_verification_runs"];
+    const before = Object.fromEntries(historicalTables.map((table) => [table, old.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all()]));
+    expect((old.prepare("SELECT count(*) FROM schema_migrations").pluck().get() as number)).toBe(8);
+    old.close();
+
+    const upgraded = createDatabase(file);
+    for (const table of historicalTables)
+      expect(upgraded.sqlite.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all(), table).toEqual(before[table]);
+    expect(getVulnerabilityHypothesis(upgraded, ids.hypothesisId)?.status).toBe("verified");
+    for (const table of ["impact_fork_sessions", "impact_poc_artifacts", "impact_poc_executions", "impact_state_snapshots",
+      "impact_transaction_traces", "impact_scenario_revisions", "impact_scenario_replay_runs", "evidence_packages", "bounty_reports"])
+      expect(upgraded.sqlite.prepare(`SELECT count(*) FROM ${table}`).pluck().get(), table).toBe(0);
+    expect((upgraded.sqlite.prepare("SELECT count(*) FROM schema_migrations").pluck().get() as number)).toBe(19);
+    closeDatabase(upgraded);
+  });
+});
+
 describe("v0.1.9 to v0.2.0 migration", () => {
   it("upgrades a copy transactionally without changing historical rows, then accepts new invariant and replay history", () => {
     const directory = mkdtempSync(path.join(tmpdir(), "contracthunter-upgrade-")); directories.push(directory);

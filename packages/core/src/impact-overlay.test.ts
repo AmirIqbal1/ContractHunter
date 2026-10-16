@@ -160,6 +160,26 @@ describe("Phase 10A deterministic Impact Overlay", () => {
     expect(input).toEqual(original);
     expect(deriveImpactOverlay(input).contentSha256).toBe(result.contentSha256);
   });
+  it("accepts exact historical bare runtime-token digests without weakening evidence binding", () => {
+    const input = mutableFixture(), legacyDigest = hash("d").slice("sha256:".length);
+    input.execution.runtimeTokenSha256 = legacyDigest;
+    for (const snapshot of [input.pre!, input.post!]) {
+      snapshot.provenance.runtimeTokenSha256 = legacyDigest;
+      snapshot.contentSha256 = snapshotHash(snapshot);
+    }
+    input.diff!.provenance.runtimeTokenSha256 = legacyDigest;
+    input.diff!.preSnapshotSha256 = input.pre!.contentSha256;
+    input.diff!.postSnapshotSha256 = input.post!.contentSha256;
+    input.diff!.contentSha256 = diffHash(input.diff!);
+    for (const trace of input.traces) {
+      trace.provenance.runtimeTokenSha256 = legacyDigest;
+      trace.contentSha256 = impactTraceHash(trace);
+    }
+    expect(deriveImpactOverlay(input).transactions).toHaveLength(1);
+    input.traces[0]!.provenance.runtimeTokenSha256 = "0".repeat(64);
+    input.traces[0]!.contentSha256 = impactTraceHash(input.traces[0]!);
+    expect(() => deriveImpactOverlay(input)).toThrow("impact_overlay_trace_binding_invalid");
+  });
   it("marks static edges not observed without claiming absence and retains runtime-only calls", () => {
     const omitted = trace([root()]);
     const first = deriveImpactOverlay(fixture([omitted]));

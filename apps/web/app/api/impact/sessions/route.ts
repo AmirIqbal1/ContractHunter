@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
 import { createImpactSession, publicImpactSession } from "@/lib/impact-lab";
+import { impactCreateSessionSchema } from "@contracthunter/core";
+import { getDatabase } from "@contracthunter/db";
+import { impactSubjectInScan, requestedImpactScan } from "@/lib/impact-api-scope";
 
 export const runtime = "nodejs";
 async function boundedBody(request: Request): Promise<unknown> {
@@ -20,7 +23,12 @@ async function boundedBody(request: Request): Promise<unknown> {
 }
 export async function POST(request: Request) {
   try {
-    const session = await createImpactSession(await boundedBody(request));
+    const scanId = requestedImpactScan(request);
+    if (!scanId) return NextResponse.json({ error: "Invalid scan ID." }, { status: 400 });
+    const input = impactCreateSessionSchema.parse(await boundedBody(request));
+    if (!impactSubjectInScan(getDatabase(), scanId, input.findingId ?? null, input.hypothesisId ?? null))
+      return NextResponse.json({ error: "Subject not found." }, { status: 404 });
+    const session = await createImpactSession(input);
     return NextResponse.json({ session: publicImpactSession(session) }, { status: 201 });
   } catch {
     return NextResponse.json({ error: "Impact Lab session could not be created." }, { status: 400 });

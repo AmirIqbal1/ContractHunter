@@ -179,13 +179,13 @@ export async function executeManualPoC(sessionId: string, input: unknown, deps: 
     })) !== JSON.stringify(plan)) throw Error("impact_replay_observation_plan_invalid");
   if (activeJob && activeJob !== deps.replayLeaseId) throw Error("impact_worker_busy");
   if (deps.replayLeaseId && activeJob !== deps.replayLeaseId) throw Error("impact_replay_lease_invalid");
-  const executionId = randomUUID(), token = handle.token;
-  const provenance: ImpactStateProvenance = { executionId, sessionId, runtimeTokenSha256: hashToken(token),
+  const executionId = randomUUID(), token = handle.token, tokenSha256 = hashToken(token);
+  const provenance: ImpactStateProvenance = { executionId, sessionId, runtimeTokenSha256: `sha256:${tokenSha256}`,
     chainId: session.chainId, forkBlock: session.resolvedForkBlock, forkBlockHash: session.forkBlockHash!,
     targetCodeHashes: session.targetCodeHashes, artifactId: artifact.id, sourceSha256: artifact.sourceSha256,
     planSha256: planHash(plan) };
   createImpactPoCExecution(database, { id: executionId, artifactId: artifact.id,
-    sourceSha256: artifact.sourceSha256, sessionId, runtimeTokenSha256: hashToken(token), chainId: session.chainId,
+    sourceSha256: artifact.sourceSha256, sessionId, runtimeTokenSha256: `sha256:${tokenSha256}`, chainId: session.chainId,
     forkBlock: session.resolvedForkBlock, forkBlockHash: session.forkBlockHash!, targetCodeHashes: session.targetCodeHashes,
     forgeVersion: null, forgeSha256: null }, deps.replayLeaseId);
   if (!deps.replayLeaseId) activeJob = executionId;
@@ -207,7 +207,7 @@ export async function executeManualPoC(sessionId: string, input: unknown, deps: 
     bridge = await startBridge(sessionId, token, session.disposableAccounts[0]!, handleFor, service, txHashes);
     updateImpactPoCExecution(database, executionId, "running");
     workerInvoked = true;
-    result = await callWorker({ operation: "run", executionId, sessionId, runtimeTokenSha256: hashToken(token),
+    result = await callWorker({ operation: "run", executionId, sessionId, runtimeTokenSha256: tokenSha256,
       source: artifact.source, sourceSha256: artifact.sourceSha256, entryContract: artifact.entryContract,
       sender: session.disposableAccounts[0], chainId: session.chainId, forkBlock: session.resolvedForkBlock,
       forkBlockHash: session.forkBlockHash });

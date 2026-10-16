@@ -96,6 +96,8 @@ export type ImpactOverlay = Readonly<{ schema: typeof IMPACT_OVERLAY_SCHEMA;
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const txHash = /^0x[0-9a-f]{64}$/;
 const sha256 = /^sha256:[0-9a-f]{64}$/;
+// B1 executions created before the prefixed provenance fix stored the same digest as bare hex.
+const runtimeTokenHash = /^(?:sha256:)?[0-9a-f]{64}$/;
 function sameProvenance(a: ImpactStateProvenance, b: ImpactStateProvenance): boolean {
   return JSON.stringify(provenanceFrame(a)) === JSON.stringify(provenanceFrame(b));
 }
@@ -120,7 +122,7 @@ function evidenceBound(input: ImpactOverlayEvidence): { graph: StaticProtocolGra
   const { execution: e, artifact: a, session: s, pre, post, diff } = input;
   if (!uuid.test(input.scanId) || !uuid.test(e.id) || !uuid.test(e.sessionId) || !uuid.test(e.artifactId) ||
     !Number.isSafeInteger(e.chainId) || e.chainId < 1 || !Number.isSafeInteger(e.forkBlock) || e.forkBlock < 0 ||
-    !txHash.test(e.forkBlockHash) || !sha256.test(e.runtimeTokenSha256) || !sha256.test(e.sourceSha256) ||
+    !txHash.test(e.forkBlockHash) || !runtimeTokenHash.test(e.runtimeTokenSha256) || !sha256.test(e.sourceSha256) ||
     e.observationPlanSha256 !== null && !sha256.test(e.observationPlanSha256) ||
     Object.keys(e.targetCodeHashes).length < 1 || Object.keys(e.targetCodeHashes).length > 20 ||
     Object.entries(e.targetCodeHashes).some(([address, hash]) =>

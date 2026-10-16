@@ -1,12 +1,16 @@
 # ContractHunter AI Handoff
 
+## v0.3.0 release candidate handoff
+
+Protocol Intelligence 1–10 and Impact Lab A1–G2 are implemented; v0.3.0 is not released. The deterministic G1/G2 pipeline uses immutable scan snapshots and finalized evidence, and G2 prose is limited to bounded researcher-authored fields. No AI path may derive static graph truth, Impact accounting, replay interpretation, Evidence Packages or reports. Historical “next phase” lines below describe work that has since been implemented. The current hardening run rebuilt the production Impact worker and passed a disposable local-fork smoke; final release checks remain separate.
+
 ## G2 report handoff
 
 G2 is implemented without AI. `contracthunter-bounty-report-v1` under `contracthunter-bounty-report-ruleset-v1` consumes only an exact finalized G1 package plus bounded researcher plain text. It keeps deterministic evidence separate from manual narrative and preserves local-only, static-versus-observed, partial, role and replay limits. Draft edits do not modify G1; final reports are immutable hash-bound revisions. Markdown is the primary export, with browser print as optional PDF path and Copy Markdown fetched from the identical download. Migration `0019_v0_3_bounty_reports` persists compact report metadata and researcher fields, not duplicated G1 evidence. Missing or changed package integrity fails closed. No LLM prompt or provider is part of report generation. **Impact Lab Phase G is implemented; next is v0.3.0 Release Hardening.**
 
 ## G1 evidence handoff
 
-G1 is deterministic and uses no AI. Consume finalized `contracthunter-evidence-package-v1` JSON, its manifest/provenance, capability states, source hashes, safe local fork identity, C1/D1/E1 artifacts, reviewed F1 roles and bounded F2 results for later G2 reporting. Preserve unavailable/partial evidence, exact integer raw units, static-versus-observed and manual-role boundaries. Never infer severity, fiat value, profit, maximum drain, live-chain exploitability or lifecycle authority from this package. G2 Bug-Bounty Report and Export is implemented. The production Compose worker rebuild/live local-fork smoke release gate remains unresolved.
+G1 is deterministic and uses no AI. Consume finalized `contracthunter-evidence-package-v1` JSON, its manifest/provenance, capability states, source hashes, safe local fork identity, C1/D1/E1 artifacts, reviewed F1 roles and bounded F2 results for later G2 reporting. Preserve unavailable/partial evidence, exact integer raw units, static-versus-observed and manual-role boundaries. Never infer severity, fiat value, profit, maximum drain, live-chain exploitability or lifecycle authority from this package. G2 Bug-Bounty Report and Export is implemented. The trusted production worker rebuild and disposable local-fork smoke gate passed during release hardening; final v0.3.0 assessment remains in progress.
 
 ## Impact Lab Phase F2B handoff
 

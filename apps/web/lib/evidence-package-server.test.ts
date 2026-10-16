@@ -10,14 +10,14 @@ import { composeEvidencePackage, createEvidencePackage, finalizeEvidencePackageF
 
 const dirs: string[] = [];
 afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
-function fixture() {
+function fixture(title = "<script>plain data</script>") {
   const dir = mkdtempSync(path.join(os.tmpdir(), "impact-g1-service-")); dirs.push(dir);
   const database = createDatabase(path.join(dir, "db.sqlite"));
   const scan = createScan(database, { repositoryUrl: "https://example.invalid/g1",
     repositoryName: "fixture/g1", depth: "quick" });
   const other = createScan(database, { repositoryUrl: "https://example.invalid/other",
     repositoryName: "fixture/other", depth: "quick" });
-  const finding = insertFindings(database, scan.id, [{ title: "<script>plain data</script>",
+  const finding = insertFindings(database, scan.id, [{ title,
     severity: "informational", confidence: 80, source: "slither", detectorId: "test",
     fingerprint: "a".repeat(64), contract: "Vault", functionName: "move",
     filePath: "/home/amir/Desktop/ContractHunter/private.sol", startLine: 1, endLine: 1,
@@ -28,6 +28,18 @@ function fixture() {
   return { database, scan, other, finding, selection };
 }
 describe("evidence composition authority", () => {
+  it("redacts API-key text in subject metadata and refuses secret-bearing PoC source", () => {
+    const { database, scan, finding, selection } = fixture("API_KEY=FINDING_SECRET");
+    try {
+      const staticPackage = createEvidencePackage(database, scan.id, selection);
+      expect(JSON.stringify(staticPackage)).not.toContain("FINDING_SECRET");
+      expect(staticPackage.subject.title).toBe("[redacted sensitive text]");
+      expect(() => createImpactPoCArtifact(database, { findingId: finding.id,
+        filename: "ImpactPoC.s.sol",
+        source: "pragma solidity 0.8.36; contract ImpactPoC { string constant API_KEY = 'POC_SECRET'; function run() external {} }",
+        entryContract: "ImpactPoC" })).toThrow();
+    } finally { closeDatabase(database); }
+  });
   it("builds static-only evidence without mutable source paths or execution calls", () => {
     const { database, scan, other, finding, selection } = fixture();
     try {

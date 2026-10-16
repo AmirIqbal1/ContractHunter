@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { buildEvidencePackage, canonicalEvidenceJson, evidenceArtifact, deriveScenarioImpact, deriveAllSecurityViews,
-  impactPoCSourceHash, repositorySolidityPathSchema,
+  impactPoCSourceHash, repositorySolidityPathSchema, containsSensitiveExportText,
   EVIDENCE_PACKAGE_LIMITS, type EvidenceArtifact, type EvidencePackage, type EvidenceSubject } from "@contracthunter/core";
 import { finalizeEvidencePackage, getFinding, getInvestigation, getScan, getScanSource,
   getVulnerabilityHypothesis, insertEvidencePackage, listInvestigationFindings, readEvidencePackage,
@@ -15,9 +15,8 @@ import { readReplayResult } from "./impact-scenario-replay";
 export type EvidencePackageSelection = { subjectType: "finding" | "investigation" | "hypothesis";
   subjectId: string; executionId: string | null; scenarioRevisionId: string | null; replayRunId: string | null };
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const sensitive = /(?:\b(?:https?|wss?):\/\/[^\s"']+|\/(?:home|tmp|Users|mnt|opt|var\/run|workspace|app)\/[^\s"']+|[A-Za-z]:\\(?:Users|workspace|tmp)\\[^\s"']+|docker\.sock|(?:private[_ -]?key|rpc[_ -]?url|worker[_ -]?secret|runtime[_ -]?token)\s*[:=]\s*\S+)/i;
-function safeText(value: string): string { return sensitive.test(value) ? "[redacted sensitive text]" : value; }
-function safeSource(value: string): boolean { return !sensitive.test(value); }
+function safeText(value: string): string { return containsSensitiveExportText(value) ? "[redacted sensitive text]" : value; }
+function safeSource(value: string): boolean { return !containsSensitiveExportText(value); }
 function subject(database: DatabaseClient, scanId: string, type: EvidencePackageSelection["subjectType"], id: string):
   { value: EvidenceSubject; findingIds: string[]; sourceKey: string | null; line: number | null } {
   if (type === "finding") {

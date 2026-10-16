@@ -1,12 +1,14 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { impactObservationPlanInputSchema } from "./impact-state";
+import { containsCredentialOrEndpointText } from "./sensitive-export";
 
 const id = z.string().uuid();
 const source = z.string().min(1).max(16_384).superRefine((value, context) => {
   const raw = Buffer.from(value, "utf8");
   if (raw.length > 16_384 || new TextDecoder("utf-8", { fatal: true }).decode(raw) !== value ||
-    /\bimport\b/.test(value) || /\u0000/.test(value) || !/pragma\s+solidity\s+0\.8\.36\s*;/.test(value))
+    /\bimport\b/.test(value) || /\u0000/.test(value) || containsCredentialOrEndpointText(value) ||
+    !/pragma\s+solidity\s+0\.8\.36\s*;/.test(value))
     context.addIssue({ code: "custom", message: "impact_poc_source_invalid" });
 });
 export const impactPoCCreateSchema = z.object({

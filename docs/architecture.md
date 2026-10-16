@@ -1,5 +1,9 @@
 # Architecture
 
+## v0.3.0 release candidate architecture
+
+Protocol Intelligence 1–10 supplies immutable scan-backed Repository Maps and ProtocolGraphs, bounded Security Views, Start Here, source-linked Explorers and static Investigation Paths. Impact Lab A–G separates reviewed local-fork execution from read-only C1/D1 state and trace evidence, E1/E2 asset accounting, manual F1 roles, bounded F2 replay, frozen G1 Evidence Packages and G2 deterministic reports. The final G1/G2 path reads persisted evidence and never invokes an execution controller or AI. Older phase notes below record their implementation point; their “next phase” language is historical.
+
 ## Impact Lab G2 report boundary
 
 G2 uses `packages/core/src/bounty-report.ts` as a pure finalized G1 package → report model → Markdown path. The semantic model is `contracthunter-bounty-report-v1` under `contracthunter-bounty-report-ruleset-v1`; its SHA-256 hash binds exact G1 content/manifest hashes, capability state, sections and bounded researcher fields. `0019_v0_3_bounty_reports` persists only report identity, binding, narrative and hash metadata, and reconstructs sections from the immutable G1 row on read. Finalized rows have update/delete guards. A read-only React paper component renders both preview and print; Copy Markdown fetches the exact server download. Package or report integrity failure blocks export and surfaces on report views. No G2 module invokes scanners, PoC, replay, RPC, workers or AI. Static, partial and full dynamic reports use G1 capability states and retain local-fork and bounded replay limitations.
@@ -60,7 +64,7 @@ The server page at `/hunts/:scanId/investigation-paths/:subjectType/:subjectId` 
 
 ## Protocol Intelligence Phase 7B
 
-The Protocol Map selects Overview or one of seven closed Phase 7A Security Views. It fetches only the selected read-only projection, checks its scan/graph/content identity against the loaded static artifact, and caches it for the page session. `apps/web/lib/protocol-map.ts` filters canonical graph IDs before the React Flow/Dagre contract-level adapter; function IDs collapse to their canonical contract only for display. Selected details retain source-backed reasons, annotations, warning counts and exact Explorer/source/finding links. Search, focus and filters affect presentation only. The 600-node/1,600-edge renderer bound remains. No core graph type, migration, scanner extraction or dynamic overlay changed. Next: Phase 8 Beginner Mode.
+The Protocol Map selects Overview or one of seven closed Phase 7A Security Views. It fetches only the selected read-only projection, checks its scan/graph/content identity against the loaded static artifact, and caches it for the page session. `apps/web/lib/protocol-map.ts` filters canonical graph IDs before the React Flow/Dagre contract-level adapter; function IDs collapse to their canonical contract only for display. Selected details retain source-backed reasons, annotations, warning counts and exact Explorer/source/finding links. Search, focus and filters affect presentation only. The 600-node/1,600-edge renderer bound remains. No core graph type, migration, scanner extraction or dynamic overlay changed. Phase 8 Beginner Mode and later Protocol Intelligence phases are implemented.
 
 ## Protocol Intelligence Phase 7A
 

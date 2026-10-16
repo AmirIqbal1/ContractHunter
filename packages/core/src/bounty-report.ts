@@ -1,4 +1,5 @@
 import { canonicalEvidenceJson, evidenceHash, verifyEvidencePackageIntegrity, type EvidencePackage } from "./evidence-package";
+import { containsSensitiveExportText } from "./sensitive-export";
 
 export const BOUNTY_REPORT_SCHEMA = "contracthunter-bounty-report-v1" as const;
 export const BOUNTY_REPORT_RULESET = "contracthunter-bounty-report-ruleset-v1" as const;
@@ -16,9 +17,8 @@ export type BountyReport = { schema: typeof BOUNTY_REPORT_SCHEMA; rulesetVersion
   fields: BountyReportFields; sections: ReportSection[]; createdAt: number; finalizedAt: number | null;
   contentHash: string };
 
-const sensitive = /(?:\b(?:https?|wss?|file):\/\/[^\s"']+|\/(?:home|root|tmp|Users|mnt|opt|etc|run|srv|private|usr\/local|var\/run|workspace|app)\/[^\s"']+|[A-Za-z]:\\[^\s"']+|docker\.sock|(?:private[_ -]?key|rpc[_ -]?url|worker[_ -]?secret|runtime[_ -]?token|api[_ -]?key|mnemonic|password|seed[_ -]?phrase)["']?\s*[:=]\s*["']?\S+)/i;
 function assertNoSensitive(value: string): void {
-  if (sensitive.test(value)) throw Error("bounty_report_sensitive_content_detected");
+  if (containsSensitiveExportText(value)) throw Error("bounty_report_sensitive_content_detected");
 }
 
 type ObjectValue = Record<string, unknown>;

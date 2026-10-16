@@ -8,9 +8,11 @@ import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
 import { createDatabase, closeDatabase, createScan, insertFindings, createImpactPoCArtifact,
   reviewImpactPoCArtifact, recordImpactForkSession, readImpactExecutionState,
-  readImpactExecutionTraces } from "@contracthunter/db";
+  readImpactExecutionTraces, readImpactPoCExecution } from "@contracthunter/db";
 import { ImpactForkService, startReadOnlyUpstreamProxy } from "@contracthunter/scanners";
+import { renderBountyReportMarkdown } from "@contracthunter/core";
 import { parseImpactTransactionTrace } from "./impact-trace";
+import { loadAssetFlow } from "./asset-flow-server";
 
 const binary = process.env.IMPACT_TEST_ANVIL;
 const imageId = process.env.IMPACT_B1_WORKER_IMAGE;
@@ -114,6 +116,8 @@ describe.skipIf(!enabled)("Phase B1 real local Forge worker", () => {
       const blockNumber = Number(BigInt(await rpc(upstreamEndpoint, "eth_blockNumber") as string));
       const block = await rpc(upstreamEndpoint, "eth_getBlockByNumber", [`0x${blockNumber.toString(16)}`, false]) as { hash: string };
       const before = await rpc(upstreamEndpoint, "eth_getBalance", [target, "latest"]);
+      const targetCodeBefore = await rpc(upstreamEndpoint, "eth_getCode", [target, "latest"]);
+      const targetViewBefore = await rpc(upstreamEndpoint, "eth_call", [{ to: target, data: "0x" }, "latest"]);
       const storageSlot = `0x${"0".repeat(64)}`;
       const storageBefore = await rpc(upstreamEndpoint, "eth_getStorageAt", [target, storageSlot, "latest"]);
       const nestedStorageBefore = await rpc(upstreamEndpoint, "eth_getStorageAt", [nestedB, storageSlot, "latest"]);
@@ -145,6 +149,8 @@ describe.skipIf(!enabled)("Phase B1 real local Forge worker", () => {
         targetContracts: [target, nestedA, nestedB, delegateA, revertTarget], forkBlock: blockNumber });
       const session = await service.startForkSession(handle);
       expect(session.forkBlockHash).toBe(block.hash.toLowerCase());
+      expect(await rpc(session.localRpcEndpoint!, "eth_getCode", [target, "latest"])).toBe(targetCodeBefore);
+      expect(await rpc(session.localRpcEndpoint!, "eth_call", [{ to: target, data: "0x" }, "latest"])).toBe(targetViewBefore);
       const unrelatedHandle = service.createForkSession({ findingId: finding.id, chainId: 31337, network: "anvil-test",
         upstreamRpcRef: "IMPACT_RPC_LOCAL_TEST",
         targetContracts: [target, nestedA, nestedB, delegateA, revertTarget], forkBlock: blockNumber });
@@ -207,9 +213,12 @@ describe.skipIf(!enabled)("Phase B1 real local Forge worker", () => {
       const executing = executeManualPoC(session.id, { pocArtifactId: poc.id,
         observations: { storageSlots: [{ contract: target, slot: storageSlot }] } }, { database, service,
         resolveHandle: (id) => id === handle.id ? handle : undefined });
-      for (let i = 0; i < 30 && !statSync(path.join(directory, "fork.sock"), { throwIfNoEntry: false }); i++)
+      for (let i = 0; i < 100 && !statSync(path.join(directory, "fork.sock"), { throwIfNoEntry: false }); i++)
         await new Promise((resolve) => setTimeout(resolve, 20));
-      expect(statSync(path.join(directory, "fork.sock"), { throwIfNoEntry: false })).toBeTruthy();
+      if (!statSync(path.join(directory, "fork.sock"), { throwIfNoEntry: false })) {
+        const early = await executing;
+        throw Error(`guarded fork bridge unavailable: ${early.errorCode}`);
+      }
       await Promise.all(blockedEndpoints.map(async ([address, destinationPort]) => {
         await exec("/usr/bin/docker", ["exec", workerName, "node", "-e", probe, address, String(destinationPort)]);
       }));
@@ -239,8 +248,34 @@ describe.skipIf(!enabled)("Phase B1 real local Forge worker", () => {
         .toBeLessThan(0n);
       expect(state.diff?.changes.find((item) => item.id === `storage:${target}:${storageSlot}`)?.after)
         .toBe(`0x${"0".repeat(62)}2b`);
+      const boundExecution = readImpactPoCExecution(database, outcome.id)!;
+      expect(boundExecution.runtimeTokenSha256).toMatch(/^sha256:[0-9a-f]{64}$/);
+      const flow = loadAssetFlow(database, scan.id, outcome.id)!;
+      expect(flow.ledgerEntries).toHaveLength(1);
+      expect(flow.ledgerEntries[0]).toMatchObject({ standard: "native", movementKind: "native-value",
+        from: session.disposableAccounts[0], to: target, amount: "1" });
+      expect(flow.netPositions.find((item) => item.participant === target)?.netObservedMovement).toBe("1");
+      expect(flow.reconciliation.find((item) => item.participant === target)?.status).toBe("reconciled");
+      expect(flow.transactions[0]?.executionCost.status).toBe("unavailable");
+      const forwardedBeforeExport = forwarded.length;
+      const { createEvidencePackage, finalizeEvidencePackageFromCurrent } = await import("./evidence-package-server");
+      const { createReportDraft, finalizeReportDraft } = await import("./bounty-report-server");
+      const evidenceDraft = createEvidencePackage(database, scan.id, { subjectType: "finding", subjectId: finding.id,
+        executionId: outcome.id, scenarioRevisionId: null, replayRunId: null });
+      const evidencePackage = finalizeEvidencePackageFromCurrent(database, scan.id, evidenceDraft.packageId);
+      expect(evidencePackage.status).toBe("finalized");
+      expect(evidencePackage.capabilities["asset-flow"]).toBe("partial");
+      const reportDraft = createReportDraft(database, scan.id, evidencePackage.packageId);
+      const report = finalizeReportDraft(database, scan.id, reportDraft.reportId);
+      expect(report.status).toBe("finalized");
+      const markdown = renderBountyReportMarkdown(report);
+      expect(markdown).toContain(outcome.transactionHashes[0]!);
+      expect(markdown).toContain("Net Observed Movement");
+      expect(forwarded.length).toBe(forwardedBeforeExport);
       expect(await rpc(upstreamEndpoint, "eth_getBalance", [target, "latest"])).toBe(before);
       expect(await rpc(upstreamEndpoint, "eth_getStorageAt", [target, storageSlot, "latest"])).toBe(storageBefore);
+      expect(await rpc(upstreamEndpoint, "eth_getCode", [target, "latest"])).toBe(targetCodeBefore);
+      expect(await rpc(upstreamEndpoint, "eth_blockNumber")).toBe(`0x${blockNumber.toString(16)}`);
       expect(await rpc(session.localRpcEndpoint!, "eth_getBalance", [target, "latest"])).toBe(before);
       expect(await rpc(session.localRpcEndpoint!, "eth_getStorageAt", [target, storageSlot, "latest"])).toBe(storageBefore);
       const retained = readImpactExecutionState(database, outcome.id)!;
@@ -368,6 +403,9 @@ describe.skipIf(!enabled)("Phase B1 real local Forge worker", () => {
       await expect(executeManualPoC(session.id, { pocArtifactId: poc.id }, { database, service,
         resolveHandle: (id) => id === handle.id ? handle : undefined })).rejects.toThrow("impact_session_identity_invalid");
       await service.stopForkSession(recreatedHandle);
+      console.info("Local fixture identity", { chainId: 31337, forkBlock: blockNumber,
+        forkBlockHash: block.hash, targetCodeSha256: session.targetCodeHashes[target] });
+      console.info("Upstream forwarded read methods", [...new Set(forwarded)].sort());
     } finally {
       await service?.shutdown().catch(() => undefined);
       if (unrelatedHostListener) await new Promise<void>((resolve) => unrelatedHostListener!.close(() => resolve()));

@@ -1,5 +1,7 @@
 # Protocol Intelligence / ProtocolGraph
 
+Protocol Intelligence 1–10 is implemented in the unreleased v0.3.0 candidate. Canonical graph identities and exact finding links support navigation, Security Views, Start Here and Investigation Paths. Audit Priority means review interest, never vulnerability likelihood. Beginner Mode changes presentation only. Static paths do not prove runtime execution; local observed calls stay in separate Impact overlays and runtime-only nodes never mutate the static ProtocolGraph. Older phase notes below preserve historical design decisions.
+
 ## G2 report static context
 
 G2 renders only the ProtocolGraph subset, Security View references and Investigation Path already frozen in the selected finalized G1 package. The static path is labelled research context and does not establish execution or exploitability. The Markdown report retains canonical source units, line ranges and full identities; preview and print use the same section model. No report reads the current ProtocolGraph or source tree, and observed calls remain separate from static relationships. **Impact Lab Phase G is implemented; next is v0.3.0 Release Hardening.**
@@ -10,7 +12,7 @@ G1 can freeze the exact relevant ProtocolGraph node/edge subset, static Investig
 
 ## Observed Asset Flow versus Static Money Flow
 
-Impact Lab Phase E2 provides a purpose-built read-only Asset Flow page for one exact reviewed local execution. Its committed edges come only from E1 ledger evidence, and runtime-only addresses remain in that view rather than being inserted into ProtocolGraph. **Static Money Flow** is a source-backed security view of operations that may move value; **Observed Asset Flow** is the committed accounting evidence observed during an isolated local reproduction. The Asset Flow page links to the static Money Flow view for comparison without fabricating static transfer edges. No Asset Flow overlay mode was added to Protocol Map. Phase E is implemented; Phase F scenario analysis remains planned.
+Impact Lab Phase E2 provides a purpose-built read-only Asset Flow page for one exact reviewed local execution. Its committed edges come only from E1 ledger evidence, and runtime-only addresses remain in that view rather than being inserted into ProtocolGraph. **Static Money Flow** is a source-backed security view of operations that may move value; **Observed Asset Flow** is the committed accounting evidence observed during an isolated local reproduction. The Asset Flow page links to the static Money Flow view for comparison without fabricating static transfer edges. No Asset Flow overlay mode was added to Protocol Map. Phase E and reviewed Phase F scenario/replay analysis are implemented.
 
 ## Phase 10B visual dynamic overlays — implemented
 
@@ -99,7 +101,7 @@ Node styles distinguish core, periphery, interface, library, role, proxy traits 
 
 Source actions open `/hunts/<scan-id>/source?unit=<canonical-unit>&line=<line>`. The server admits only source units already in the validated graph and displays a bounded excerpt from the immutable scan snapshot. If no snapshot is available, it reports that limitation and does not read a mutable checkout. Graph-derived text is rendered through ordinary escaped React text, never raw HTML. The UI is navigation data only: no finding verification, evidence, severity, confidence or lifecycle updates.
 
-The Map remains the overview and the Explorer is its contract drill-down. E1 asset accounting and Phase 10 runtime overlays are implemented separately. Visual asset flow and AI explanations remain future work.
+The Map remains the overview and the Explorer is its contract drill-down. E1 asset accounting, E2 Visual Asset Flow and Phase 10 runtime overlays are implemented separately. AI explanations are not part of deterministic protocol views.
 
 ## Repository Mapper v1
 
