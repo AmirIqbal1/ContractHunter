@@ -16,7 +16,12 @@ import {
 
 const commit = "a".repeat(40);
 const directories: string[] = [];
+function rewindImpactMigration(database: Database.Database) {
+  if (!database.prepare("SELECT 1 FROM schema_migrations WHERE id='0009_v0_3_impact_fork_sessions'").get()) return;
+  database.exec("DROP TABLE bounty_reports; DELETE FROM schema_migrations WHERE id='0019_v0_3_bounty_reports'; DROP TABLE evidence_packages; DELETE FROM schema_migrations WHERE id='0018_v0_3_evidence_packages'; DROP TABLE impact_scenario_replay_iterations; DROP TABLE impact_scenario_replay_runs; DROP TABLE impact_scenario_replay_plans; DROP TABLE impact_scenario_revisions; DROP TABLE static_protocol_graphs; DROP TABLE repository_maps; DELETE FROM schema_migrations WHERE id IN ('0014_protocol_repository_maps','0015_protocol_static_graphs','0016_v0_3_impact_scenarios','0017_v0_3_scenario_replay'); DROP TABLE impact_trace_logs; DROP TABLE impact_trace_nodes; DROP TABLE impact_transaction_traces; DROP TABLE impact_state_changes; DROP TABLE impact_state_diffs; DROP TABLE impact_state_observations; DROP TABLE impact_state_snapshots; DROP TABLE impact_poc_executions; DROP TABLE impact_poc_artifacts; DROP TABLE impact_fork_sessions; DELETE FROM schema_migrations WHERE id IN ('0009_v0_3_impact_fork_sessions','0010_v0_3_impact_fork_identity','0011_v0_3_impact_manual_pocs','0012_v0_3_impact_state_capture','0013_v0_3_impact_local_traces')");
+}
 function rewindReuseMigration(database: Database.Database) {
+  rewindImpactMigration(database);
   for (const table of ["verification_plan_attempts", "executable_invariant_proposals"]) {
     database.exec(`DROP TRIGGER ${table}_reuse_valid; DROP TRIGGER ${table}_reuse_immutable`);
     for (const column of ["reuse_source_artifact_type", "reuse_source_artifact_id", "reuse_target_id", "reuse_compiler_artifact_sha256", "reuse_created_at"])
@@ -126,6 +131,15 @@ function seedV019Shape(databasePath: string) {
 
   const raw = new Database(databasePath);
   raw.exec(`
+    DROP TABLE bounty_reports; DELETE FROM schema_migrations WHERE id='0019_v0_3_bounty_reports'; DROP TABLE evidence_packages;
+    DROP TABLE impact_scenario_replay_iterations; DROP TABLE impact_scenario_replay_runs;
+    DROP TABLE impact_scenario_replay_plans; DROP TABLE impact_scenario_revisions;
+    DROP TABLE static_protocol_graphs; DROP TABLE repository_maps;
+    DROP TABLE impact_trace_logs; DROP TABLE impact_trace_nodes; DROP TABLE impact_transaction_traces;
+    DROP TABLE impact_state_changes; DROP TABLE impact_state_diffs; DROP TABLE impact_state_observations; DROP TABLE impact_state_snapshots; DROP TABLE impact_poc_executions;
+    DROP TABLE impact_poc_artifacts;
+    DROP TABLE impact_fork_sessions;
+    DELETE FROM schema_migrations WHERE id='0010_v0_3_impact_fork_identity';
     DROP TABLE scan_scanner_alignment; DROP TABLE scan_compilation_source_units; DROP TABLE scan_compilation_provenance; DROP TABLE scan_source_snapshot_files;
     DROP TABLE scan_source_snapshots;
     DROP TABLE verification_plan_attempts;
@@ -149,6 +163,31 @@ function snapshot(databasePath: string) {
   return result;
 }
 
+describe("v0.2.2 to v0.3.0 migration", () => {
+  it("preserves historical research and leaves new Impact evidence unavailable", () => {
+    const directory = mkdtempSync(path.join(tmpdir(), "contracthunter-v022-upgrade-")); directories.push(directory);
+    const file = path.join(directory, "v022.db");
+    const ids = seedV019Shape(file);
+    closeDatabase(createDatabase(file));
+    const old = new Database(file);
+    rewindImpactMigration(old);
+    const historicalTables = ["scans", "findings", "investigations", "vulnerability_hypotheses", "hypothesis_verification_runs"];
+    const before = Object.fromEntries(historicalTables.map((table) => [table, old.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all()]));
+    expect((old.prepare("SELECT count(*) FROM schema_migrations").pluck().get() as number)).toBe(8);
+    old.close();
+
+    const upgraded = createDatabase(file);
+    for (const table of historicalTables)
+      expect(upgraded.sqlite.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all(), table).toEqual(before[table]);
+    expect(getVulnerabilityHypothesis(upgraded, ids.hypothesisId)?.status).toBe("verified");
+    for (const table of ["impact_fork_sessions", "impact_poc_artifacts", "impact_poc_executions", "impact_state_snapshots",
+      "impact_transaction_traces", "impact_scenario_revisions", "impact_scenario_replay_runs", "evidence_packages", "bounty_reports"])
+      expect(upgraded.sqlite.prepare(`SELECT count(*) FROM ${table}`).pluck().get(), table).toBe(0);
+    expect((upgraded.sqlite.prepare("SELECT count(*) FROM schema_migrations").pluck().get() as number)).toBe(19);
+    closeDatabase(upgraded);
+  });
+});
+
 describe("v0.1.9 to v0.2.0 migration", () => {
   it("upgrades a copy transactionally without changing historical rows, then accepts new invariant and replay history", () => {
     const directory = mkdtempSync(path.join(tmpdir(), "contracthunter-upgrade-")); directories.push(directory);
@@ -161,7 +200,7 @@ describe("v0.1.9 to v0.2.0 migration", () => {
       { id: ids.verificationIds[0], status: "completed", error: null },
       { id: ids.verificationIds[1], status: "failed", error: "Historical failed retry." },
     ]);
-    expect((upgraded.sqlite.prepare("SELECT id FROM schema_migrations").pluck().all() as string[])).toEqual(["0001_v0_2_0_release_schema", "0002_v0_2_1_echidna_public", "0003_v0_2_1_run_proposal_binding", "0004_v0_2_2_strategy_planning", "0005_v0_2_2_scan_source_snapshots", "0006_v0_2_2_compilation_provenance", "0007_v0_2_2_source_closure_fingerprints", "0008_v0_2_2_planning_reuse_provenance"]);
+    expect((upgraded.sqlite.prepare("SELECT id FROM schema_migrations").pluck().all() as string[])).toEqual(["0001_v0_2_0_release_schema", "0002_v0_2_1_echidna_public", "0003_v0_2_1_run_proposal_binding", "0004_v0_2_2_strategy_planning", "0005_v0_2_2_scan_source_snapshots", "0006_v0_2_2_compilation_provenance", "0007_v0_2_2_source_closure_fingerprints", "0008_v0_2_2_planning_reuse_provenance", "0009_v0_3_impact_fork_sessions", "0010_v0_3_impact_fork_identity", "0011_v0_3_impact_manual_pocs", "0012_v0_3_impact_state_capture", "0013_v0_3_impact_local_traces", "0014_protocol_repository_maps", "0015_protocol_static_graphs", "0016_v0_3_impact_scenarios", "0017_v0_3_scenario_replay", "0018_v0_3_evidence_packages", "0019_v0_3_bounty_reports"]);
 
     const plan = invariantPlan(ids.scanId, ids.hypothesisId), planHash = invariantPlanHash(plan);
     expect(() => createExecutableInvariantRun(upgraded, { plan, proposalId: crypto.randomUUID() })).toThrow("Invariant plan does not match persisted scan identity");
@@ -219,7 +258,7 @@ describe("v0.1.9 to v0.2.0 migration", () => {
     expect(echidnaReplay.sourceEngine).toBe("echidna"); expect(echidnaReplay.invariantRunId).toBe(replayableEchidna.id);
     closeDatabase(migrated);
     const reopened = createDatabase(v020Path);
-    expect((reopened.sqlite.prepare("SELECT id FROM schema_migrations ORDER BY id").pluck().all() as string[])).toEqual(["0001_v0_2_0_release_schema", "0002_v0_2_1_echidna_public", "0003_v0_2_1_run_proposal_binding", "0004_v0_2_2_strategy_planning", "0005_v0_2_2_scan_source_snapshots", "0006_v0_2_2_compilation_provenance", "0007_v0_2_2_source_closure_fingerprints", "0008_v0_2_2_planning_reuse_provenance"]);
+    expect((reopened.sqlite.prepare("SELECT id FROM schema_migrations ORDER BY id").pluck().all() as string[])).toEqual(["0001_v0_2_0_release_schema", "0002_v0_2_1_echidna_public", "0003_v0_2_1_run_proposal_binding", "0004_v0_2_2_strategy_planning", "0005_v0_2_2_scan_source_snapshots", "0006_v0_2_2_compilation_provenance", "0007_v0_2_2_source_closure_fingerprints", "0008_v0_2_2_planning_reuse_provenance", "0009_v0_3_impact_fork_sessions", "0010_v0_3_impact_fork_identity", "0011_v0_3_impact_manual_pocs", "0012_v0_3_impact_state_capture", "0013_v0_3_impact_local_traces", "0014_protocol_repository_maps", "0015_protocol_static_graphs", "0016_v0_3_impact_scenarios", "0017_v0_3_scenario_replay", "0018_v0_3_evidence_packages", "0019_v0_3_bounty_reports"]);
     expect(getExecutableInvariantRun(reopened, run.id)?.engine).toBe("foundry"); closeDatabase(reopened);
 
     expect(snapshot(sourcePath)).toEqual(before);

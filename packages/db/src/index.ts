@@ -9,6 +9,16 @@ import { ECHIDNA_LIMITS, INVARIANT_COUNTEREXAMPLE_PARSER_VERSION, SCAN_SOURCE_LI
 import { authoritativeInvariantEvidence, executableInvariantProposals, executableInvariantRuns, invariantEvidenceReviews, invariantReplayArtifacts, invariantReplayRuns, hypothesisLifecycleTransitions, findings, hypothesisGroupMembers, hypothesisGroups, hypothesisVerificationRuns, verificationPlanAttempts, scanSourceSnapshots, scanSourceSnapshotFiles, investigationFindings, investigations, invariants, protocolAnalyses, scans, scanScanners, securityReviewerRuns, securityReviewPlans, vulnerabilityHypotheses, type ExecutableInvariantProposalRow, type ExecutableInvariantRunRow, type InvariantReplayArtifactRow, type InvariantReplayRunRow, type InvariantEvidenceReviewRow, type FindingRow, type HypothesisGroupRow, type HypothesisVerificationRunRow, type InvariantRow, type InvestigationRow, type ProtocolAnalysisRow, type ScanRow, type ScanScannerRow, type SecurityReviewerRunRow, type SecurityReviewPlanRow, type VulnerabilityHypothesisRow } from "./schema";
 
 export * from "./schema";
+export { recordImpactForkSession, recoverStaleImpactForkSessions, readImpactForkSession } from "./impact-fork-sessions";
+export * from "./impact-poc";
+export * from "./impact-scenario";
+export * from "./impact-scenario-replay";
+export * from "./impact-state";
+export * from "./impact-trace";
+export * from "./evidence-package";
+export * from "./bounty-report";
+export * from "./repository-map";
+export * from "./static-protocol-graph";
 
 export type DatabaseClient = ReturnType<typeof createDatabase>;
 
@@ -366,10 +376,380 @@ export function createDatabase(databasePath: string) {
     })(); }
     catch (error) { throw new Error(`Database migration 0008_v0_2_2_planning_reuse_provenance failed without committing changes: ${error instanceof Error ? error.message : String(error)}`); }
   }
+  if (!sqlite.prepare("SELECT 1 FROM schema_migrations WHERE id = ?").get("0009_v0_3_impact_fork_sessions")) {
+    try { sqlite.transaction(() => {
+      sqlite.exec(`CREATE TABLE impact_fork_sessions (
+        id TEXT PRIMARY KEY,
+        finding_id TEXT REFERENCES findings(id) ON DELETE RESTRICT,
+        hypothesis_id TEXT REFERENCES vulnerability_hypotheses(id) ON DELETE RESTRICT,
+        chain_id INTEGER NOT NULL CHECK (chain_id > 0),
+        network TEXT NOT NULL,
+        upstream_rpc_ref TEXT NOT NULL,
+        target_contracts TEXT NOT NULL,
+        resolved_fork_block INTEGER NOT NULL CHECK (resolved_fork_block >= 0),
+        historical_transaction_hash TEXT,
+        fork_block_hash TEXT,
+        status TEXT NOT NULL CHECK (status IN ('created','starting','ready','failed','stopping','stopped')),
+        local_port INTEGER CHECK (local_port BETWEEN 1024 AND 65535),
+        anvil_version TEXT,
+        anvil_sha256 TEXT,
+        process_pid INTEGER,
+        baseline_snapshot_id TEXT,
+        disposable_accounts TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        started_at INTEGER,
+        stopped_at INTEGER,
+        failure_code TEXT,
+        CHECK ((finding_id IS NOT NULL) <> (hypothesis_id IS NOT NULL))
+      );
+      CREATE INDEX impact_fork_sessions_status_created_idx ON impact_fork_sessions(status, created_at);
+      CREATE TRIGGER impact_fork_sessions_identity_immutable BEFORE UPDATE ON impact_fork_sessions
+        WHEN OLD.finding_id IS NOT NEW.finding_id OR OLD.hypothesis_id IS NOT NEW.hypothesis_id OR
+          OLD.chain_id IS NOT NEW.chain_id OR OLD.network IS NOT NEW.network OR
+          OLD.upstream_rpc_ref IS NOT NEW.upstream_rpc_ref OR OLD.target_contracts IS NOT NEW.target_contracts OR
+          OLD.resolved_fork_block IS NOT NEW.resolved_fork_block OR OLD.historical_transaction_hash IS NOT NEW.historical_transaction_hash OR OLD.created_at IS NOT NEW.created_at
+        BEGIN SELECT RAISE(ABORT, 'impact fork identity is immutable'); END;`);
+      sqlite.prepare("INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)").run("0009_v0_3_impact_fork_sessions", Date.now());
+    })(); }
+    catch (error) { throw new Error(`Database migration 0009_v0_3_impact_fork_sessions failed without committing changes: ${error instanceof Error ? error.message : String(error)}`); }
+  }
+  if (!sqlite.prepare("SELECT 1 FROM schema_migrations WHERE id = ?").get("0010_v0_3_impact_fork_identity")) {
+    try { sqlite.transaction(() => {
+      sqlite.exec(`ALTER TABLE impact_fork_sessions ADD COLUMN rpc_config_id TEXT;
+        ALTER TABLE impact_fork_sessions ADD COLUMN target_code_hashes TEXT;
+        CREATE TRIGGER impact_fork_code_identity_immutable BEFORE UPDATE ON impact_fork_sessions
+        WHEN OLD.target_code_hashes IS NOT NULL AND OLD.target_code_hashes <> NEW.target_code_hashes
+        BEGIN SELECT RAISE(ABORT, 'impact fork code identity is immutable'); END;
+        CREATE TRIGGER impact_fork_block_identity_immutable BEFORE UPDATE ON impact_fork_sessions
+        WHEN OLD.fork_block_hash IS NOT NULL AND OLD.fork_block_hash IS NOT NEW.fork_block_hash
+        BEGIN SELECT RAISE(ABORT, 'impact fork block identity is immutable'); END;
+        CREATE TRIGGER impact_fork_rpc_config_immutable BEFORE UPDATE ON impact_fork_sessions
+        WHEN OLD.rpc_config_id IS NOT NEW.rpc_config_id
+        BEGIN SELECT RAISE(ABORT, 'impact fork RPC configuration is immutable'); END;`);
+      sqlite.prepare("INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)").run("0010_v0_3_impact_fork_identity", Date.now());
+    })(); }
+    catch (error) { throw new Error(`Database migration 0010_v0_3_impact_fork_identity failed without committing changes: ${error instanceof Error ? error.message : String(error)}`); }
+  }
+  if (!sqlite.prepare("SELECT 1 FROM schema_migrations WHERE id = ?").get("0011_v0_3_impact_manual_pocs")) {
+    try { sqlite.transaction(() => {
+      sqlite.exec(`CREATE TABLE impact_poc_artifacts (
+        id TEXT PRIMARY KEY, finding_id TEXT, hypothesis_id TEXT, revision_of TEXT,
+        filename TEXT NOT NULL CHECK(filename='ImpactPoC.s.sol'), source TEXT NOT NULL,
+        source_sha256 TEXT NOT NULL, entry_contract TEXT NOT NULL, origin TEXT NOT NULL CHECK(origin='manual'),
+        review_state TEXT NOT NULL CHECK(review_state IN ('draft','reviewed','rejected')),
+        created_at INTEGER NOT NULL, reviewed_at INTEGER,
+        CHECK((finding_id IS NOT NULL) <> (hypothesis_id IS NOT NULL)),
+        FOREIGN KEY(revision_of) REFERENCES impact_poc_artifacts(id));
+        CREATE TRIGGER impact_poc_source_immutable BEFORE UPDATE ON impact_poc_artifacts
+        WHEN OLD.source IS NOT NEW.source OR OLD.source_sha256 IS NOT NEW.source_sha256 OR
+          OLD.filename IS NOT NEW.filename OR OLD.entry_contract IS NOT NEW.entry_contract OR
+          OLD.finding_id IS NOT NEW.finding_id OR OLD.hypothesis_id IS NOT NEW.hypothesis_id OR
+          OLD.revision_of IS NOT NEW.revision_of OR OLD.origin IS NOT NEW.origin
+        BEGIN SELECT RAISE(ABORT, 'impact PoC identity is immutable'); END;
+        CREATE TABLE impact_poc_executions (
+          id TEXT PRIMARY KEY, artifact_id TEXT NOT NULL REFERENCES impact_poc_artifacts(id),
+          source_sha256 TEXT NOT NULL, session_id TEXT NOT NULL REFERENCES impact_fork_sessions(id),
+          runtime_token_sha256 TEXT NOT NULL, chain_id INTEGER NOT NULL, fork_block INTEGER NOT NULL,
+          fork_block_hash TEXT NOT NULL, target_code_hashes TEXT NOT NULL,
+          forge_version TEXT, forge_sha256 TEXT, status TEXT NOT NULL
+            CHECK(status IN ('created','queued','running','completed','failed','cancelled')),
+          created_at INTEGER NOT NULL, started_at INTEGER, completed_at INTEGER,
+          exit_code INTEGER, compiled INTEGER NOT NULL DEFAULT 0, executed INTEGER NOT NULL DEFAULT 0,
+          stdout TEXT, stderr TEXT, transaction_scope TEXT NOT NULL DEFAULT 'local-impact-lab'
+            CHECK(transaction_scope='local-impact-lab'), transaction_hashes TEXT NOT NULL DEFAULT '[]',
+          error_code TEXT);
+        CREATE INDEX impact_poc_executions_session_idx ON impact_poc_executions(session_id,created_at);
+        CREATE UNIQUE INDEX impact_poc_one_active_execution ON impact_poc_executions((1))
+          WHERE status IN ('created','queued','running');
+        CREATE TRIGGER impact_poc_execution_identity_immutable BEFORE UPDATE ON impact_poc_executions
+        WHEN OLD.artifact_id IS NOT NEW.artifact_id OR OLD.source_sha256 IS NOT NEW.source_sha256 OR
+          OLD.session_id IS NOT NEW.session_id OR OLD.runtime_token_sha256 IS NOT NEW.runtime_token_sha256 OR
+          OLD.chain_id IS NOT NEW.chain_id OR OLD.fork_block IS NOT NEW.fork_block OR
+          OLD.fork_block_hash IS NOT NEW.fork_block_hash OR OLD.target_code_hashes IS NOT NEW.target_code_hashes OR
+          OLD.created_at IS NOT NEW.created_at
+        BEGIN SELECT RAISE(ABORT, 'impact PoC execution identity is immutable'); END;`);
+      sqlite.prepare("INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)").run("0011_v0_3_impact_manual_pocs", Date.now());
+    })(); }
+    catch (error) { throw new Error(`Database migration 0011_v0_3_impact_manual_pocs failed without committing changes: ${error instanceof Error ? error.message : String(error)}`); }
+  }
+  if (!sqlite.prepare("SELECT 1 FROM schema_migrations WHERE id = ?").get("0012_v0_3_impact_state_capture")) {
+    try { sqlite.transaction(() => {
+      sqlite.exec(`ALTER TABLE impact_poc_executions ADD COLUMN observation_plan TEXT;
+        ALTER TABLE impact_poc_executions ADD COLUMN observation_plan_sha256 TEXT;
+        ALTER TABLE impact_poc_executions ADD COLUMN pre_snapshot_id TEXT;
+        ALTER TABLE impact_poc_executions ADD COLUMN post_snapshot_id TEXT;
+        ALTER TABLE impact_poc_executions ADD COLUMN state_diff_id TEXT;
+        ALTER TABLE impact_poc_executions ADD COLUMN state_change_count INTEGER;
+        CREATE TABLE impact_state_snapshots (
+          id TEXT PRIMARY KEY, schema TEXT NOT NULL CHECK(schema='impact-state-snapshot-v1'),
+          execution_id TEXT NOT NULL REFERENCES impact_poc_executions(id),
+          phase TEXT NOT NULL CHECK(phase IN ('pre','post')),
+          session_id TEXT NOT NULL, runtime_token_sha256 TEXT NOT NULL, chain_id INTEGER NOT NULL,
+          fork_block INTEGER NOT NULL, fork_block_hash TEXT NOT NULL, target_code_hashes TEXT NOT NULL,
+          artifact_id TEXT NOT NULL, source_sha256 TEXT NOT NULL, plan_sha256 TEXT NOT NULL,
+          observed_at_block INTEGER NOT NULL, observed_at_timestamp TEXT NOT NULL,
+          observation_count INTEGER NOT NULL CHECK(observation_count BETWEEN 1 AND 64),
+          content_sha256 TEXT NOT NULL, status TEXT NOT NULL CHECK(status='finalized'),
+          UNIQUE(execution_id,phase));
+        CREATE TABLE impact_state_observations (
+          snapshot_id TEXT NOT NULL REFERENCES impact_state_snapshots(id),
+          identity TEXT NOT NULL, kind TEXT NOT NULL CHECK(kind IN ('native','erc20','erc721','erc1155','storage','view')),
+          status TEXT NOT NULL CHECK(status IN ('available','unavailable')),
+          value TEXT, error_code TEXT CHECK(error_code IN ('rpc_error','invalid_response')),
+          PRIMARY KEY(snapshot_id,identity),
+          CHECK((status='available' AND value IS NOT NULL AND error_code IS NULL) OR
+            (status='unavailable' AND value IS NULL AND error_code IS NOT NULL)));
+        CREATE TABLE impact_state_diffs (
+          id TEXT PRIMARY KEY, schema TEXT NOT NULL CHECK(schema='impact-state-diff-v1'),
+          execution_id TEXT NOT NULL UNIQUE REFERENCES impact_poc_executions(id),
+          pre_snapshot_id TEXT NOT NULL REFERENCES impact_state_snapshots(id),
+          post_snapshot_id TEXT NOT NULL REFERENCES impact_state_snapshots(id),
+          pre_snapshot_sha256 TEXT NOT NULL, post_snapshot_sha256 TEXT NOT NULL,
+          change_count INTEGER NOT NULL CHECK(change_count BETWEEN 0 AND 64),
+          content_sha256 TEXT NOT NULL, status TEXT NOT NULL CHECK(status='finalized'));
+        CREATE TABLE impact_state_changes (
+          diff_id TEXT NOT NULL REFERENCES impact_state_diffs(id), identity TEXT NOT NULL,
+          kind TEXT NOT NULL, type TEXT NOT NULL,
+          before_status TEXT NOT NULL, after_status TEXT NOT NULL,
+          before_value TEXT, after_value TEXT, before_error_code TEXT, after_error_code TEXT, delta TEXT,
+          PRIMARY KEY(diff_id,identity));
+        CREATE TRIGGER impact_state_snapshots_immutable BEFORE UPDATE ON impact_state_snapshots BEGIN SELECT RAISE(ABORT,'state snapshot immutable'); END;
+        CREATE TRIGGER impact_state_snapshots_no_delete BEFORE DELETE ON impact_state_snapshots BEGIN SELECT RAISE(ABORT,'state snapshot immutable'); END;
+        CREATE TRIGGER impact_state_observations_immutable BEFORE UPDATE ON impact_state_observations BEGIN SELECT RAISE(ABORT,'state observation immutable'); END;
+        CREATE TRIGGER impact_state_observations_no_delete BEFORE DELETE ON impact_state_observations BEGIN SELECT RAISE(ABORT,'state observation immutable'); END;
+        CREATE TRIGGER impact_state_diffs_immutable BEFORE UPDATE ON impact_state_diffs BEGIN SELECT RAISE(ABORT,'state diff immutable'); END;
+        CREATE TRIGGER impact_state_diffs_no_delete BEFORE DELETE ON impact_state_diffs BEGIN SELECT RAISE(ABORT,'state diff immutable'); END;
+        CREATE TRIGGER impact_state_changes_immutable BEFORE UPDATE ON impact_state_changes BEGIN SELECT RAISE(ABORT,'state change immutable'); END;
+        CREATE TRIGGER impact_state_changes_no_delete BEFORE DELETE ON impact_state_changes BEGIN SELECT RAISE(ABORT,'state change immutable'); END;`);
+      sqlite.exec(`CREATE TRIGGER impact_execution_state_links_immutable BEFORE UPDATE ON impact_poc_executions
+        WHEN OLD.observation_plan IS NOT NULL AND (
+          OLD.observation_plan IS NOT NEW.observation_plan OR
+          OLD.observation_plan_sha256 IS NOT NEW.observation_plan_sha256 OR
+          OLD.pre_snapshot_id IS NOT NEW.pre_snapshot_id OR
+          OLD.post_snapshot_id IS NOT NEW.post_snapshot_id OR
+          OLD.state_diff_id IS NOT NEW.state_diff_id OR
+          OLD.state_change_count IS NOT NEW.state_change_count)
+        BEGIN SELECT RAISE(ABORT,'execution state links immutable'); END;`);
+      sqlite.prepare("INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)").run("0012_v0_3_impact_state_capture", Date.now());
+    })(); }
+    catch (error) { throw new Error(`Database migration 0012_v0_3_impact_state_capture failed without committing changes: ${error instanceof Error ? error.message : String(error)}`); }
+  }
+  if (!sqlite.prepare("SELECT 1 FROM schema_migrations WHERE id = ?").get("0013_v0_3_impact_local_traces")) {
+    try { sqlite.transaction(() => {
+      sqlite.exec(`ALTER TABLE impact_poc_executions ADD COLUMN trace_capture_status TEXT
+          CHECK(trace_capture_status IN ('finalized','failed'));
+        ALTER TABLE impact_poc_executions ADD COLUMN trace_count INTEGER
+          CHECK(trace_count BETWEEN 0 AND 4);
+        ALTER TABLE impact_poc_executions ADD COLUMN trace_node_count INTEGER
+          CHECK(trace_node_count BETWEEN 0 AND 1024);
+        ALTER TABLE impact_poc_executions ADD COLUMN trace_error_code TEXT;
+        CREATE TABLE impact_transaction_traces (
+          id TEXT PRIMARY KEY, schema TEXT NOT NULL CHECK(schema='impact-transaction-trace-v1'),
+          execution_id TEXT NOT NULL REFERENCES impact_poc_executions(id),
+          transaction_ordinal INTEGER NOT NULL CHECK(transaction_ordinal BETWEEN 0 AND 3),
+          transaction_hash TEXT NOT NULL, session_id TEXT NOT NULL,
+          runtime_token_sha256 TEXT NOT NULL, chain_id INTEGER NOT NULL,
+          fork_block INTEGER NOT NULL, fork_block_hash TEXT NOT NULL,
+          target_code_hashes TEXT NOT NULL, artifact_id TEXT NOT NULL,
+          source_sha256 TEXT NOT NULL, plan_sha256 TEXT NOT NULL,
+          receipt_json TEXT NOT NULL CHECK(length(receipt_json)<=2048),
+          stats_json TEXT NOT NULL CHECK(length(stats_json)<=512),
+          node_count INTEGER NOT NULL CHECK(node_count BETWEEN 1 AND 256),
+          log_count INTEGER NOT NULL CHECK(log_count BETWEEN 0 AND 64),
+          content_sha256 TEXT NOT NULL, status TEXT NOT NULL CHECK(status='finalized'),
+          UNIQUE(execution_id,transaction_ordinal), UNIQUE(execution_id,transaction_hash));
+        CREATE TABLE impact_trace_nodes (
+          trace_id TEXT NOT NULL REFERENCES impact_transaction_traces(id),
+          ordinal INTEGER NOT NULL, parent_ordinal INTEGER, depth INTEGER NOT NULL,
+          payload TEXT NOT NULL CHECK(length(payload)<=4096),
+          PRIMARY KEY(trace_id,ordinal));
+        CREATE TABLE impact_trace_logs (
+          trace_id TEXT NOT NULL REFERENCES impact_transaction_traces(id),
+          ordinal INTEGER NOT NULL, payload TEXT NOT NULL CHECK(length(payload)<=2048),
+          PRIMARY KEY(trace_id,ordinal));
+        CREATE TRIGGER impact_transaction_traces_immutable BEFORE UPDATE ON impact_transaction_traces
+          BEGIN SELECT RAISE(ABORT,'trace immutable'); END;
+        CREATE TRIGGER impact_transaction_traces_no_delete BEFORE DELETE ON impact_transaction_traces
+          BEGIN SELECT RAISE(ABORT,'trace immutable'); END;
+        CREATE TRIGGER impact_trace_nodes_immutable BEFORE UPDATE ON impact_trace_nodes
+          BEGIN SELECT RAISE(ABORT,'trace node immutable'); END;
+        CREATE TRIGGER impact_trace_nodes_no_delete BEFORE DELETE ON impact_trace_nodes
+          BEGIN SELECT RAISE(ABORT,'trace node immutable'); END;
+        CREATE TRIGGER impact_trace_logs_immutable BEFORE UPDATE ON impact_trace_logs
+          BEGIN SELECT RAISE(ABORT,'trace log immutable'); END;
+        CREATE TRIGGER impact_trace_logs_no_delete BEFORE DELETE ON impact_trace_logs
+          BEGIN SELECT RAISE(ABORT,'trace log immutable'); END;
+        CREATE TRIGGER impact_execution_trace_status_immutable BEFORE UPDATE ON impact_poc_executions
+          WHEN OLD.trace_capture_status IS NOT NULL AND (
+            OLD.trace_capture_status IS NOT NEW.trace_capture_status OR
+            OLD.trace_count IS NOT NEW.trace_count OR
+            OLD.trace_node_count IS NOT NEW.trace_node_count OR
+            OLD.trace_error_code IS NOT NEW.trace_error_code OR
+            OLD.transaction_hashes IS NOT NEW.transaction_hashes)
+          BEGIN SELECT RAISE(ABORT,'execution trace status immutable'); END;`);
+      sqlite.prepare("INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)").run("0013_v0_3_impact_local_traces", Date.now());
+    })(); }
+    catch (error) { throw new Error(`Database migration 0013_v0_3_impact_local_traces failed without committing changes: ${error instanceof Error ? error.message : String(error)}`); }
+  }
+  if (!sqlite.prepare("SELECT 1 FROM schema_migrations WHERE id = ?").get("0014_protocol_repository_maps")) {
+    try { sqlite.transaction(() => {
+      sqlite.exec(`CREATE TABLE repository_maps (
+        id TEXT PRIMARY KEY, scan_id TEXT NOT NULL REFERENCES scans(id) ON DELETE CASCADE,
+        schema TEXT NOT NULL, ruleset TEXT NOT NULL, resolved_commit TEXT NOT NULL,
+        source_universe_hash TEXT NOT NULL, content_sha256 TEXT NOT NULL,
+        map_json TEXT NOT NULL, finalized_at INTEGER NOT NULL,
+        UNIQUE(scan_id, ruleset, source_universe_hash)
+      );
+      CREATE INDEX repository_maps_scan_idx ON repository_maps(scan_id, finalized_at);
+      CREATE TRIGGER repository_maps_immutable BEFORE UPDATE ON repository_maps
+        BEGIN SELECT RAISE(ABORT,'repository map immutable'); END;
+      CREATE TRIGGER repository_maps_no_delete BEFORE DELETE ON repository_maps
+        WHEN EXISTS(SELECT 1 FROM scans WHERE id=OLD.scan_id)
+        BEGIN SELECT RAISE(ABORT,'repository map immutable'); END;`);
+      sqlite.prepare("INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)").run("0014_protocol_repository_maps", Date.now());
+    })(); }
+    catch (error) { throw new Error(`Database migration 0014_protocol_repository_maps failed without committing changes: ${error instanceof Error ? error.message : String(error)}`); }
+  }
+  if (!sqlite.prepare("SELECT 1 FROM schema_migrations WHERE id = ?").get("0015_protocol_static_graphs")) {
+    try { sqlite.transaction(() => {
+      sqlite.exec(`CREATE TABLE static_protocol_graphs (
+        id TEXT PRIMARY KEY, scan_id TEXT NOT NULL REFERENCES scans(id) ON DELETE CASCADE,
+        repository_map_id TEXT NOT NULL REFERENCES repository_maps(id) ON DELETE CASCADE,
+        schema TEXT NOT NULL, graph_schema TEXT NOT NULL, extractor_version TEXT NOT NULL,
+        resolved_commit TEXT NOT NULL, content_sha256 TEXT NOT NULL,
+        storage_sha256 TEXT NOT NULL, artifact_json TEXT NOT NULL, finalized_at INTEGER NOT NULL,
+        UNIQUE(repository_map_id, extractor_version)
+      );
+      CREATE INDEX static_protocol_graphs_scan_idx ON static_protocol_graphs(scan_id, finalized_at);
+      CREATE TRIGGER static_protocol_graphs_immutable BEFORE UPDATE ON static_protocol_graphs
+        BEGIN SELECT RAISE(ABORT,'static graph immutable'); END;
+      CREATE TRIGGER static_protocol_graphs_no_delete BEFORE DELETE ON static_protocol_graphs
+        WHEN EXISTS(SELECT 1 FROM scans WHERE id=OLD.scan_id)
+        BEGIN SELECT RAISE(ABORT,'static graph immutable'); END;`);
+      sqlite.prepare("INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)").run("0015_protocol_static_graphs", Date.now());
+    })(); }
+    catch (error) { throw new Error(`Database migration 0015_protocol_static_graphs failed without committing changes: ${error instanceof Error ? error.message : String(error)}`); }
+  }
+  if (!sqlite.prepare("SELECT 1 FROM schema_migrations WHERE id = ?").get("0016_v0_3_impact_scenarios")) {
+    try { sqlite.transaction(() => {
+      sqlite.exec(`CREATE TABLE impact_scenario_revisions (
+        id TEXT PRIMARY KEY, scenario_id TEXT NOT NULL, revision INTEGER NOT NULL CHECK(revision>=1),
+        revision_of TEXT REFERENCES impact_scenario_revisions(id),
+        scan_id TEXT NOT NULL REFERENCES scans(id) ON DELETE CASCADE,
+        execution_id TEXT NOT NULL REFERENCES impact_poc_executions(id),
+        subject_type TEXT NOT NULL CHECK(subject_type IN ('finding','hypothesis')),
+        subject_id TEXT NOT NULL,
+        asset_flow_content_sha256 TEXT NOT NULL,
+        accounting_ruleset_version TEXT NOT NULL,
+        schema TEXT NOT NULL CHECK(schema='contracthunter-impact-scenario-v1'),
+        status TEXT NOT NULL CHECK(status IN ('draft','reviewed','rejected')),
+        assignments_json TEXT NOT NULL, note TEXT NOT NULL CHECK(length(note)<=1000),
+        content_sha256 TEXT NOT NULL, created_at INTEGER NOT NULL,
+        reviewed_at INTEGER, rejected_at INTEGER,
+        UNIQUE(scenario_id,revision));
+      CREATE INDEX impact_scenarios_execution_idx ON impact_scenario_revisions(scan_id,execution_id,scenario_id,revision);
+      CREATE TRIGGER impact_scenario_identity_immutable BEFORE UPDATE ON impact_scenario_revisions
+        WHEN OLD.scenario_id IS NOT NEW.scenario_id OR OLD.revision IS NOT NEW.revision OR
+          OLD.revision_of IS NOT NEW.revision_of OR OLD.scan_id IS NOT NEW.scan_id OR
+          OLD.execution_id IS NOT NEW.execution_id OR OLD.subject_type IS NOT NEW.subject_type OR
+          OLD.subject_id IS NOT NEW.subject_id OR OLD.asset_flow_content_sha256 IS NOT NEW.asset_flow_content_sha256 OR
+          OLD.accounting_ruleset_version IS NOT NEW.accounting_ruleset_version OR OLD.created_at IS NOT NEW.created_at
+        BEGIN SELECT RAISE(ABORT,'scenario identity immutable'); END;
+      CREATE TRIGGER impact_scenario_final_immutable BEFORE UPDATE ON impact_scenario_revisions
+        WHEN OLD.status<>'draft' BEGIN SELECT RAISE(ABORT,'reviewed scenario immutable'); END;
+      CREATE TRIGGER impact_scenario_final_no_delete BEFORE DELETE ON impact_scenario_revisions
+        WHEN OLD.status<>'draft' AND EXISTS(SELECT 1 FROM scans WHERE id=OLD.scan_id)
+        BEGIN SELECT RAISE(ABORT,'reviewed scenario immutable'); END;`);
+      sqlite.prepare("INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)").run("0016_v0_3_impact_scenarios", Date.now());
+    })(); }
+    catch (error) { throw new Error(`Database migration 0016_v0_3_impact_scenarios failed without committing changes: ${error instanceof Error ? error.message : String(error)}`); }
+  }
+  if (!sqlite.prepare("SELECT 1 FROM schema_migrations WHERE id = ?").get("0017_v0_3_scenario_replay")) {
+    try { sqlite.transaction(() => {
+      sqlite.exec(`CREATE TABLE impact_scenario_replay_plans (
+        id TEXT PRIMARY KEY, plan_id TEXT NOT NULL, revision INTEGER NOT NULL CHECK(revision>=1),
+        revision_of TEXT REFERENCES impact_scenario_replay_plans(id),
+        scan_id TEXT NOT NULL REFERENCES scans(id) ON DELETE CASCADE,
+        scenario_revision_id TEXT NOT NULL REFERENCES impact_scenario_revisions(id),
+        status TEXT NOT NULL CHECK(status IN ('draft','reviewed','rejected')),
+        plan_json TEXT NOT NULL, content_sha256 TEXT NOT NULL,
+        created_at INTEGER NOT NULL, reviewed_at INTEGER, rejected_at INTEGER,
+        UNIQUE(plan_id,revision));
+      CREATE INDEX impact_replay_plan_scan_idx ON impact_scenario_replay_plans(scan_id,scenario_revision_id,plan_id,revision);
+      CREATE TRIGGER impact_replay_plan_final_immutable BEFORE UPDATE ON impact_scenario_replay_plans
+        WHEN OLD.status<>'draft' BEGIN SELECT RAISE(ABORT,'reviewed replay plan immutable'); END;
+      CREATE TRIGGER impact_replay_plan_final_no_delete BEFORE DELETE ON impact_scenario_replay_plans
+        WHEN OLD.status<>'draft' AND EXISTS(SELECT 1 FROM scans WHERE id=OLD.scan_id)
+        BEGIN SELECT RAISE(ABORT,'reviewed replay plan immutable'); END;
+      CREATE TABLE impact_scenario_replay_runs (
+        id TEXT PRIMARY KEY, plan_revision_id TEXT NOT NULL REFERENCES impact_scenario_replay_plans(id),
+        status TEXT NOT NULL CHECK(status IN ('queued','running','completed','failed','cancelled')),
+        created_at INTEGER NOT NULL, started_at INTEGER, completed_at INTEGER,
+        stop_reason TEXT, cancel_requested INTEGER NOT NULL DEFAULT 0 CHECK(cancel_requested IN (0,1)));
+      CREATE UNIQUE INDEX impact_replay_one_active_run ON impact_scenario_replay_runs((1))
+        WHERE status IN ('queued','running');
+      CREATE TABLE impact_scenario_replay_iterations (
+        id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES impact_scenario_replay_runs(id),
+        iteration_index INTEGER NOT NULL CHECK(iteration_index>=1),
+        status TEXT NOT NULL CHECK(status IN ('queued','running','completed','reverted','failed','cancelled')),
+        execution_id TEXT REFERENCES impact_poc_executions(id),
+        started_at INTEGER NOT NULL, completed_at INTEGER, stop_reason TEXT,
+        pre_snapshot_id TEXT, post_snapshot_id TEXT, asset_flow_content_sha256 TEXT,
+        UNIQUE(run_id,iteration_index));
+      CREATE TRIGGER impact_replay_iteration_final_immutable BEFORE UPDATE ON impact_scenario_replay_iterations
+        WHEN OLD.status IN ('completed','reverted','failed','cancelled')
+        BEGIN SELECT RAISE(ABORT,'replay iteration immutable'); END;`);
+      sqlite.prepare("INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)").run("0017_v0_3_scenario_replay", Date.now());
+    })(); }
+    catch (error) { throw new Error(`Database migration 0017_v0_3_scenario_replay failed without committing changes: ${error instanceof Error ? error.message : String(error)}`); }
+  }
+  if (!sqlite.prepare("SELECT 1 FROM schema_migrations WHERE id = ?").get("0018_v0_3_evidence_packages")) {
+    try { sqlite.transaction(() => {
+      sqlite.exec(`CREATE TABLE evidence_packages (
+        id TEXT PRIMARY KEY, scan_id TEXT NOT NULL REFERENCES scans(id) ON DELETE CASCADE,
+        subject_type TEXT NOT NULL CHECK(subject_type IN ('finding','investigation','hypothesis')),
+        subject_id TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('draft','finalized')),
+        selection_json TEXT NOT NULL, package_json TEXT NOT NULL, manifest_sha256 TEXT NOT NULL,
+        content_sha256 TEXT NOT NULL, created_at INTEGER NOT NULL, finalized_at INTEGER);
+      CREATE INDEX evidence_packages_subject_idx ON evidence_packages(scan_id,subject_type,subject_id,created_at);
+      CREATE TRIGGER evidence_packages_final_immutable BEFORE UPDATE ON evidence_packages
+        WHEN OLD.status='finalized' BEGIN SELECT RAISE(ABORT,'finalized evidence package immutable'); END;
+      CREATE TRIGGER evidence_packages_final_no_delete BEFORE DELETE ON evidence_packages
+        WHEN OLD.status='finalized' AND EXISTS(SELECT 1 FROM scans WHERE id=OLD.scan_id)
+        BEGIN SELECT RAISE(ABORT,'finalized evidence package immutable'); END;`);
+      sqlite.prepare("INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)").run("0018_v0_3_evidence_packages", Date.now());
+    })(); }
+    catch (error) { throw new Error(`Database migration 0018_v0_3_evidence_packages failed without committing changes: ${error instanceof Error ? error.message : String(error)}`); }
+  }
+  if (!sqlite.prepare("SELECT 1 FROM schema_migrations WHERE id = ?").get("0019_v0_3_bounty_reports")) {
+    try { sqlite.transaction(() => {
+      sqlite.exec(`CREATE TABLE bounty_reports (
+        id TEXT PRIMARY KEY, scan_id TEXT NOT NULL REFERENCES scans(id) ON DELETE CASCADE,
+        evidence_package_id TEXT NOT NULL REFERENCES evidence_packages(id),
+        revision_of TEXT REFERENCES bounty_reports(id),
+        status TEXT NOT NULL CHECK(status IN ('draft','finalized')),
+        report_json TEXT NOT NULL, package_content_hash TEXT NOT NULL, manifest_hash TEXT NOT NULL,
+        content_hash TEXT NOT NULL, created_at INTEGER NOT NULL, finalized_at INTEGER);
+      CREATE INDEX bounty_reports_package_idx ON bounty_reports(scan_id,evidence_package_id,created_at);
+      CREATE TRIGGER bounty_reports_final_immutable BEFORE UPDATE ON bounty_reports
+        WHEN OLD.status='finalized' BEGIN SELECT RAISE(ABORT,'finalized bounty report immutable'); END;
+      CREATE TRIGGER bounty_reports_final_no_delete BEFORE DELETE ON bounty_reports
+        WHEN OLD.status='finalized' AND EXISTS(SELECT 1 FROM scans WHERE id=OLD.scan_id)
+        BEGIN SELECT RAISE(ABORT,'finalized bounty report immutable'); END;`);
+      sqlite.prepare("INSERT INTO schema_migrations (id, applied_at) VALUES (?, ?)").run("0019_v0_3_bounty_reports", Date.now());
+    })(); }
+    catch (error) { throw new Error(`Database migration 0019_v0_3_bounty_reports failed without committing changes: ${error instanceof Error ? error.message : String(error)}`); }
+  }
   const integrity = sqlite.pragma("quick_check") as Array<{ quick_check: string }>;
   const foreignKeyViolations = sqlite.pragma("foreign_key_check") as unknown[];
-  const requiredTables = ["scans", "scan_source_snapshots", "scan_source_snapshot_files", "scan_compilation_provenance", "scan_compilation_source_units", "scan_scanner_alignment", "findings", "scan_scanners", "investigations", "investigation_findings", "protocol_analyses", "invariants", "security_review_plans", "security_reviewer_runs", "vulnerability_hypotheses", "hypothesis_verification_runs", "verification_plan_attempts", "executable_invariant_runs", "executable_invariant_proposals", "invariant_replay_artifacts", "invariant_replay_runs", "authoritative_invariant_evidence", "invariant_evidence_reviews", "hypothesis_lifecycle_transitions", "hypothesis_groups", "hypothesis_group_members"];
+  const requiredTables = ["scans", "scan_source_snapshots", "scan_source_snapshot_files", "scan_compilation_provenance", "scan_compilation_source_units", "scan_scanner_alignment", "findings", "scan_scanners", "investigations", "investigation_findings", "protocol_analyses", "invariants", "security_review_plans", "security_reviewer_runs", "verification_plan_attempts", "vulnerability_hypotheses", "hypothesis_verification_runs", "executable_invariant_runs", "executable_invariant_proposals", "invariant_replay_artifacts", "invariant_replay_runs", "authoritative_invariant_evidence", "invariant_evidence_reviews", "hypothesis_lifecycle_transitions", "hypothesis_groups", "hypothesis_group_members", "impact_fork_sessions", "impact_poc_artifacts", "impact_poc_executions", "impact_state_snapshots", "impact_state_observations", "impact_state_diffs", "impact_state_changes", "impact_transaction_traces", "impact_trace_nodes", "impact_trace_logs", "repository_maps", "static_protocol_graphs", "impact_scenario_revisions", "impact_scenario_replay_plans", "impact_scenario_replay_runs", "impact_scenario_replay_iterations", "evidence_packages", "bounty_reports"];
   const presentTables = new Set((sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as Array<{ name: string }>).map((row) => row.name));
+  const repositoryMapTriggers = new Set((sqlite.prepare("SELECT name FROM sqlite_master WHERE type='trigger' AND name LIKE 'repository_maps_%'").all() as Array<{ name: string }>).map((row) => row.name));
+  if (!["repository_maps_immutable", "repository_maps_no_delete"].every((name) => repositoryMapTriggers.has(name)))
+    throw new Error("Repository Map migration validation failed.");
+  const staticGraphTriggers = new Set((sqlite.prepare("SELECT name FROM sqlite_master WHERE type='trigger' AND name LIKE 'static_protocol_graphs_%'").all() as Array<{ name: string }>).map((row) => row.name));
+  if (!["static_protocol_graphs_immutable", "static_protocol_graphs_no_delete"].every((name) => staticGraphTriggers.has(name)))
+    throw new Error("Static ProtocolGraph migration validation failed.");
   const runColumns = new Set((sqlite.prepare("PRAGMA table_info(executable_invariant_runs)").all() as Array<{name:string}>).map((row) => row.name));
   const replayColumns = new Set((sqlite.prepare("PRAGMA table_info(invariant_replay_artifacts)").all() as Array<{name:string}>).map((row) => row.name));
   const proposalColumns = new Set((sqlite.prepare("PRAGMA table_info(executable_invariant_proposals)").all() as Array<{name:string}>).map((row) => row.name));
@@ -384,7 +764,9 @@ export function createDatabase(databasePath: string) {
   const fingerprintTriggers = new Set((sqlite.prepare("SELECT name FROM sqlite_master WHERE type='trigger' AND name LIKE '%_source_fingerprint_%'").all() as Array<{name:string}>).map((row) => row.name));
   const reuseColumns = ["reuse_source_artifact_type", "reuse_source_artifact_id", "reuse_target_id", "reuse_compiler_artifact_sha256", "reuse_created_at"];
   const reuseTriggers = new Set((sqlite.prepare("SELECT name FROM sqlite_master WHERE type='trigger' AND name LIKE '%_reuse_%'").all() as Array<{name:string}>).map((row) => row.name));
-  if (integrity.length !== 1 || integrity[0]?.quick_check !== "ok" || foreignKeyViolations.length || requiredTables.some((table) => !presentTables.has(table)) || !runColumns.has("engine") || !runColumns.has("engine_metadata") || !runColumns.has("proposal_id") || !replayColumns.has("source_engine") || !proposalColumns.has("selected_strategy") || fingerprintColumns.some((column) => !proposalColumns.has(column) || !planAttemptColumns.has(column)) || reuseColumns.some((column) => !proposalColumns.has(column) || !planAttemptColumns.has(column)) || ["verification_plan_attempts_reuse_valid", "verification_plan_attempts_reuse_immutable", "executable_invariant_proposals_reuse_valid", "executable_invariant_proposals_reuse_immutable"].some((trigger) => !reuseTriggers.has(trigger)) || ["verification_plan_attempts_source_fingerprint_immutable", "verification_plan_attempts_source_fingerprint_valid", "executable_invariant_proposals_source_fingerprint_immutable", "executable_invariant_proposals_source_fingerprint_valid"].some((trigger) => !fingerprintTriggers.has(trigger)) || ["id", "hypothesis_id", "scan_id", "selected_strategy", "status", "plan", "failure_code", "result", "created_at"].some((column) => !planAttemptColumns.has(column)) || ["scan_id", "schema", "resolved_commit", "file_count", "total_bytes", "finalized_at"].some((column) => !snapshotColumns.has(column)) || ["scan_id", "source_key", "raw_bytes", "raw_sha256", "byte_length"].some((column) => !snapshotFileColumns.has(column)) || ["scan_source_snapshot_finalized_immutable", "scan_source_snapshot_file_immutable", "scan_source_snapshot_file_closed", "scan_source_snapshot_file_no_delete", "scan_source_snapshot_no_delete"].some((trigger) => !snapshotTriggers.has(trigger)) || ["scan_compilation_provenance_immutable", "scan_compilation_provenance_no_delete", "scan_compilation_source_unit_closed", "scan_compilation_source_unit_immutable", "scan_compilation_source_unit_no_delete", "scan_scanner_alignment_immutable", "scan_scanner_alignment_no_delete"].some((trigger) => !compilationTriggers.has(trigger)) || invalidEngine || invalidReplayEngine || sqlite.prepare("SELECT 1 FROM executable_invariant_runs r LEFT JOIN executable_invariant_proposals p ON p.id=r.proposal_id WHERE r.proposal_id IS NOT NULL AND (p.id IS NULL OR p.hypothesis_id<>r.hypothesis_id OR p.scan_id<>r.scan_id OR p.plan_hash<>r.plan_hash) LIMIT 1").get()) {
+  const impactColumns = new Set((sqlite.prepare("PRAGMA table_info(impact_fork_sessions)").all() as Array<{name:string}>).map((row) => row.name));
+  const impactTriggers = new Set((sqlite.prepare("SELECT name FROM sqlite_master WHERE type='trigger' AND name LIKE 'impact_fork_%_immutable'").all() as Array<{name:string}>).map((row) => row.name));
+  if (integrity.length !== 1 || integrity[0]?.quick_check !== "ok" || foreignKeyViolations.length || requiredTables.some((table) => !presentTables.has(table)) || ["rpc_config_id", "target_code_hashes"].some((column) => !impactColumns.has(column)) || ["impact_fork_code_identity_immutable", "impact_fork_block_identity_immutable", "impact_fork_rpc_config_immutable"].some((trigger) => !impactTriggers.has(trigger)) || !runColumns.has("engine") || !runColumns.has("engine_metadata") || !runColumns.has("proposal_id") || !replayColumns.has("source_engine") || !proposalColumns.has("selected_strategy") || fingerprintColumns.some((column) => !proposalColumns.has(column) || !planAttemptColumns.has(column)) || reuseColumns.some((column) => !proposalColumns.has(column) || !planAttemptColumns.has(column)) || ["verification_plan_attempts_reuse_valid", "verification_plan_attempts_reuse_immutable", "executable_invariant_proposals_reuse_valid", "executable_invariant_proposals_reuse_immutable"].some((trigger) => !reuseTriggers.has(trigger)) || ["verification_plan_attempts_source_fingerprint_immutable", "verification_plan_attempts_source_fingerprint_valid", "executable_invariant_proposals_source_fingerprint_immutable", "executable_invariant_proposals_source_fingerprint_valid"].some((trigger) => !fingerprintTriggers.has(trigger)) || ["id", "hypothesis_id", "scan_id", "selected_strategy", "status", "plan", "failure_code", "result", "created_at"].some((column) => !planAttemptColumns.has(column)) || ["scan_id", "schema", "resolved_commit", "file_count", "total_bytes", "finalized_at"].some((column) => !snapshotColumns.has(column)) || ["scan_id", "source_key", "raw_bytes", "raw_sha256", "byte_length"].some((column) => !snapshotFileColumns.has(column)) || ["scan_source_snapshot_finalized_immutable", "scan_source_snapshot_file_immutable", "scan_source_snapshot_file_closed", "scan_source_snapshot_file_no_delete", "scan_source_snapshot_no_delete"].some((trigger) => !snapshotTriggers.has(trigger)) || ["scan_compilation_provenance_immutable", "scan_compilation_provenance_no_delete", "scan_compilation_source_unit_closed", "scan_compilation_source_unit_immutable", "scan_compilation_source_unit_no_delete", "scan_scanner_alignment_immutable", "scan_scanner_alignment_no_delete"].some((trigger) => !compilationTriggers.has(trigger)) || invalidEngine || invalidReplayEngine || sqlite.prepare("SELECT 1 FROM executable_invariant_runs r LEFT JOIN executable_invariant_proposals p ON p.id=r.proposal_id WHERE r.proposal_id IS NOT NULL AND (p.id IS NULL OR p.hypothesis_id<>r.hypothesis_id OR p.scan_id<>r.scan_id OR p.plan_hash<>r.plan_hash) LIMIT 1").get()) {
     throw new Error("Database validation failed after migration; no application access was started.");
   }
   sqlite.exec("COMMIT");
@@ -398,9 +780,17 @@ export function createDatabase(databasePath: string) {
 }
 
 let singleton: DatabaseClient | undefined;
+export function recoverInterruptedImpactJobs(database: DatabaseClient): void {
+  // Runtime process handles never survive a web-process restart. Persisted rows are audit records, not execution authority.
+  database.sqlite.prepare("UPDATE impact_fork_sessions SET status='failed', failure_code='impact_server_restart', stopped_at=? WHERE status IN ('starting','ready','stopping')").run(Date.now());
+  database.sqlite.prepare("UPDATE impact_poc_executions SET status='failed', error_code='impact_server_restart', completed_at=? WHERE status IN ('created','queued','running')").run(Date.now());
+  database.sqlite.prepare("UPDATE impact_scenario_replay_runs SET status='failed', stop_reason='impact_server_restart', completed_at=? WHERE status IN ('queued','running')").run(Date.now());
+  database.sqlite.prepare("UPDATE impact_scenario_replay_iterations SET status='failed', stop_reason='impact_server_restart', completed_at=? WHERE status IN ('queued','running')").run(Date.now());
+}
 export function getDatabase(): DatabaseClient {
   if (!singleton) {
     singleton = createDatabase(loadConfig().DATABASE_PATH);
+    recoverInterruptedImpactJobs(singleton);
     backfillInvestigations(singleton);
   }
   return singleton;

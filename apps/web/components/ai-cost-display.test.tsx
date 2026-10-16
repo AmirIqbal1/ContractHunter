@@ -5,9 +5,9 @@ import { AIUsageSummary, RecordedAICost } from "./ai-cost-display";
 describe("hunt AI cost display", () => {
   it("shows actual recorded stage cost and labels it as an estimate", () => {
     const html = renderToStaticMarkup(<RecordedAICost costUsd={0.01234} />);
-    expect(html).toContain("Estimated API cost from recorded token usage");
+    expect(html).toContain("Estimated GPT-6 Luna Standard cost from recorded token usage");
     expect(html).toContain("$0.0123");
-    expect(html).toContain("not an official invoice");
+    expect(html).toContain("Input is treated as uncached");
   });
 
   it("shows only recorded stages and their aggregate hunt total", () => {

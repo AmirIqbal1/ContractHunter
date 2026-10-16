@@ -1,10 +1,108 @@
 # API reference
 
+## Impact API scope and response safety
+
+The legacy `/api/impact/sessions`, `/api/impact/pocs` and `/api/impact/poc-executions` routes now require a canonical `scanId` query parameter for create, read, review, stop, recreate and execute actions. The server checks the exact subject → scan relationship; session, PoC and execution IDs from another scan return 404. A missing or malformed scan ID returns 400. Execution responses contain an allowlisted evidence/status projection and omit worker stdout/stderr, host/process details and runtime-token digests. Session responses omit local/upstream endpoints and credentials. Scan-scoped Protocol Intelligence, scenario, replay, package and report routes retain their exact ownership checks. This is a local research API; no multi-user authentication layer is claimed.
+
+## G2 Bug-Bounty Reports (scan and package scoped)
+
+`POST /api/scans/:scanId/impact/evidence-packages/:packageId/reports` creates a draft from a finalized, verified G1 package; optional `{ revisionOf }` must identify a finalized report bound to that same package, or an optional bounded `fields` object creates the initial narrative. `PATCH .../reports/:reportId` accepts only bounded plain-text `{ title, summary, impactStatement, reproductionNote, additionalContext }` for a draft. `POST .../reports/:reportId/finalize` verifies the package binding and freezes the current draft. `GET .../reports/:reportId/download` returns finalized UTF-8 Markdown with `text/markdown; charset=utf-8`, `no-store`, `nosniff` and an ID-based `.md` filename. `/hunts/:scanId/evidence-packages/:packageId/reports/:reportId` provides editor and preview; append `/print` for read-only printable HTML. Copy Markdown fetches the same download endpoint. G2 JSON export is not provided; G1 JSON remains the authoritative machine-readable evidence. IDs are UUIDs, wrong-scan/package links are rejected, and integrity failures receive a sanitized conflict response. No report endpoint executes evidence generation, RPC, PoC, replay or AI.
+
+## G1 Evidence Package (scan scoped)
+
+`POST /api/scans/:scanId/impact/evidence-packages` accepts strict JSON `{ subjectType, subjectId, executionId, scenarioRevisionId, replayRunId }` with UUID selectors and nullable optional IDs. It creates a draft from server-resolved persisted evidence, not browser-supplied artifacts. `POST /api/scans/:scanId/impact/evidence-packages/:packageId/finalize` revalidates and freezes it. `GET /api/scans/:scanId/impact/evidence-packages/:packageId` returns the bounded canonical read model, while `GET .../:packageId/download` returns finalized JSON with `application/json`, `nosniff`, and an ID-based filename. All reads enforce scan ownership and package integrity. No package endpoint executes a PoC, replay, RPC or worker. The UI routes are `/hunts/:scanId/evidence-packages/new` and `/hunts/:scanId/evidence-packages/:packageId`.
+
+## Impact Lab Phase F2B result view
+
+The read-only run page is `/hunts/:scanId/impact/executions/:executionId/assets/scenarios/:scenarioId/replay/:planId/runs/:runId`. It reuses F2A `GET /api/scans/:scanId/impact/poc-executions/:executionId/scenarios/:scenarioId/replay-plans/:planId/runs/:runId` for authoritative result/status data. No new write endpoint or browser-submitted accounting was added. The page resolves and validates exact iteration execution IDs server-side before providing evidence links and safe metadata. Unknown, cross-scan or incompatible run evidence is rejected or displayed as unavailable.
+
+## Impact Lab Phase F2A replay
+
+Under `/api/scans/:scanId/impact/poc-executions/:executionId/scenarios/:scenarioId/replay-plans`, `GET` lists current plans and `POST` accepts only `{mode, iterationCount}`. `GET`/`PATCH /:planId` read or edit a current draft (`revisionId`, mode, count). `POST /:planId/review` accepts a revision ID and reviewed/rejected decision; `POST /:planId/revisions` creates a draft revision. `GET`/`POST /:planId/runs` list runs or explicitly start a reviewed plan with its revision ID. `GET /:planId/runs/:runId` returns bounded status and deterministic evidence/result; `POST /:planId/runs/:runId/cancel` requests cancellation after the current iteration. Every action validates scan, execution, scenario, plan and E1/PoC/fork binding server-side. Start does not accept transaction or source content. UI routes extend the reviewed scenario at `.../assets/scenarios/:scenarioId/replay` and `.../replay/:planId`.
+
+## Impact Lab Phase F1 scenarios
+
+The scan/execution-scoped base is `/api/scans/:scanId/impact/poc-executions/:executionId/scenarios`. `GET` lists current scenario revisions and `POST` creates a draft from bounded `{assignments, note}`; selectors are opaque IDs resolved against the exact E1 participant catalog. `GET`/`PATCH /:scenarioId` read or edit the current draft (PATCH requires current `revisionId`). `POST /:scenarioId/review` accepts `{revisionId, decision: reviewed|rejected}`. `POST /:scenarioId/revisions` creates a new draft revision after a finalized decision. `GET /:scenarioId/impact` returns only a current compatible reviewed ScenarioImpact; stale, draft, and rejected scenarios receive a bounded conflict response. The UI routes are `/hunts/:scanId/impact/executions/:executionId/assets/scenarios/new` and `.../scenarios/:scenarioId`. All actions recheck exact scan/execution/E1 binding, have bounded bodies, and perform no RPC or PoC execution.
+
+## Impact Lab Phase E2 Asset Flow page
+
+`GET /hunts/:scanId/impact/executions/:executionId/assets` is a server-rendered, read-only page using the existing E1 service. UUID and scan/execution ownership checks apply. Bounded URL presentation state includes transaction ordinal, exact asset ID, participant address, attempted-flow toggle and display mode; invalid selections fall back to all. The page adds no browser-submitted accounting or mutation API. Reconciliation remains execution-wide because C1 snapshots are not transaction-local.
+
+## Impact Lab Phase E1 asset accounting
+
+`GET /api/scans/:scanId/impact/poc-executions/:executionId/asset-flow` returns one derived `contracthunter-asset-flow-v1` result under `contracthunter-asset-accounting-v1`. It reuses exact reviewed execution ownership and C1/D1 integrity checks. Malformed UUIDs return 400, another scan's or missing execution returns 404, and integrity/derivation failures return sanitized 409. The result includes capabilities, committed ledger, attempted native flows, separate execution-cost availability, assets/participants, exact raw-unit net/gross positions, reconciliation, warnings, provenance IDs and content SHA-256. It is read-only; no body, arbitrary hash, pricing query, PoC execution or mutation is accepted. Production has no trusted ERC20/ERC721 standard binding or persisted effective gas price, so ambiguous Transfer logs and gas cost remain explicitly unresolved.
+
+## Phase 10B read-only pages
+
+`GET /hunts/:scanId/impact/executions/:executionId` displays one exact same-scan reviewed local execution. Investigation Path accepts bounded presentation selectors `?execution=<uuid>&view=static|observed|compare&tx=<ordinal>&call=<overlayCallId>&state=changed|unchanged|unavailable|all|balances|tokens|storage`. Protocol Map accepts `?execution=<uuid>&observed=1&tx=<ordinal>`; Function Explorer accepts `?execution=<uuid>` and shows runtime order only for exact mapped functions. Server loaders validate execution ownership and persisted evidence before rendering. These routes add no mutation, execution command, RPC parameter or browser-derived provenance.
+
+## Impact Overlay (Phase 10A)
+
+`GET /api/scans/:scanId/impact/poc-executions/:executionId/overlay` returns one derived `contracthunter-impact-overlay-v1` read model for an exact reviewed local PoC execution whose finding or hypothesis belongs to that scan. Both IDs are UUID validated. Wrong scan/execution membership returns 404; malformed IDs return 400; provenance/integrity failures return a sanitized 409. The result separates transactions, observed calls/logs, C1 state observations, optional exact static/path comparisons, factual coverage, capability flags, provenance references and warnings. Historical B1 runs may report trace/state unavailable. No arbitrary trace/state upload, RPC selector, mutation, or Impact Lab launch route is added. Production currently leaves runtime contract/function mapping unresolved without authoritative deployment-to-source evidence.
+
+## Investigation Path page (Phase 9B)
+
+`GET /hunts/:scanId/investigation-paths/:subjectType/:subjectId` is a read-only server page for the same three closed subject types and exact UUIDs as the Phase 9A API. Optional `?mode=beginner|researcher`, `?path=ip:…` and `?edge=pe:…` select presentation only, after validating membership in the returned bounded result. Invalid or cross-scan subjects receive 404; missing or invalid graph data shows a bounded page state. The page reuses Phase 9A derivation and adds no arbitrary graph-query or write endpoint. The browser cannot derive paths or alter finding, hypothesis, graph, verification or Impact Lab records.
+
+## Investigation Paths (Phase 9A)
+
+`GET /api/scans/:id/protocol-graph/investigation-paths/:subjectType/:subjectId` accepts only `finding`, `investigation`, or `hypothesis` and exact UUIDs. It verifies the scan and subject ownership, reads the finalized validated static graph, resolves existing finding links and returns bounded `contracthunter-investigation-path-v1` context. Wrong scan/subject or missing graph returns 404; malformed IDs/type return 400; derivation failures return a sanitized 500. The endpoint is read-only, supports no arbitrary graph query, and grants no Impact Lab authority. The response contains static paths, canonical steps, operation refs, coverage warnings and an unattached future runtime-overlay marker. See [finding-integration-audit.md](finding-integration-audit.md).
+
+## Start Here page (Phase 8B)
+
+`GET /hunts/:id/start` is a server-rendered page using the existing read-only Phase 8A derivation. Optional `?mode=beginner|researcher` changes display detail only. The existing `/api/scans/:id/protocol-graph/audit-priority` response and server-owned weights are unchanged. A missing graph or derivation failure shows a bounded page state; errors do not expose internal paths.
+
+## Explainable audit priority (Phase 8A)
+
+`GET /api/scans/:id/protocol-graph/audit-priority` returns the bounded `contracthunter-audit-priority-v1` Project Overview and contract/function recommendations. It reads the exact validated graph and finalized Repository Map, derives all seven static Security Views, and applies the server-owned `contracthunter-audit-priority-ruleset-v1`. The browser cannot submit weights or arbitrary analysis. Invalid scan IDs return 400; missing scan or graph returns 404; integrity/derivation failures return a sanitized 500. The response includes score factors, awarded and potential points, source-backed evidence, canonical IDs, Security View membership, review prompts, warnings, ruleset/catalog versions and deterministic content identity. It is read-only and grants no Impact Lab authority.
+
+## Protocol Map Security View selector (Phase 7B)
+
+`/hunts/:scanId/protocol-map?view=:view` accepts the seven closed Security View names below. An unknown value opens Overview. The client requests one selected projection from the existing read-only endpoint and checks its scan, graph and artifact content identity before adapting canonical node/edge IDs to the map renderer. It caches each successfully loaded projection for the page session. There is no new write API or browser-provided analysis query.
+
+## Static Security Views (Phase 7A)
+
+`GET /api/scans/:id/protocol-graph/security-views/:view` accepts exactly `money-flow`, `permissions`, `oracle-flow`, `external-calls`, `upgradeability`, `attack-surface` or `findings`. It returns a bounded `contracthunter-security-view-v1` projection with existing graph IDs, inclusion reasons/provenance, static annotations, counts, warnings and a deterministic content hash. Finding metadata is loaded only by exact same-scan finding ID and capped at 500 entries. Invalid scan/view selectors return 400, missing scan/graph returns 404 and integrity/derivation failures return a sanitized 500. The endpoint is read-only and does not provide a query language, runtime trace or mutation route.
+
+## Visual Function Explorer (Phase 6B)
+
+The page route is `/hunts/:scanId/contracts/:contractId/functions/:functionId`, linked from Contract Explorer. It reuses the read-only Phase 6A API/service and adds no browser-controlled analysis or mutation endpoint. The function response includes bounded exact related node labels, proven control-role labels and a proven-proxy flag to support navigation; it still returns only one function model, not the full graph. Wrong scan/contract/function ownership is rejected. Presentation query keys `operation`, `mode` and `filter` are bounded selectors and carry no source content.
+
+## Function Explorer Phase 6A
+
+`GET /api/scans/:scanId/protocol-graph/contracts/:contractId/functions/:functionId` returns the exact function model plus a bounded source preview and Phase 6B related-node/control labels for the selected scan and contract. IDs are validated; malformed selectors return 400, missing scan or function returns 404, and graph integrity failure returns a sanitized 500. The versioned model contains source-order operations, callers/callees, state references, finding IDs, review cues, summary, provenance, analysis status and warnings. The optional strict UTF-8 preview comes only from a checksum-matched immutable scan snapshot and is limited to 4 KiB. This endpoint is read-only; it does not expose a CFG or raw scanner JSON.
+
+## Protocol Intelligence Phase 5 Contract Explorer
+
+`/hunts/:scanId/contracts/:contractId` is a server-rendered, read-only contract page. It accepts only a canonical ProtocolGraph contract/interface/library node ID from the validated graph for that scan. Wrong, malformed or cross-scan identities return 404. The server derives a bounded contract neighborhood and joins only exact finding references from the same scan. There is no contract mutation, arbitrary source path, Impact Lab execution, or browser-supplied graph relationship API.
+
+## Impact Lab Phase D1 local traces
+
+`GET /api/impact/poc-executions/:id` adds nullable `traceCaptureStatus`, `traceCount`, `traceNodeCount`, `traceErrorCode`, `traceAvailable` and ordered `traceIds`. `GET /api/impact/poc-executions/:id/traces` reads finalized bounded local receipt/log/call-tree artifacts and returns a failed or empty capture status where applicable. It accepts no transaction hash, RPC method, endpoint or command input. Historical executions return null trace status and an empty list. Trace facts confer no vulnerability authority.
+
+## Impact Lab Phase C1 state capture
+
+`POST /api/impact/sessions/:sessionId/poc-executions` accepts `pocArtifactId` and optional `observations` with typed `nativeBalances`, `erc20Balances` (`token`, `holder`), `erc721Owners` (`token`, decimal `tokenId`), `erc1155Balances` (`token`, `holder`, decimal `tokenId`), `storageSlots` (`contract`, exact 32-byte `slot`), and `viewCalls` (fixed `erc20_totalSupply`, `target`). Unknown keys, arbitrary methods/calldata and oversized plans are rejected. Defaults include sender and target native balances. `GET /api/impact/poc-executions/:id` includes nullable `preSnapshotId`, `postSnapshotId`, `diffId`, `stateCaptureAvailable` and `stateChangeCount`. `GET /api/impact/poc-executions/:id/state` returns the finalized PRE/POST and diff artifacts or null links for historical B1 runs. State endpoints are read-only and do not admit vulnerability evidence.
+
+## Impact Lab Phase B1 manual PoCs
+
+- `POST /api/impact/pocs` — create a **draft** manual artifact with exactly one `findingId` or `hypothesisId`, literal `filename: "ImpactPoC.s.sol"`, bounded `source`, `entryContract`, and optional `revisionOf`. No execution occurs.
+- `GET /api/impact/pocs/:id` — inspect artifact and review state.
+- `POST /api/impact/pocs/:id/review` — body `{ "decision": "reviewed" | "rejected" }` for a draft. Reviewed source is immutable.
+- `POST /api/impact/sessions/:sessionId/poc-executions` — explicit reviewed artifact selector and optional C1 typed observation plan. The service reloads a ready managed fork, checks its current runtime token, reviewed source identity and target, then executes on the local fork only.
+- `GET /api/impact/poc-executions/:id` — bounded local reproduction status, diagnostics and provenance. Transaction hashes are local Impact Lab transactions.
+
+All request objects are strict. Raw RPC URL, image, command, argv, Foundry flags, wallet and environment fields are rejected. B1 has no generic RPC or automatic evidence/lifecycle promotion endpoint.
+
+Impact Lab Phase A2 has configured-reference session routes described below. Phase A3 adds an internal session-ID-only probe-runtime service and no public runtime route. There is no generic raw RPC API. B1 adds the narrow reviewed manual PoC routes above.
+
 ## Scans
 
 - `POST /api/scans` — validate and enqueue a scan
 - `GET /api/scans` — list scans
 - `GET /api/scans/:id` — retrieve scan details and related records
+- `GET /api/scans/:id/repository-map` — read the finalized bounded Repository Map for this scan; 404 when no map was generated. This is navigation metadata, not a vulnerability score or source-authority upgrade.
+- `GET /api/scans/:id/protocol-graph` — read the finalized, integrity-checked static ProtocolGraph artifact; 404 when unavailable. It includes source-linked structure, bounded function facts, exact finding references, unresolved relationships and factual summary counts. It contains no runtime overlay or vulnerability verdict.
 - `POST /api/scans/:id/ai-analysis` — manually run/rerun protocol analysis
 - `GET /api/scans/:id/ai-context` — preview bounded AI context/cost metadata
 
@@ -66,3 +164,9 @@ The server reloads current persisted evidence, target, strategy, scan, compilati
 ### Explicit reuse client (v0.2.2 Part 2B-1B)
 
 The hypothesis page shows **Reuse plan** only for advisory `eligible` candidates returned by `GET /api/hypotheses/:hypothesisId/verification-target`. Each action sends the same bodyless POST described above; browser eligibility is never admission authority. After success, the new artifact is selected in the existing review UI with validation pending. After a bounded rejection, the browser displays a safe message for the selected candidate and refreshes the verification-target GET once. It sends no plan, source, strategy, compiler, fingerprint, property, provider, or execution fields and starts no generation, validation, or worker request. The user may separately select direct Generate plan, Validate plan/proposal, and an explicit execution control.
+
+## Impact Lab Phase A2 internal API
+
+`GET /api/impact/rpc-configs` returns enabled `{id, chainId, network}` entries only. `POST /api/impact/sessions` accepts exactly one `findingId` or `hypothesisId`, `rpcConfigId`, exact numeric `forkBlock`, and 1–20 `targetContracts` addresses. It rejects raw URLs, executable paths, argv and keys. `GET /api/impact/sessions/:id` returns safe identity/status; `DELETE` stops an active session; `POST /api/impact/sessions/:id/recreate` explicitly rebuilds a stopped/failed session from saved identity. Responses include block hash and target `sha256:` bytecode hashes when resolved, but omit provider URL/ref, local execution endpoint, process data and keys. B1/C1 PoC and state routes are described above.
+
+Phase A3's internal `createPoCRuntime({sessionId})`, `inspect(runtimeId)`, and `destroy(runtimeId)` service methods are not browser routes. Creation rejects extra keys such as RPC URL, image, command, argv, or environment. The server resolves the current guarded fork handle and fixed image ID. This runtime executes only ContractHunter's harmless network probe; no Solidity, Forge or vulnerability PoC is accepted.

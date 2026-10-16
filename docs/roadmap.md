@@ -1,5 +1,97 @@
 # Roadmap
 
+## Impact Lab Phase G2 and Phase G — implemented
+
+G2 adds a deterministic, versioned bug-bounty report derived only from an immutable finalized G1 package. Bounded researcher plain text is editable in a draft; final reports and revisions preserve hash-bound history. Markdown is the primary export and browser print provides optional PDF saving. Evidence facts remain read only, with no AI, PoC, replay, RPC, severity calculation or impact extrapolation. **v0.3.0 automated release hardening passed; manual browser review and publication remain.** The trusted production Impact PoC worker rebuild and disposable local-fork B1–E1/G1/G2 smoke passed. v0.3.0 is not released.
+
+## Impact Lab Phase G1 — implemented
+
+G1 adds an immutable, bounded, versioned Evidence Package over exact persisted static/source and reviewed local reproduction records. It freezes JSON, an artifact manifest and deterministic hashes; shows partial/unavailable capabilities and provenance; and exposes a read-only download. It neither reruns execution nor produces a bug-bounty narrative. Phase G2 Bug-Bounty Report and Export is implemented. The production worker rebuild and local-fork smoke gate passed during release hardening.
+
+## Impact Lab Phase F — implemented for reviewed bounded scenario analysis
+
+F2B adds the exact, read-only replay-run result page. Independent repetitions show factual consistency and variation against the reviewed reference without cumulative summation. Cumulative repetitions show only completed per-asset movement and captured resource evolution, with table-backed integer-safe charts, evidence links, stop/reset states and partial warnings. F2A's 2–5 bound and worker authority are unchanged. No projection, maximum drain, fiat value, TVL, severity or lifecycle decision is derived. **Impact Lab Phase G2 is implemented.**
+
+## Impact Lab Phase F2A — implemented
+
+F2A adds reviewed plans for 2–5 repetitions of the same B1 PoC bound to a current reviewed F1 scenario. Independent replay tests consistency from one baseline; cumulative replay measures only completed sequential local repetitions. Iteration evidence, exact per-asset role accounting, factual stop reasons and final reset safety remain separate from lifecycle authority and economic interpretation. **Phase F2B is implemented; G2 report/export is implemented. Severity, maximum-drain search and fiat valuation remain outside Phase F.**
+
+## Impact Lab Phase F1 — implemented
+
+F1 adds explicit reviewed scenario roles over exact E1 accounting. Immutable revisions bind one execution and E1 content identity. Deterministic per-asset role positions, direct role transfers, unassigned warnings, reconciliation, and gas separation are displayed without inferring ownership, profit, loss, severity, prices, or exploitability. **Phase F2A and F2B are implemented; G2 report/export is implemented.**
+
+## Impact Lab Phase E — implemented; F1 adds reviewed roles
+
+E2 adds a read-only visual Asset Flow page to the exact E1 result. It provides a bounded directional flow, complete paginated canonical ledger, separate attempted layer and execution cost, raw-unit per-asset net/gross positions, PRE/POST reconciliation, catalogs, warnings, and exact evidence links. It does not derive scenario roles, profit, protocol loss, pricing, severity or exploitability. **Phase F1, F2A and F2B are implemented; G2 report/export is implemented.**
+
+## Impact Lab Phase E1 — deterministic asset-flow accounting implemented
+
+The read-only versioned asset ledger derives committed local native value and exact receipt-log token transfer facts from one reviewed execution. Reverted attempts, snapshot net observations, reconciliation and unavailable gas cost remain separate. Shared ERC20/ERC721 Transfer events without trusted standard classification stay unknown-standard. No profit/loss, severity, AI, new PoC authority or migration was added. **Phase E and F are implemented for reviewed bounded analysis; G2 report/export is implemented.**
+
+## Protocol Intelligence Phase 10 — Dynamic Impact Lab Overlays implemented
+
+`contracthunter-impact-overlay-v1` is a deterministic read model of one reviewed PoC execution on an isolated local fork. It retains D1 transaction/call/log order and C1 PRE/POST observations and compares exact mapped static call edges with Phase 9 Investigation Paths. A comparable absent edge is “not observed in this execution”; incomplete mapping remains unresolved. Runtime-only calls never enter ProtocolGraph. The current deployed-code hashes have no authoritative link to source/graph contract IDs, so production address/function mappings stay unresolved. Phase 10B renders separate static, observed local execution and state layers. Impact Lab E1 now consumes this read model; E2 Visual Asset Flow is implemented.
+
+## Protocol Intelligence Phases 1–9 — implemented
+
+The frontend-independent `contracthunter-protocol-graph-v1` model defines bounded source-linked nodes, static edges, evidence, classification vocabulary, deterministic identities, validation and finding/C1-state/D1-trace overlay contracts. Phase 2 adds `contracthunter-repository-map-v1`: bounded source-root/file discovery, conservative lexical Solidity declarations and imports, evidence-backed classifications, immutable per-scan map artifacts and a read-only API. Classification is research orientation, not a vulnerability or audit-priority score. Phase 3 adds a source-linked immutable static graph from Repository Maps and supported trusted AST output; unresolved calls remain explicit. Manual override semantics are modeled; no override UI or mutation route exists. Phase 6A adds a bounded, exact-ID Function Explorer read model and read-only API with source-order syntax facts. Phase 7A adds seven deterministic, source-backed Security View projections and a read-only API. Phase 8A derives explainable Audit Priority and Phase 8B renders Start Here using that same result. Phase 9A audits finding links and derives bounded Investigation Paths; Phase 9B renders their static, source-backed context. Impact Lab through G2 is implemented and v0.3 remains unreleased. See [Protocol Map architecture](protocol-map.md).
+
+## v0.3 Impact Lab Phase D1 — implemented, unreleased
+
+Reviewed manual Forge PoCs run only against a verified local fork through the fixed networkless worker and per-job RPC bridge. C1 captures bounded PRE/POST state and an exact diff. D1 captures bounded local receipts, logs and ordered call trees for only the job's recorded local transaction hashes before reset. These facts do not decide vulnerability validity or severity. The read-only Phase 10B GUI renders them; F1/F2 scenario and G1/G2 evidence/report phases are implemented. The production worker rebuild and live local-fork smoke passed during release hardening; v0.3 is not released.
+
+## Current direction — Protocol Intelligence
+
+**RELEASED:** v0.2.2 scanner, investigation and verification workflows. **COMPLETE IN UNRELEASED v0.3:** Protocol Intelligence 1–10 and Impact Lab A1–G2, including bounded F2 replay, immutable G1 Evidence Packages and deterministic G2 reports. **NEXT:** Manual browser acceptance and v0.3.0 release workflow. **Core product priorities:** **#1 Protocol Map** and **#2 Contract Explorer**.
+
+ContractHunter is growing into a Web3 security research environment for beginners and experienced researchers. The principle is: **Do not hide Web3 security complexity from beginners — make it understandable visually while keeping the real technical information available.** The intended research path is understand → investigate → verify → reproduce → explain impact. This pipeline marks direction, not completed functionality:
+
+```text
+GitHub / Immunefi Project
+  → Repository Mapper [implemented foundation]
+  → Protocol Map [implemented initial UI]
+  → Contract Explorer [implemented initial drill-down]
+  → Analysis / Findings / Verification [current]
+  → Impact Lab [foundations A1–D1 implemented, v0.3 unreleased]
+  → Local Fork / Reviewed PoC [implemented]
+  → State Changes + Transaction Trace [implemented]
+  → Impact / Evidence [planned]
+  → Visual Exploit Investigation [planned]
+```
+
+### #1 Protocol Map and its ProtocolGraph foundation
+
+The Protocol Map is an **interactive security-focused graph of a Solidity protocol**, not a generic dependency diagram. It connects contract and function calls, inheritance, interface implementation, libraries, proven proxy/control relationships, external calls and ContractHunter findings where static evidence supports them. Large protocols need search, filters, grouping and decluttering. Phase 7A now models **Money Flow, Permissions, Oracle Flow, External Calls, Upgradeability, Attack Surface and Findings** as deterministic projections; Phase 7B now renders them in Protocol Map. Inheritance remains a graph relationship rather than a separate Phase 7 Security View.
+
+A frontend-independent **ProtocolGraph** will supply the Map. Candidate node kinds are contracts, functions, roles, tokens, external protocols, oracles, proxies and libraries. Candidate relationships are calls, inherits, implements, reads, writes, transfers, controls, upgrades, delegates and prices. Edges must explain **why** a relationship exists and retain source provenance where reliable. Nodes, functions and edges should resolve to source file, line/range, contract and function where the analysis supports it. The graph should serve API, CLI, JSON export, UI, findings, Impact Lab, AI analysis and eventual runtime-trace overlays from one model. The Phase 1/3 model now defines provenance and immutable graph storage. Phase 4 uses React Flow with deterministic Dagre layout for bounded contract-level navigation.
+
+### Repository Mapper and #2 Contract Explorer
+
+The Repository Mapper discovers source roots and classifies likely core protocol contracts, interfaces, libraries, mocks, tests, deployment scripts, periphery, dependencies and non-contract/frontend code using bounded deterministic reasons. Uncertain files remain unknown. An override model preserves the automatic result, while researcher override controls and final audit-priority guidance are planned. Its purpose is to orient researchers before graph generation.
+
+The **Contract Explorer** is the Map's source-linked contract drill-down. It shows deterministic classification, entry points, functions, callers/callees, inherited and library relationships, proven proxy/control facts, state-access facts where available, exact findings, source, and review cues. Semantic purpose, concrete asset identity, event analysis, an Impact Lab launch action remains unavailable unless evidence and authority support them. Function exploration now follows contract → function → calls → reads/writes → modifiers → authorization → transfers → relevant source lines.
+
+**Beginner Mode** will explain real terms such as `delegatecall`, oracle dependency, privileged/admin role, external call, token transfer, proxy/implementation and state mutation while keeping Solidity and security terminology visible. **Researcher Mode** will expose deeper raw analysis. **Project Overview** and **Show Me Where To Start** are named planned features: after repository analysis, transparent deterministic security-interest/audit-priority heuristics should highlight high-value inspection targets and explain why. Factors may include asset custody, external entry points and calls, token transfers, privileged functions, oracles, upgradeability, `delegatecall`, accounting/state complexity, caller/callee count and existing findings. The score must never be presented as vulnerability probability, severity or proof of a bug.
+
+### Next active implementation order
+
+1. **Protocol Intelligence Phase 1 — Architecture / ProtocolGraph (COMPLETE):** inventoried existing analysis data, defined the versioned graph schema, relationship reasons, provenance, source locations, validation and cache identity; evaluated graph UI libraries. Persistence and extraction wait for later phases.
+2. **Phase 2 — Repository Mapper (COMPLETE):** bounded roots/files, conservative classifications with reasons, lexical declarations/imports, immutable scan-bound artifacts and read-only API. Manual override model exists; override workflow remains planned.
+3. **Phase 3 — Static Protocol Graph (COMPLETE):** contracts and functions as needed, calls, inheritance, interfaces, libraries, external dependencies and proxy relationships. Consume the finalized Repository Map rather than rediscovering classes.
+4. **Phase 4 — Protocol Map UI (COMPLETE):** graph navigation, zoom/pan, selection, search, classification-based filters and bounded large-graph handling. Compound grouping remains planned.
+5. **Phase 5 — Contract Explorer (COMPLETE):** source-linked contract security drill-down, exact findings and bounded deterministic review cues.
+6. **Phase 6A — Function Explorer backend (COMPLETE):** exact source-linked function operations, calls, state facts, partial-analysis warnings and deterministic review cues.
+7. **Phase 6B — visual Function Explorer (COMPLETE):** render the source-order model with source navigation; do not imply a control-flow graph.
+8. **Phase 7A — deterministic Security View models (COMPLETE):** seven bounded source-backed projections; no new graph truth, UI or risk ranking.
+9. **Phase 7B — interactive Security Views (COMPLETE):** render Money Flow, Permissions, Oracle Flow, External Calls, Upgradeability, Attack Surface and Findings in Protocol Map; show uncertainty and source-backed reasons.
+10. **Phase 8A — explainable audit-priority model (COMPLETE):** versioned source-backed contract/function ordering, factual Project Overview, fixed beginner concept catalog, bounded checklist and read-only API. The score is audit interest, not vulnerability probability.
+11. **Phase 8B — Beginner Mode / Show Me Where To Start UI (COMPLETE):** dedicated Start Here page, factual Project Overview, server-ordered recommendations, fixed concept help, review prompts, transparent factors and canonical Map/Explorer/source navigation. Scores rank manual inspection interest only.
+12. **Phase 9A — Finding Integration Audit and Investigation Path model (COMPLETE):** retain existing exact graph links; add bounded static, source-backed path context and read-only API without lifecycle authority.
+13. **Phase 9B — Visual Investigation / Finding Paths (COMPLETE):** render bounded static paths, exact finding markers, source/provenance, uncertainty, mode-specific detail and canonical navigation without execution authority.
+14. **Phase 10 — Dynamic Impact Lab Overlays (COMPLETE):** Phase 10A deterministic model/API and Phase 10B read-only visual state, trace and Investigation Path comparison implemented.
+
+After the ProtocolGraph foundation is mature, resume deeper Impact Lab interpretation: deterministic asset-flow accounting, attacker-profit and protocol-loss interpretation, scenario execution, evidence/report generation and a polished visual investigation workflow. The intended convergence is **static ProtocolGraph + ContractHunter findings + Impact Lab execution traces + Impact Lab state changes + observed asset flows → visual exploit investigation**. C1 and D1 provide state/trace facts; the read-only visual overlay is implemented. E1 accounting and E2 visual asset flows are implemented; scenario conclusions remain future work.
+
 ## v0.1.9 — completed
 
 Delivered: typed function arguments, actors/caller identity, address reads/assertions, native ETH funding, native balance observations, and stronger structured access-control verification through the networkless worker.
@@ -26,7 +118,7 @@ Milestone 2 implements additive public engine persistence, deterministic compati
 
 Milestone 3 hardening is complete. A copied v0.2.0-shaped database retained historical rows and Foundry identity through the upgrade; failures in any pending migration or final validation roll back the whole startup transaction. Separate fresh Compose volumes started with an empty compiler cache and refused missing-solc jobs as `trusted_compiler_unavailable`. Mocked public workflows, malformed-result and tamper cases, retry workspaces, retention policy, and live worker isolation were checked. Isolated real-worker probes covered safe Foundry and Echidna stateful runs, vulnerable Echidna and Foundry counterexamples, Echidna-origin reproduction and explicit review, deliberate non-reproduction without evidence, and the historical Foundry fuzz path. Final release preparation updates the application version to 0.2.1, pins Next.js 16.3.8, and passes the production audit, isolated Compose startup, and live worker smoke. Publishing and tagging remain manual. Caller/setup expansion, fuzz-property Echidna translation, and broader address semantics remain unsupported.
 
-## v0.2.2 — completed / release-ready (not published)
+## v0.2.2 — completed / released
 
 Milestones 1 and 2 are complete. Verification options and strategy compatibility remain advisory until an explicit plan is reviewed and validated. Target grouping and representative choice aid navigation, not vulnerability ranking or duplicate proof. Explicit reuse creates a fresh planning artifact without inherited validation, execution, evidence, or lifecycle state. Authoritative snapshot-backed planning and reuse cover only `plain-solidity-exact-pragma-v1`; scanner support can be broader than authoritative verification support. Foundry and Hardhat configurations, remappings, library roots, and nonexact pragma layouts remain outside this authoritative profile.
 
@@ -56,11 +148,15 @@ Milestone 2 Part 2B-00B-2 is implemented. Each new structured planning attempt a
 
 Milestone 2 Part 2B-1A is implemented. Two explicit, bodyless POST routes admit reuse of an existing structured attempt or invariant proposal only for the supported authoritative `plain-solidity-exact-pragma-v1` profile. Each request reloads current persisted target and strategy state, resolves the verified raw-byte source closure, recomputes `contracthunter-source-closure-fingerprint-v1`, and requires an exact match with the source artifact's generation-time fingerprint. Scan, resolved commit, trusted compiler, exact verification target, selected strategy, invariant mode/property target, and a persisted validation witness are checked separately. Echidna compatibility runs again against current source. Admission creates a new artifact for the requested hypothesis with immutable reuse origin, source artifact, target, compiler artifact, fingerprint, and timestamp in one transaction; the source artifact remains untouched. Historical null-fingerprint and unsupported-profile artifacts cannot be reused. The new plan requires the existing explicit validation and execution actions; no provider call, execution, evidence, replay, or lifecycle transition occurs. Reuse UI remains for Part 2B-1B. At this milestone, v0.2.2 was still in development and unreleased.
 
-Milestone 2 Part 2B-1B is implemented. Each advisory eligible planning candidate in the verification-target section has its own explicit **Reuse plan** action, including same-hypothesis and exact related-hypothesis candidates. The browser sends a bodyless selector POST to the Part 2B-1A backend, which always performs fresh authoritative admission. A successful response adds a new structured attempt or invariant proposal to the existing planning history and selects it in the existing review component. The UI shows reuse source, strategy, timestamp, authoritative fingerprint status, and pending validation; prior execution and evidence remain associated with their original artifact or hypothesis history. The user must explicitly validate, then separately choose Verify locally, Run with Foundry, or Run with Echidna. A bounded reuse failure refreshes candidates without retry, AI fallback, validation, or execution. Direct generation remains available. No new migration or authoritative profile was added. v0.2.2 is release-ready but not yet published.
+Milestone 2 Part 2B-1B is implemented. Each advisory eligible planning candidate in the verification-target section has its own explicit **Reuse plan** action, including same-hypothesis and exact related-hypothesis candidates. The browser sends a bodyless selector POST to the Part 2B-1A backend, which always performs fresh authoritative admission. A successful response adds a new structured attempt or invariant proposal to the existing planning history and selects it in the existing review component. The UI shows reuse source, strategy, timestamp, authoritative fingerprint status, and pending validation; prior execution and evidence remain associated with their original artifact or hypothesis history. The user must explicitly validate, then separately choose Verify locally, Run with Foundry, or Run with Echidna. A bounded reuse failure refreshes candidates without retry, AI fallback, validation, or execution. Direct generation remains available. No new migration or authoritative profile was added. At this milestone, v0.2.2 was release-ready but not yet published.
 
-## v0.3 — Fork & Impact Engine / Impact Lab (planned)
+## v0.3 — Fork & Impact Engine / Impact Lab (in development; Phase E implemented, not released)
+
+Phase A1 implements a strict exact-block fork configuration, a bounded internal Anvil lifecycle service, a localhost-only read-method proxy for upstream fork state, runtime-owned local endpoint identity checks, disposable Anvil development accounts, baseline/additional snapshot and revert/reset operations, and guarded local-only impersonation. Migration `0009_v0_3_impact_fork_sessions` records bounded audit state without RPC secrets or private keys; stale active rows become failed on service restart. No public Impact API, CLI, PoC execution, state/asset analysis, or GUI is part of A1. The existing networkless verification worker is unchanged.
 
 Impact Lab will sit downstream of static findings, investigations, hypotheses, and the existing explicit verification workflows. An authorised researcher will select a candidate and a deployed target, pin an EVM chain and fork block, reproduce a reviewed PoC against a ContractHunter-controlled **local Anvil fork**, and retain traces, selected state changes, asset flows, impact estimates, and exportable evidence. Ethereum, Arbitrum, Base, Optimism, and Polygon are initial targets where the configured upstream RPC and Anvil support the required fork behavior. The engine remains local-first, open-source-first, and Anvil-first; Tenderly is only a possible later optional integration. No hypothesis automatically starts a fork.
+
+The following Impact Lab scope records the original milestones. Items 1–4 have foundations implemented through D1; items 5–7 are planned **after** the ProtocolGraph foundation and Protocol Map/Contract Explorer track above. They are retained as future work, not the next active implementation steps.
 
 1. **Fork safety and Anvil lifecycle:** bounded chain/RPC reference, deployed address, exact block and finding linkage; local-only Anvil startup/shutdown, identity and health checks, disposable accounts, snapshot/revert/reset, controlled impersonation and time/block operations, and a transaction-blocking upstream RPC boundary.
 2. **Controlled PoC execution:** manually supplied and reviewed Forge PoCs run with fixed bounds against the verified local fork endpoint. Autonomous exploit generation is not a prerequisite.
@@ -81,3 +177,11 @@ Per-stage AI models (including inexpensive Luna triage, a stronger deep-review m
 ## Explicit non-goals
 
 No automatic bounty submission, live exploit deployment, wallet/private-key interaction, or automatic live-chain transactions.
+
+## v0.3 Phase A2 implemented
+
+The fork infrastructure now binds a configured read-only upstream to an exact block hash, validates target deployed bytecode, compares local Anvil code against upstream code, and persists safe reproducibility metadata with explicit recreate checks. The proxy rejects forbidden RPC methods and mixed batches before forwarding. No PoC execution or exploit generation is included. Phase B controlled PoC execution remains gated on real Anvil fork compatibility validation and separate PoC egress isolation; its input should be a verified local session ID only.
+
+## v0.3 Phase A3 implemented
+
+Checksum-verified Anvil 1.7.1 successfully forked from a deterministic local Anvil fixture through the read-only proxy. Exact block hash, target code hash, storage and view reads matched; a harmless fork-only transfer and snapshot/revert left upstream unchanged. The proxy forwarded seven read methods and rejected Anvil's optional `eth_getAccountInfo` request without breaking the fork. The separate probe runtime is a fixed-image Docker container with no IP network attachment and one guarded, per-session Unix socket to its assigned fork. Live probes confirmed assigned-fork reachability and proxy, public, host and cross-session isolation. It runs no PoC. Phase B still needs a trusted product deployment/controller path and a reviewed, bounded local mutation RPC policy for PoC execution; the standard Compose web container cannot create these probe containers today.

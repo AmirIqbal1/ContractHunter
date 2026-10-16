@@ -1,7 +1,8 @@
 FROM debian:bookworm-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251 AS data-initializer
-RUN mkdir -p /data/tool-home \
-  && chown 10001:10001 /data /data/tool-home \
-  && chmod 0755 /data /data/tool-home
+RUN mkdir -p /data/tool-home /run/impact-poc \
+  && chown 10001:10001 /data /data/tool-home /run/impact-poc \
+  && chmod 0755 /data /data/tool-home \
+  && chmod 2770 /run/impact-poc
 USER 10001:10001
 # Compose may pre-create an empty root-owned subpath while creating the worker.
 # rmdir fails closed if that directory contains any existing cache data.
@@ -44,9 +45,11 @@ ARG TARGETARCH
 ADD --checksum=sha256:cf7e688ed0c4c48adffca788b496076e31060b67ac5afe1e43dbb5499c20c88b https://github.com/foundry-rs/foundry/releases/download/v1.7.1/foundry_v1.7.1_linux_amd64.tar.gz /tmp/foundry-amd64.tar.gz
 ADD --checksum=sha256:c8fe8fa09ae3aba2c81b510c6f9da3a9d468029b9580e690b245b3f0aea687ae https://github.com/foundry-rs/foundry/releases/download/v1.7.1/foundry_v1.7.1_linux_arm64.tar.gz /tmp/foundry-arm64.tar.gz
 RUN case "${TARGETARCH}" in amd64) archive=/tmp/foundry-amd64.tar.gz ;; arm64) archive=/tmp/foundry-arm64.tar.gz ;; *) exit 1 ;; esac \
-  && tar -xzf "${archive}" -C /tmp forge \
+  && tar -xzf "${archive}" -C /tmp forge anvil \
   && install -m 0755 /tmp/forge /usr/local/bin/forge \
-  && forge --version
+  && install -m 0755 /tmp/anvil /usr/local/bin/anvil \
+  && forge --version \
+  && anvil --version
 
 FROM nixos/nix:2.24.14@sha256:4411619b45575be9fb47063c0878e2d9ef86988678b23c01bf3dd1b967d753fc AS echidna-compat
 COPY third_party/echidna/upstream-v2.3.3.tar.gz third_party/echidna/contracthunter-compat-v1.patch /build/
@@ -65,6 +68,24 @@ COPY --from=dependencies /app/node_modules ./node_modules
 COPY packages ./packages
 COPY docker/verification-worker.ts ./docker/verification-worker.ts
 RUN /worker/node_modules/.bin/esbuild docker/verification-worker.ts --bundle --platform=node --format=cjs --target=node22 --outfile=/worker/verification-worker.cjs
+FROM node:22-bookworm-slim@sha256:d649c27dae7ba0137b3cef5dd75baa422c08dc3d9e3fc0c23dfb172dc3cc6436 AS impact-poc-worker-build
+WORKDIR /build
+COPY --from=dependencies /app/node_modules ./node_modules
+COPY packages ./packages
+COPY docker/impact-poc-worker.ts ./docker/impact-poc-worker.ts
+RUN /build/node_modules/.bin/esbuild docker/impact-poc-worker.ts --bundle --platform=node --format=cjs --target=node22 --outfile=/build/impact-poc-worker.cjs
+FROM node:22-bookworm-slim@sha256:d649c27dae7ba0137b3cef5dd75baa422c08dc3d9e3fc0c23dfb172dc3cc6436 AS impact-poc-worker-runtime
+ENV NODE_ENV=production
+LABEL org.contracthunter.impact-poc-worker-schema="v1"
+COPY --from=impact-poc-worker-build /build/impact-poc-worker.cjs /worker/impact-poc-worker.cjs
+COPY --from=foundry /usr/local/bin/forge /usr/local/bin/forge
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/* \
+  && groupadd --gid 10001 contracthunter \
+  && useradd --uid 10003 --gid contracthunter --home-dir /home/impact --no-create-home --shell /usr/sbin/nologin contracthunter-impact \
+  && mkdir -p /run/impact-poc /work /home/impact /data/tool-home \
+  && chown 10003:10001 /run/impact-poc /work /home/impact
+USER 10003:10001
+CMD ["node", "/worker/impact-poc-worker.cjs"]
 FROM node:22-bookworm-slim@sha256:d649c27dae7ba0137b3cef5dd75baa422c08dc3d9e3fc0c23dfb172dc3cc6436 AS verification-worker-runtime
 ENV NODE_ENV=production
 COPY --from=verification-worker /worker/verification-worker.cjs /worker/verification-worker.cjs
@@ -103,9 +124,9 @@ ENV SOLC_INSTALL_TIMEOUT_MS=120000
 ENV MAX_SOLC_VERSIONS_PER_SCAN=8
 ENV ALLOW_COMPILER_DOWNLOADS=true
 ENV AI_ENABLED=false
-ENV OPENAI_MODEL=gpt-5.6-luna
-ENV AI_INPUT_COST_PER_MILLION_USD=0.25
-ENV AI_OUTPUT_COST_PER_MILLION_USD=2.00
+ENV OPENAI_MODEL=gpt-6-luna
+ENV AI_INPUT_COST_PER_MILLION_USD=0.10
+ENV AI_OUTPUT_COST_PER_MILLION_USD=0.50
 ENV AI_TIMEOUT_MS=180000
 ENV AI_MAX_SOURCE_BYTES=500000
 ENV AI_MAX_FILES=120
@@ -124,6 +145,7 @@ ENV PATH="/usr/local/bin:/opt/slither/bin:${PATH}"
 COPY docker/solc-select-wrapper.py /usr/local/bin/solc-select
 COPY --from=aderyn /usr/local/bin/aderyn /usr/local/bin/aderyn
 COPY --from=foundry /usr/local/bin/forge /usr/local/bin/forge
+COPY --from=foundry /usr/local/bin/anvil /usr/local/bin/anvil
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates python3 python3-venv && rm -rf /var/lib/apt/lists/* \
   && python3 -m venv /opt/slither \
   && /opt/slither/bin/pip install --no-cache-dir "slither-analyzer==${SLITHER_VERSION}" \

@@ -1,6 +1,6 @@
 # Release history
 
-## v0.2.2 — Smarter Verification (release preparation; not yet published)
+## v0.2.2 — Smarter Verification (released)
 
 Deterministic verification strategy assessment now presents advisory Verification options for structured verification, Foundry fuzz and stateful invariants, and the supported Echidna stateful subset. Explicit strategy-aware generation rechecks current evidence before one planning request. Compatibility does not validate a vulnerability or execute a plan.
 
@@ -8,7 +8,7 @@ Conservative verification-target grouping links exact source targets and selects
 
 New scans store immutable raw-byte source snapshots. ContractHunter records authoritative compilation provenance, exact source-unit membership, scanner/source alignment, snapshot-backed source closures, and generation-time source-closure fingerprints. This authority currently supports only `plain-solidity-exact-pragma-v1` with exact pragmas and no Foundry or Hardhat configuration, remappings, or library roots. Slither and Aderyn may scan broader projects without establishing authoritative verification support. Historical rows receive no fabricated provenance.
 
-Release hardening passed 612 tests across 70 files, transactional v0.2.1 upgrade and fresh-database checks, production dependency audit with zero advisories, isolated Compose startup, and live worker-isolation inspection. Development/build-only advisories remain. Compiler-backed live worker and real plain-profile compiler smokes were unavailable because this environment had no trusted cached solc; none was downloaded. Publication, tag, and GitHub release remain manual.
+Release hardening passed 612 tests across 70 files, transactional v0.2.1 upgrade and fresh-database checks, production dependency audit with zero advisories, isolated Compose startup, and live worker-isolation inspection. Development/build-only advisories remain. Compiler-backed live worker and real plain-profile compiler smokes were unavailable because this environment had no trusted cached solc; none was downloaded. Publication and tagging are manual operations outside Codex.
 
 ## v0.2.1 — Echidna Invariant Engine (released)
 

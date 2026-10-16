@@ -7,6 +7,7 @@ services:
     user: "10001:10001"
     volumes:
       - contracthunter-data:/data
+      - impact-poc-ipc:/run/impact-poc
     read_only: true
     restart: "no"
     cap_drop:
@@ -42,9 +43,9 @@ services:
       ALLOWED_GIT_DEPENDENCY_HOSTS: github.com
       AI_ENABLED: ${AI_ENABLED:-false}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.6-luna}
-      AI_INPUT_COST_PER_MILLION_USD: ${AI_INPUT_COST_PER_MILLION_USD:-0.25}
-      AI_OUTPUT_COST_PER_MILLION_USD: ${AI_OUTPUT_COST_PER_MILLION_USD:-2.00}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-6-luna}
+      AI_INPUT_COST_PER_MILLION_USD: ${AI_INPUT_COST_PER_MILLION_USD:-0.10}
+      AI_OUTPUT_COST_PER_MILLION_USD: ${AI_OUTPUT_COST_PER_MILLION_USD:-0.50}
       AI_TIMEOUT_MS: ${AI_TIMEOUT_MS:-180000}
       AI_MAX_SOURCE_BYTES: ${AI_MAX_SOURCE_BYTES:-500000}
       AI_MAX_FILES: ${AI_MAX_FILES:-120}
@@ -62,8 +63,10 @@ services:
       - contracthunter-data:/data
       - verification-workspaces:/verification
       - verification-ipc:/run/contracthunter-verification
+      - impact-poc-ipc:/run/impact-poc
     depends_on:
       - verification-worker
+      - impact-poc-worker
     init: true
     restart: unless-stopped
     security_opt:
@@ -104,7 +107,42 @@ services:
     security_opt:
       - no-new-privileges:true
 
+  impact-poc-worker:
+    build:
+      context: .
+      target: impact-poc-worker-runtime
+    network_mode: "none"
+    depends_on:
+      contracthunter-data-init:
+        condition: service_completed_successfully
+    user: "10003:10001"
+    environment:
+      NODE_ENV: production
+    volumes:
+      - type: volume
+        source: contracthunter-data
+        target: /data/tool-home
+        read_only: true
+        volume:
+          subpath: tool-home
+      - impact-poc-ipc:/run/impact-poc
+    tmpfs:
+      - /work:size=67108864,mode=0700,uid=10003,gid=10001
+      - /tmp:size=16777216,mode=1770,uid=10003,gid=10001
+      - /home/impact:size=16777216,mode=0700,uid=10003,gid=10001
+    init: true
+    restart: unless-stopped
+    read_only: true
+    pids_limit: 48
+    cpus: 1.0
+    mem_limit: 1073741824
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
 volumes:
   contracthunter-data:
   verification-workspaces:
   verification-ipc:
+  impact-poc-ipc:

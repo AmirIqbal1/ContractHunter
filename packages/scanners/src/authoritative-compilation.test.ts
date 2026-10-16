@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { createDatabase, createScan, finalizeScanCompilation, finalizeScanSourceSnapshot, getFindingCompilationEligibility, getScanCompilation, insertFindings, insertScannerAlignment, listScannerAlignments, closeDatabase } from "@contracthunter/db";
 import type { NewFinding } from "@contracthunter/core";
-import { alignScannerSource, deriveAuthoritativeCompilation } from "./authoritative-compilation";
+import { alignScannerSource, deriveAuthoritativeCompilation, deriveTrustedSolidityAst } from "./authoritative-compilation";
 import { captureScanSourceSnapshot } from "./scan-source-snapshot";
 import type { ProcessRunner } from "./process-runner";
 
@@ -38,6 +38,34 @@ function finding(filePath: string, contract: string): NewFinding {
 }
 
 describe("authoritative compilation and scanner alignment", () => {
+  it("queries only trusted snapshot-bound AST and rejects source or compiler drift", async () => {
+    const f = await fixture({ "src/Vault.sol": "pragma solidity 0.8.24; contract Vault {}" });
+    const snapshot = await captureScanSourceSnapshot(f.checkout);
+    const result = await deriveAuthoritativeCompilation({ scanId: randomUUID(), resolvedCommit: commit,
+      repositoryPath: f.checkout, toolHomeDir: f.toolHomeDir, snapshotFiles: snapshot, processRunner: f.processRunner });
+    expect(result.status).toBe("supported"); if (result.status !== "supported") return;
+    const queried: string[] = [];
+    const processRunner: ProcessRunner = async (request) => {
+      queried.push(request.args.join(" "));
+      if (request.args[0] === "--version") return { exitCode: 0, stdout: "solc, Version: 0.8.24", stderr: "" };
+      expect(request.args).toEqual(["--standard-json"]);
+      const input = JSON.parse(request.stdin!);
+      expect(input.settings.outputSelection).toEqual({ "*": { "": ["ast"] } });
+      expect(input.sources["src/Vault.sol"].content).toBe("pragma solidity 0.8.24; contract Vault {}");
+      return { exitCode: 0, stderr: "", stdout: JSON.stringify({ sources: {
+        "src/Vault.sol": { ast: { nodeType: "SourceUnit", absolutePath: "src/Vault.sol", nodes: [] } },
+      } }) };
+    };
+    expect(await deriveTrustedSolidityAst({ manifest: result.manifest, snapshotFiles: snapshot,
+      toolHomeDir: f.toolHomeDir, processRunner })).toMatchObject({ "src/Vault.sol": { nodeType: "SourceUnit" } });
+    expect(queried).toEqual(["--version", "--standard-json"]);
+    const altered = snapshot.map((file) => ({ ...file, rawBytes: Buffer.from("changed") }));
+    await expect(deriveTrustedSolidityAst({ manifest: result.manifest, snapshotFiles: altered,
+      toolHomeDir: f.toolHomeDir, processRunner })).rejects.toThrow("structural_source_identity_invalid");
+    await expect(deriveTrustedSolidityAst({ manifest: { ...result.manifest,
+      compiler: { ...result.manifest.compiler, artifactSha256: "f".repeat(64) } }, snapshotFiles: snapshot,
+      toolHomeDir: f.toolHomeDir, processRunner })).rejects.toThrow("structural_compiler_identity_invalid");
+  });
   it("compiles a plain exact-pragma snapshot, persists source and compiler provenance, and survives checkout deletion", async () => {
     const f = await fixture({ "src/Token.sol": "pragma solidity 0.8.24; contract Token {}" });
     const snapshot = await captureScanSourceSnapshot(f.checkout);

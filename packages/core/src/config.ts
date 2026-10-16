@@ -1,5 +1,6 @@
 import path from "node:path";
 import { z } from "zod";
+import { DEFAULT_OPENAI_MODEL, GPT6_LUNA_STANDARD_PRICING } from "./ai-cost";
 
 const absolutePath = z.string().min(1).refine(path.isAbsolute, "must be an absolute path");
 
@@ -32,9 +33,9 @@ export const configSchema = z.object({
   }),
   AI_ENABLED: z.enum(["true", "false"]).default("false").transform((value) => value === "true"),
   OPENAI_API_KEY: z.string().max(1000).default(""),
-  OPENAI_MODEL: z.string().trim().max(200).default("gpt-5.6-luna"),
-  AI_INPUT_COST_PER_MILLION_USD: z.coerce.number().finite().min(0).max(10_000).default(0.25),
-  AI_OUTPUT_COST_PER_MILLION_USD: z.coerce.number().finite().min(0).max(10_000).default(2),
+  OPENAI_MODEL: z.string().trim().max(200).default(DEFAULT_OPENAI_MODEL),
+  AI_INPUT_COST_PER_MILLION_USD: z.coerce.number().finite().min(0).max(10_000).default(GPT6_LUNA_STANDARD_PRICING.short.inputCostPerMillionUsd),
+  AI_OUTPUT_COST_PER_MILLION_USD: z.coerce.number().finite().min(0).max(10_000).default(GPT6_LUNA_STANDARD_PRICING.short.outputCostPerMillionUsd),
   AI_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(600_000).default(180_000),
   AI_MAX_SOURCE_BYTES: z.coerce.number().int().min(1_024).max(10_000_000).default(500_000),
   AI_MAX_FILES: z.coerce.number().int().min(1).max(1_000).default(120),

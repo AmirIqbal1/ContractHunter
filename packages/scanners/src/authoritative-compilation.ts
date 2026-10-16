@@ -91,3 +91,41 @@ export function alignScannerSource(manifest: CompilationManifest, checkoutRoot: 
   return { ...base, reportedSourceIdentity: name, status: "aligned", sourceUnitName: unit.sourceUnitName,
     snapshotSourceKey: unit.snapshotSourceKey, targetResolved: !!contract && unit.contractNames.includes(contract) };
 }
+
+/** Optional structural query. It uses only the already approved compiler and snapshot profile. */
+export async function deriveTrustedSolidityAst(input: {
+  manifest: CompilationManifest; snapshotFiles: readonly ScanSourceCaptureFile[]; toolHomeDir: string;
+  processRunner?: ProcessRunner;
+}): Promise<Record<string, unknown>> {
+  const manifest = compilationManifestSchema.parse(input.manifest);
+  const files = new Map(input.snapshotFiles.map((file) => [file.sourceKey, file]));
+  if (files.size !== manifest.sourceUnits.length || files.size !== input.snapshotFiles.length)
+    throw Error("structural_source_membership_invalid");
+  const sources: Record<string, { content: string }> = {};
+  const decoder = new TextDecoder("utf-8", { fatal: true });
+  for (const unit of manifest.sourceUnits) {
+    const file = files.get(unit.snapshotSourceKey);
+    if (!file || unit.sourceUnitName !== unit.snapshotSourceKey || file.byteLength !== unit.byteLength ||
+      file.rawSha256 !== unit.rawSha256 || file.rawBytes.length !== file.byteLength ||
+      createHash("sha256").update(file.rawBytes).digest("hex") !== file.rawSha256)
+      throw Error("structural_source_identity_invalid");
+    sources[unit.sourceUnitName] = { content: decoder.decode(file.rawBytes) };
+  }
+  const executable = (await resolveTrustedVerificationCompiler({ toolHomeDir: input.toolHomeDir,
+    version: manifest.compiler.version, processRunner: input.processRunner })).executablePath;
+  if (await artifactHash(executable) !== manifest.compiler.artifactSha256) throw Error("structural_compiler_identity_invalid");
+  const result = await (input.processRunner ?? runBoundedProcess)({ command: executable, args: ["--standard-json"],
+    stdin: JSON.stringify({ language: "Solidity", sources,
+      settings: { remappings: [], optimizer: { enabled: false }, outputSelection: { "*": { "": ["ast"] } } } }),
+    timeoutMs: 60_000, maxOutputBytes: 33_554_432,
+    env: { NODE_ENV: "production", PATH: "/usr/bin:/bin", HOME: input.toolHomeDir,
+      TMPDIR: "/tmp", LANG: "C.UTF-8", LC_ALL: "C.UTF-8" } });
+  if (result.exitCode !== 0) throw Error("structural_compilation_failed");
+  const output = JSON.parse(result.stdout) as { errors?: Array<{ severity?: string }>;
+    sources?: Record<string, { ast?: unknown }> };
+  const expected = Object.keys(sources).sort();
+  if (output.errors?.some((error) => error.severity === "error") || !output.sources ||
+    JSON.stringify(Object.keys(output.sources).sort()) !== JSON.stringify(expected) ||
+    expected.some((key) => !output.sources?.[key]?.ast)) throw Error("structural_ast_unavailable");
+  return Object.fromEntries(expected.map((key) => [key, output.sources![key].ast]));
+}
