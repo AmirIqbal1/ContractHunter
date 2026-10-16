@@ -159,7 +159,7 @@ ContractHunter generates verification Solidity deterministically from a strict p
 
 ## Current AI
 
-The default is `OPENAI_MODEL=gpt-5.6-luna`. Configuration currently uses one `OPENAI_MODEL`; per-stage model routing is planned but not implemented. Pricing values are configurable estimates, not invoices.
+The optional/manual default is `OPENAI_MODEL=gpt-6-luna` (GPT-6 Luna). Configuration uses one `OPENAI_MODEL`; per-stage routing is not implemented. The versioned Standard rate card covers short and long context, while recorded cost remains an uncached-input estimate because cache-read/write counts are not persisted. Preflight estimates show both context tiers. Other model overrides use configurable fallback rates. Existing records retain their original model and persisted cost metadata; AI remains non-authoritative.
 
 ## Continuation rules
 

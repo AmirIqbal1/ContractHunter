@@ -1,5 +1,5 @@
 import path from "node:path";
-import { AnalysisContextBuilder, estimateProtocolAICost, formatAICost, loadConfig } from "@contracthunter/core";
+import { AnalysisContextBuilder, estimateModelAICost, estimateProtocolAICost, loadConfig } from "@contracthunter/core";
 import { getDatabase, getScan, listInvestigations, listScanScanners } from "@contracthunter/db";
 import { NextResponse } from "next/server";
 import { idSchema } from "@/lib/api";
@@ -11,6 +11,8 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
     const scannerSummary = Object.fromEntries(listScanScanners(database, scan.id).map((scanner) => [scanner.scannerId, scanner.findingCount]));
     const manifest = new AnalysisContextBuilder({ maxSourceBytes: config.AI_MAX_SOURCE_BYTES, maxFiles: config.AI_MAX_FILES, maxFileBytes: config.AI_MAX_FILE_BYTES }).build(path.join(config.REPOSITORY_DIR, scan.id), listInvestigations(database, { scanId: scan.id }), scannerSummary).manifest;
     const estimate = estimateProtocolAICost(manifest.approximateInputBytes, { inputCostPerMillionUsd: config.AI_INPUT_COST_PER_MILLION_USD, outputCostPerMillionUsd: config.AI_OUTPUT_COST_PER_MILLION_USD });
-    return NextResponse.json({ approximateInputBytes: manifest.approximateInputBytes, approximateInputTokens: estimate.inputTokens, expectedOutputTokens: estimate.outputTokens, estimatedCostUsd: estimate.costUsd, estimatedCostDisplay: formatAICost(estimate.costUsd), totalSourceBytes: manifest.totalSourceBytes, fileCount: manifest.files.length, omittedFileCount: manifest.omittedFileCount, truncated: manifest.truncated });
+    const cost = estimateModelAICost(estimate.inputTokens, estimate.outputTokens, config.OPENAI_MODEL,
+      { inputCostPerMillionUsd: config.AI_INPUT_COST_PER_MILLION_USD, outputCostPerMillionUsd: config.AI_OUTPUT_COST_PER_MILLION_USD });
+    return NextResponse.json({ approximateInputBytes: manifest.approximateInputBytes, approximateInputTokens: estimate.inputTokens, expectedOutputTokens: estimate.outputTokens, estimatedCostUsd: cost.costUsd, estimatedCostDisplay: cost.display, totalSourceBytes: manifest.totalSourceBytes, fileCount: manifest.files.length, omittedFileCount: manifest.omittedFileCount, truncated: manifest.truncated });
   } catch { return NextResponse.json({ error: "Analysis context is not available." }, { status: 409 }); }
 }

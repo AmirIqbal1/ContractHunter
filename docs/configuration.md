@@ -14,11 +14,11 @@
 
 `AI_ENABLED`, `OPENAI_API_KEY`, `OPENAI_MODEL`, `AI_TIMEOUT_MS`, `AI_MAX_SOURCE_BYTES`, `AI_MAX_FILES`, and `AI_MAX_FILE_BYTES` control protocol analysis. `AI_REVIEW_MAX_SOURCE_BYTES`, `AI_REVIEW_MAX_FILES`, `AI_MAX_REVIEWERS`, `AI_REVIEW_CONCURRENCY`, `AI_REVIEW_TIMEOUT_MS`, and `AI_REVIEW_MAX_TOTAL_REQUESTS` control specialist review. `AI_VERIFICATION_PLAN_TIMEOUT_MS`, `AI_VERIFICATION_PLAN_MAX_SOURCE_BYTES`, and `AI_VERIFICATION_PLAN_MAX_FILES` control verification-plan generation.
 
-`AI_INPUT_COST_PER_MILLION_USD` and `AI_OUTPUT_COST_PER_MILLION_USD` are manually configurable estimates, not an official invoice. Recheck them when the model changes.
+GPT-6 Luna Standard pricing is catalogued in `packages/core/src/ai-cost.ts`: short-context input/cached input/cache write/output are $0.10/$0.01/$0.125/$0.50 per million text tokens; long-context rates are $0.20/$0.02/$0.25/$0.75. OpenAI applies long-context pricing above 272,000 input tokens for the full request. This pricing snapshot can change upstream. ContractHunter currently persists only total input/output tokens, not cache-read or cache-write counts. Recorded Luna cost is therefore an uncached-input estimate using the observed per-request input count to select the tier; preflight byte estimates show both tier scenarios rather than silently assuming short context. Reasoning tokens already included in reported output tokens are not added again. Other model overrides retain the two configurable fallback rates; historical records keep their original model and persisted cost metadata. These are estimates, not invoices.
 
 Manual AI invariant proposals reuse `OPENAI_MODEL`, `AI_VERIFICATION_PLAN_TIMEOUT_MS`, `AI_VERIFICATION_PLAN_MAX_SOURCE_BYTES`, `AI_VERIFICATION_PLAN_MAX_FILES`, and `AI_MAX_FILE_BYTES`. No stage-specific model routing or automatic retry is added. Invariant execution bounds remain fixed in ContractHunter code and cannot be supplied through configuration or proposal content.
 
-The current default is `OPENAI_MODEL=gpt-5.6-luna`. A single model setting is used today; per-stage model routing is not implemented.
+The current optional/manual default is GPT-6 Luna (`OPENAI_MODEL=gpt-6-luna`). A single model setting is used today; per-stage model routing is not implemented. The OpenAI Responses integration leaves reasoning effort at the model/API default.
 
 The safe example defaults are:
 
@@ -38,8 +38,8 @@ ALLOW_NPM_DEPENDENCIES=true
 ALLOW_GIT_SUBMODULES=true
 ALLOWED_GIT_DEPENDENCY_HOSTS=github.com
 AI_ENABLED=false
-AI_INPUT_COST_PER_MILLION_USD=0.20
-AI_OUTPUT_COST_PER_MILLION_USD=1.20
+AI_INPUT_COST_PER_MILLION_USD=0.10
+AI_OUTPUT_COST_PER_MILLION_USD=0.50
 AI_TIMEOUT_MS=180000
 AI_MAX_SOURCE_BYTES=500000
 AI_MAX_FILES=120

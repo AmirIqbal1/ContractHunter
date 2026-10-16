@@ -126,10 +126,10 @@ docker compose down
 ```dotenv
 AI_ENABLED=true
 OPENAI_API_KEY=
-OPENAI_MODEL=gpt-5.6-luna
+OPENAI_MODEL=gpt-6-luna
 ```
 
-Pricing values are configurable estimates, not an official invoice; recheck them when changing models. See [full configuration](docs/configuration.md).
+GPT-6 Luna is the optional manual AI default. Standard pricing estimates use the model’s short and long context rates; cache usage is not yet persisted, so displayed costs are estimates rather than invoices. See [full configuration](docs/configuration.md).
 
 ## Local development
 

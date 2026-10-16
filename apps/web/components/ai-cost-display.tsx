@@ -2,7 +2,7 @@ import { aggregateRecordedAICost, formatAICost } from "@contracthunter/core";
 
 export function RecordedAICost({ costUsd }: { costUsd: number | null }) {
   if (costUsd === null) return null;
-  return <div className="hint" style={{ marginTop: 10 }}>Estimated API cost from recorded token usage: <strong>{formatAICost(costUsd)}</strong>. Estimate using configured token prices — not an official invoice.</div>;
+  return <div className="hint" style={{ marginTop: 10 }}>Estimated GPT-6 Luna Standard cost from recorded token usage: <strong>{formatAICost(costUsd)}</strong>. Input is treated as uncached; cache-write usage is unavailable. Not an invoice.</div>;
 }
 
 export function AIUsageSummary({ protocolCostUsd, reviewCostUsd }: { protocolCostUsd: number | null; reviewCostUsd: number | null }) {
@@ -12,5 +12,5 @@ export function AIUsageSummary({ protocolCostUsd, reviewCostUsd }: { protocolCos
     {protocolCostUsd !== null && <div className="detail"><dt>Protocol analysis</dt><dd>{formatAICost(protocolCostUsd)}</dd></div>}
     {reviewCostUsd !== null && <div className="detail"><dt>Security review</dt><dd>{formatAICost(reviewCostUsd)}</dd></div>}
     <div className="detail"><dt>Recorded AI cost</dt><dd><strong>{formatAICost(total)}</strong></dd></div>
-  </dl><div className="hint" style={{ marginTop: 12 }}>Estimated from recorded token usage and configured prices; not an official invoice.</div></div></section>;
+  </dl><div className="hint" style={{ marginTop: 12 }}>GPT-6 Luna Standard estimate from recorded input/output tokens, treating input as uncached. Historical/other-model costs without matching pricing are unavailable. Not an invoice.</div></div></section>;
 }

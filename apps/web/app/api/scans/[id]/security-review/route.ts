@@ -1,4 +1,4 @@
-import { estimateSecurityReviewAICost, formatAICost, loadConfig } from "@contracthunter/core";
+import { estimateModelAICost, estimateSecurityReviewAICost, loadConfig } from "@contracthunter/core";
 import { getCurrentProtocolAnalysis, getCurrentSecurityReviewPlan, getDatabase, getScan, updateSecurityReviewState } from "@contracthunter/db";
 import { NextResponse } from "next/server";
 import { idSchema } from "@/lib/api";
@@ -8,7 +8,7 @@ import { aiConflictResponse, securityReviewConflict, securityReviewPrerequisite 
 
 export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
   const id = idSchema.safeParse((await context.params).id); if (!id.success) return NextResponse.json({ error: "Invalid scan identifier." }, { status: 400 });
-  try { const config = loadConfig(); const preview = previewSecurityReview({ scanId: id.data }); const estimate = estimateSecurityReviewAICost(preview.approximateSourceBytes, preview.plan.selected.length, { inputCostPerMillionUsd: config.AI_INPUT_COST_PER_MILLION_USD, outputCostPerMillionUsd: config.AI_OUTPUT_COST_PER_MILLION_USD }); return NextResponse.json({ selectedReviewers: preview.plan.selected, skippedReviewers: preview.plan.skipped, approximateSourceBytes: preview.approximateSourceBytes, approximateRequestCount: preview.approximateRequestCount, approximateInputTokens: estimate.inputTokens, expectedOutputTokens: estimate.outputTokens, estimatedCostUsd: estimate.costUsd, estimatedCostDisplay: formatAICost(estimate.costUsd) }); }
+  try { const config = loadConfig(); const preview = previewSecurityReview({ scanId: id.data }); const estimate = estimateSecurityReviewAICost(preview.approximateSourceBytes, preview.plan.selected.length, { inputCostPerMillionUsd: config.AI_INPUT_COST_PER_MILLION_USD, outputCostPerMillionUsd: config.AI_OUTPUT_COST_PER_MILLION_USD }); const cost = estimateModelAICost(estimate.inputTokens, estimate.outputTokens, config.OPENAI_MODEL, { inputCostPerMillionUsd: config.AI_INPUT_COST_PER_MILLION_USD, outputCostPerMillionUsd: config.AI_OUTPUT_COST_PER_MILLION_USD }); return NextResponse.json({ selectedReviewers: preview.plan.selected, skippedReviewers: preview.plan.skipped, approximateSourceBytes: preview.approximateSourceBytes, approximateRequestCount: preview.approximateRequestCount, approximateInputTokens: estimate.inputTokens, expectedOutputTokens: estimate.outputTokens, estimatedCostUsd: cost.costUsd, estimatedCostDisplay: cost.display }); }
   catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to preview security review." }, { status: 409 }); }
 }
 export async function POST(_request: Request, context: { params: Promise<{ id: string }> }) {
